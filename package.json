@@ -1,22 +1,37 @@
 {
   "name": "xblocker",
   "version": "1.0.0",
+  "private": true,
   "description": "Advanced X.com content filtering and user management extension",
-  "main": "content.js",
-  "repository": "https://github.com/daymade/Twitter-Block-Porn",
-  "author": "daymade <daymadev89@gmail.com>",
   "license": "MIT",
-  "private": "true",
+  "author": "daymade <daymadev89@gmail.com>",
+  "repository": "https://github.com/daymade/Twitter-Block-Porn",
+  "type": "module",
   "scripts": {
+    "dev": "wxt --port 5555",
+    "build": "wxt build",
+    "zip": "wxt zip",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
-    "lint": "eslint *.js",
-    "lint:fix": "eslint *.js --fix"
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint --type-aware --deny-warnings .",
+    "lint:fix": "oxlint --type-aware --fix .",
+    "format": "oxfmt --write package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.js\"",
+    "format:check": "oxfmt --check package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.js\"",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun test && bun run build",
+    "postinstall": "wxt prepare"
   },
   "devDependencies": {
-    "eslint": "^8.11.0",
+    "@types/chrome": "^0.1.43",
+    "@typescript/native-preview": "^7.0.0-dev.20260611.2",
     "bun-types": "latest",
-    "happy-dom": "^12.10.3"
-  }
+    "happy-dom": "^20.10.2",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
+    "oxlint-tsgolint": "^0.23.0",
+    "typescript": "^6.0.3",
+    "wxt": "^0.20.26"
+  },
+  "packageManager": "bun@1.4.0"
 }

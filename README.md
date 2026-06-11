@@ -5,9 +5,10 @@ A modern Chrome extension for efficiently managing content on X.com (formerly Tw
 ## Features
 
 - 🚫 **Smart Blocking**: Block multiple comment users with one click
-- 🔇 **Intelligent Muting**: Mute unwanted comments efficiently  
+- 🔇 **Intelligent Muting**: Mute unwanted comments efficiently
 - ✅ **Whitelist Management**: Protect trusted users from being blocked/muted
-- 🎨 **Modern UI**: Beautiful glassmorphism design with smooth animations
+- 🎛️ **Reply Action Bar**: Clear in-page actions without burying core controls in a menu
+- ⚙️ **Popup Settings**: Manage whitelist and behavior preferences from the Chrome popup
 - 📊 **Progress Tracking**: Real-time progress bars during operations
 - 🔔 **Toast Notifications**: Elegant feedback system
 - ⚡ **Fast Performance**: Optimized for large comment threads
@@ -16,18 +17,21 @@ A modern Chrome extension for efficiently managing content on X.com (formerly Tw
 
 1. Clone this repository
 2. Install dependencies: `bun install`
-3. Load the extension in Chrome:
+3. Build the extension: `bun run build`
+4. Load the extension in Chrome:
    - Open `chrome://extensions/`
    - Enable "Developer mode"
-   - Click "Load unpacked" and select the project folder
+   - Click "Load unpacked" and select `.output/chrome-mv3`
 
 ## Development
 
 ### Prerequisites
-- [Bun](https://bun.sh) (recommended) or Node.js
+
+- [Bun](https://bun.sh)
 - Chrome/Chromium browser
 
 ### Setup
+
 ```bash
 # Install dependencies
 bun install
@@ -41,11 +45,23 @@ bun test --watch
 # Run tests with coverage
 bun test --coverage
 
+# Type-check with TypeScript native preview / tsgo
+bun run typecheck
+
 # Lint code
 bun run lint
 
 # Auto-fix linting issues
 bun run lint:fix
+
+# Format code
+bun run format
+
+# Build the Chrome MV3 extension
+bun run build
+
+# Run every project gate
+bun run check
 ```
 
 ### Testing
@@ -69,14 +85,17 @@ bun test --coverage
 #### Test Structure
 
 - `test/setup.js` - Test environment configuration and mocks
+- `test/reply-action-bar.test.js` - In-page Reply Action Bar behavior tests
+- `test/popup.test.js` - Extension popup behavior tests
 - `test/whitelist.test.js` - Whitelist functionality tests
-- `test/ui.test.js` - UI components and interactions tests  
+- `test/ui.test.js` - UI components and interactions tests
 - `test/blocking.test.js` - Blocking and muting logic tests
 - `test/integration.test.js` - End-to-end workflow tests
 
 #### Mocking
 
 The test environment includes mocks for:
+
 - Chrome Extension APIs (`chrome.storage.local`)
 - DOM environment (Happy DOM)
 - Console methods (to reduce test noise)
@@ -85,16 +104,17 @@ The test environment includes mocks for:
 ## Usage
 
 1. Navigate to any X.com tweet page
-2. The floating control panel appears in the bottom-right corner
-3. Use the buttons to:
-   - **Block Comments**: Block the first 20-50 comment authors
-   - **Mute Comments**: Mute the first 50 comment authors  
-   - **Whitelist User**: Add users to protection list
+2. The Reply Action Bar appears in the bottom-right corner
+3. Use the visible actions directly:
+   - **Block replies**: Block reply authors directly through X's session-authenticated API
+   - **Mute replies**: Mute reply authors through X's menu flow
+   - **Whitelist**: Add trusted users to the protection list
+4. Open the Chrome extension popup to manage whitelist entries and behavior settings
 
 ### Whitelist Management
 
-- Click "Whitelist User" to open the modal
-- Enter username (without @) 
+- Use the extension popup to add or remove usernames
+- Use the in-page "Whitelist" action for quick additions while browsing
 - Users on whitelist are protected from blocking/muting
 - Whitelist data persists across browser sessions
 
@@ -102,15 +122,18 @@ The test environment includes mocks for:
 
 ### Core Components
 
-- `content.js` - Main content script with all functionality
-- `manifest.json` - Extension configuration
+- `entrypoints/content.ts` - WXT TypeScript content script with all extension behavior
+- `entrypoints/popup/` - Chrome extension popup for settings and whitelist management
+- `wxt.config.ts` - Manifest V3 metadata, permissions, and host permissions
+- `bts.jsonc` - Better-T-Stack stack record for the WXT vanilla TypeScript addon
+- `.oxlintrc.json` / `.oxfmtrc.json` - OXC lint and format configuration
 - `test/` - Comprehensive test suite
 
 ### Key Functions
 
-- `addButtons()` - Creates and styles the UI interface
+- `addButtons()` - Creates the in-page Reply Action Bar
 - `blockFirst20CommentTweets()` - Handles comment blocking workflow
-- `muteFirst50CommentTweets()` - Handles comment muting workflow  
+- `muteFirst50CommentTweets()` - Handles comment muting workflow
 - `addToWhitelist()` - Manages whitelist operations
 - `showToast()` - Displays user notifications
 - `showWhitelistModal()` - Handles whitelist input modal
@@ -118,6 +141,7 @@ The test environment includes mocks for:
 ### Storage
 
 Uses Chrome's `chrome.storage.local` API to persist:
+
 - User whitelist data
 - Extension preferences
 
@@ -137,9 +161,10 @@ Uses Chrome's `chrome.storage.local` API to persist:
 
 ### Code Style
 
-- Use modern JavaScript (ES2020+)
+- Use modern TypeScript with strict `tsgo --noEmit` checks
+- Use Bun for package management and script execution
+- Use OXC tooling: `oxlint` for linting and `oxfmt` for formatting
 - Follow existing naming conventions
-- Add JSDoc comments for functions
 - Maintain test coverage above 80%
 
 ## Performance
@@ -152,8 +177,7 @@ Uses Chrome's `chrome.storage.local` API to persist:
 
 ## Security
 
-- No external API calls
-- Minimal permissions required
+- Minimal permissions required for the X.com content script and direct X block API request
 - Local data storage only
 - Content script isolation
 - No sensitive data collection
@@ -167,4 +191,3 @@ MIT License - see LICENSE file for details
 - Report issues on GitHub
 - Check existing issues before creating new ones
 - Include browser version and extension version in bug reports
-

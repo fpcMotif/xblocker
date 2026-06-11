@@ -1,3 +1,18 @@
+- [ ] Reply Action Bar keyboard mode.
+  Use `j` / `k` to move the focused reply candidate, then `b` / `m` / `w` for block,
+  mute, or whitelist. This should respect input fields, textareas, contenteditable
+  areas, and X.com shortcuts so it never hijacks normal typing.
+
+- [ ] Advanced extension settings.
+  Move deeper customization out of the in-page surface: confirmation defaults,
+  keyboard mode defaults, whitelist import/export, action limits, and per-page
+  enablement rules.
+
+- [ ] Replace brittle X menu workflows where practical.
+  Direct block already avoids the X "More" menu. Mute, not-interested, hide, and
+  future algorithm-training actions still need guarded X menu automation or a
+  stable API path if one is available.
+
 - [ ] may you plz update a new action, when you filnd some need to filterout, you
 click （there is not api, you shooud simualte as a humand） to click not interested
 in this post and then hide（it will tell twitter algothm taht i don't interet it, so it

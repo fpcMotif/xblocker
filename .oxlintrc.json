@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "promise"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn"
+  },
+  "rules": {
+    "no-async-promise-executor": "error",
+    "no-await-in-loop": "off",
+    "no-console": "off",
+    "no-empty": "error",
+    "no-fallthrough": "error",
+    "no-underscore-dangle": "off",
+    "no-prototype-builtins": "error",
+    "no-self-assign": "error",
+    "no-unused-vars": "error",
+    "prefer-const": "error",
+    "unicorn/consistent-function-scoping": "off",
+    "use-isnan": "error"
+  },
+  "env": {
+    "browser": true,
+    "builtin": true,
+    "es2024": true,
+    "webextensions": true
+  },
+  "ignorePatterns": [".output/**", ".wxt/**", "coverage/**", "node_modules/**"]
+}

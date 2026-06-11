@@ -1,1 +1,5 @@
 scratchpad.txt
+.wxt/
+.output/
+coverage/
+node_modules/
