@@ -1,8 +1,107 @@
-// Function to block the first 20 comment tweets on a tweet page
+const X_AUTH_BEARER_TOKEN = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
+const DIRECT_BLOCK_DELAY_MS = 250;
+const RESERVED_X_PATHS = new Set([
+	'home',
+	'i',
+	'intent',
+	'messages',
+	'notifications',
+	'search',
+	'settings',
+	'share',
+]);
+
+function waitFor(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getCookieValue(name) {
+	return document.cookie
+		.split(';')
+		.map((cookie) => cookie.trim())
+		.find((cookie) => cookie.startsWith(`${name}=`))
+		?.slice(name.length + 1) || '';
+}
+
+function isTweetPageUrl(url) {
+	const tweetPagePattern = /https?:\/\/(www\.)?x\.com\/[^\/]+\/status\/\d+/;
+	const isLocalTestPage = typeof globalThis !== 'undefined' &&
+		globalThis.__XB_TEST__ &&
+		/^https?:\/\/(localhost|127\.0\.0\.1)/.test(url);
+
+	return tweetPagePattern.test(url) || isLocalTestPage;
+}
+
+function normalizeUsername(value) {
+	const username = value?.replace(/^@/, '').trim();
+	if (!username || RESERVED_X_PATHS.has(username.toLowerCase())) {
+		return null;
+	}
+
+	return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
+}
+
+function extractUsernameFromTweet(tweetArticle) {
+	const links = tweetArticle.querySelectorAll('a[href^="/"][role="link"]');
+	for (const link of links) {
+		const href = link.getAttribute('href') || '';
+		const firstPathPart = href.split('?')[0].split('/').filter(Boolean)[0];
+		const username = normalizeUsername(firstPathPart);
+		if (username) {
+			return username;
+		}
+	}
+
+	return null;
+}
+
+function getXApiBaseUrl() {
+	return window.location.hostname === 'twitter.com'
+		? 'https://api.twitter.com'
+		: 'https://api.x.com';
+}
+
+function createDirectBlockRequest(username) {
+	const normalizedUsername = normalizeUsername(username);
+	if (!normalizedUsername) {
+		throw new Error('Missing valid username for direct block.');
+	}
+
+	const csrfToken = getCookieValue('ct0');
+	if (!csrfToken) {
+		throw new Error('Missing X CSRF token; open x.com while signed in and try again.');
+	}
+
+	return {
+		url: `${getXApiBaseUrl()}/1.1/blocks/create.json`,
+		options: {
+			method: 'POST',
+			credentials: 'include',
+			headers: {
+				Authorization: `Bearer ${X_AUTH_BEARER_TOKEN}`,
+				'Content-Type': 'application/x-www-form-urlencoded',
+				'X-Csrf-Token': csrfToken,
+				'X-Twitter-Active-User': 'yes',
+				'X-Twitter-Auth-Type': 'OAuth2Session',
+			},
+			body: new URLSearchParams({ screen_name: normalizedUsername }).toString(),
+		},
+	};
+}
+
+async function blockUserDirectly(username) {
+	const request = createDirectBlockRequest(username);
+	const response = await fetch(request.url, request.options);
+	if (!response.ok) {
+		throw new Error(`Direct block failed with HTTP ${response.status}.`);
+	}
+	return response;
+}
+
+// Function to block the first 50 comment tweets on a tweet page
 async function blockFirst20CommentTweets() {
 	// Check if we're on a tweet page
-	const urlPattern = /https?:\/\/(www\.)?x\.com\/[^\/]+\/status\/\d+/;
-	if (!urlPattern.test(window.location.href)) {
+	if (!isTweetPageUrl(window.location.href)) {
 		console.log("Not on a tweet page. Exiting.");
 		return;
 	}
@@ -20,21 +119,37 @@ async function blockFirst20CommentTweets() {
 
 	const progressBar = document.querySelector('.xb-progress-bar');
 	const total = first20Comments.length;
+	let blockedCount = 0;
+	let skippedCount = 0;
+	let failedCount = 0;
 
 	for (let i = 0; i < first20Comments.length; i++) {
-		await blockTweet(first20Comments[i]);
+		const result = await blockTweet(first20Comments[i]);
+		if (result?.status === 'blocked') {
+			blockedCount++;
+		} else if (result?.status === 'skipped') {
+			skippedCount++;
+		} else if (result?.status === 'failed') {
+			failedCount++;
+		}
 		if (progressBar) {
 			progressBar.style.width = `${((i + 1) / total) * 100}%`;
 		}
+		await waitFor(DIRECT_BLOCK_DELAY_MS);
 	}
 
-	console.log("Finished blocking the first 50 comment tweets.");
+	if (blockedCount > 0) {
+		showToast(`Blocked ${blockedCount} replies directly${skippedCount ? `, skipped ${skippedCount}` : ''}`, 'success');
+	} else if (failedCount > 0) {
+		showToast('Direct block failed. Please stay signed in to X and retry.', 'warning');
+	}
+	console.log(`Finished direct blocking. blocked=${blockedCount}, skipped=${skippedCount}, failed=${failedCount}`);
 }
 
 // Function to get the whitelist from chrome.storage.local
 function getWhitelist(callback) {
 	chrome.storage.local.get('whitelist', (result) => {
-		const whitelist = result.whitelist || [];
+		const whitelist = result?.whitelist || [];
 		callback(whitelist);
 	});
 }
@@ -172,84 +287,29 @@ function addButtons() {
 
 // Modify the blockTweet function to skip whitelisted users
 async function blockTweet(tweetArticle) {
-	// Get the tweet author's username
-	const userLink = tweetArticle.querySelector('a[href^="/"][role="link"]');
-	let username = null;
-	if (userLink) {
-		const urlParts = userLink.getAttribute('href').split('/');
-		username = urlParts[1];
-	}
+	const username = extractUsernameFromTweet(tweetArticle);
 
 	return new Promise((resolve) => {
 		getWhitelist(async (whitelist) => {
 			if (username && whitelist.includes(username)) {
 				console.log(`Skipping @${username}, as they are in the whitelist.`);
-				resolve();
+				resolve({ status: 'skipped', username });
 				return;
 			}
 
-			// Find the three dots button
-			const moreButton = tweetArticle.querySelector('[aria-label="More"]');
-
-			if (moreButton) {
-				// Simulate click on the three dots menu
-				moreButton.click();
-
-				// Wait for the menu to appear
-				await new Promise((r) => setTimeout(r, 500));
-
-				// Find the "Block @username" menu item
-				const menuItems = document.querySelectorAll('[role="menuitem"]');
-				let blockItem = null;
-				let hideItem = null;
-				menuItems.forEach((item) => {
-					const itemText = item.innerText.trim();
-					if (itemText.startsWith("Block @")) {
-						blockItem = item;
-					} else if (itemText.startsWith("Hide")) {
-						hideItem = item;
-					}
-				});
-
-				if (blockItem) {
-					// Simulate click on "Block @username"
-					blockItem.click();
-
-					// Wait for the confirmation modal to appear
-					await new Promise((r) => setTimeout(r, 500));
-
-					// Find and click the "Block" button in the modal
-					const confirmButton = document.querySelector(
-						'[data-testid="confirmationSheetConfirm"]',
-					);
-					if (confirmButton) {
-						confirmButton.click();
-					}
-				} else if (hideItem) {
-					console.log("Block option not found, attempting to hide the tweet.");
-					// Simulate click on "Hide"
-					hideItem.click();
-
-					// Wait for the confirmation modal to appear
-					await new Promise((r) => setTimeout(r, 500));
-
-					// Find and click the "Hide" button in the modal
-					const confirmButton = document.querySelector(
-						'[data-testid="confirmationSheetConfirm"]',
-					);
-					if (confirmButton) {
-						confirmButton.click();
-					}
-				} else {
-					console.log("Neither Block nor Hide option found.");
-				}
-
-				// Wait a bit before proceeding to the next tweet
-				await new Promise((r) => setTimeout(r, 500));
-			} else {
-				console.log("More button not found for a comment tweet.");
+			if (!username) {
+				console.log("Username not found for a comment tweet.");
+				resolve({ status: 'failed', reason: 'missing-username' });
+				return;
 			}
-			resolve();
+
+			try {
+				await blockUserDirectly(username);
+				resolve({ status: 'blocked', username });
+			} catch (error) {
+				console.warn(`Direct block failed for @${username}:`, error);
+				resolve({ status: 'failed', username, error });
+			}
 		});
 	});
 }
@@ -257,8 +317,7 @@ async function blockTweet(tweetArticle) {
 // Function to mute the first 50 comment tweets on a tweet page
 async function muteFirst50CommentTweets() {
 	// Check if we're on a tweet page
-	const urlPattern = /https?:\/\/(www\.)?x\.com\/[^\/]+\/status\/\d+/;
-	if (!urlPattern.test(window.location.href)) {
+	if (!isTweetPageUrl(window.location.href)) {
 		console.log("Not on a tweet page. Exiting.");
 		return;
 	}
@@ -715,17 +774,10 @@ function toggleDashboard() {
 // Auto-collapse timer management
 function startAutoCollapseTimer() {
 	clearAutoCollapseTimer();
-	dashboardState.autoCollapseTimer = setTimeout(() => {
-		if (dashboardState.isExpanded) {
-			toggleDashboard();
-		}
-	}, 8000); // 8 seconds of inactivity
 }
 
 function resetAutoCollapseTimer() {
-	if (dashboardState.isExpanded) {
-		startAutoCollapseTimer();
-	}
+	startAutoCollapseTimer();
 }
 
 function clearAutoCollapseTimer() {
@@ -744,6 +796,8 @@ function addButtons() {
 	}
 
 	const theme = detectTheme();
+	dashboardState.isExpanded = true;
+	clearAutoCollapseTimer();
 	
 	// Create main dashboard container
 	const dashboard = document.createElement("div");
@@ -834,10 +888,10 @@ function addButtons() {
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
-		opacity: 0;
-		transform: translateY(20px) scale(0.8);
+		opacity: 1;
+		transform: translateY(0) scale(1);
 		transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-		pointer-events: none;
+		pointer-events: auto;
 	`;
 
 	dashboard.appendChild(expandedContainer);
@@ -845,15 +899,21 @@ function addButtons() {
 
 	// Create action buttons
 	const buttonConfigs = [
-		{ type: 'block', color: 'danger', text: 'Block', action: blockFirst20CommentTweets },
-		{ type: 'mute', color: 'warning', text: 'Mute', action: muteFirst50CommentTweets },
+		{ type: 'block', color: 'danger', text: 'Block replies', action: blockFirst20CommentTweets },
+		{ type: 'mute', color: 'warning', text: 'Mute replies', action: muteFirst50CommentTweets },
 		{ type: 'whitelist', color: 'success', text: 'Whitelist', action: () => showWhitelistModal() }
 	];
 
 	buttonConfigs.forEach((config, index) => {
 		const actionButton = createExpandedButton(config, theme, index);
+		actionButton.style.opacity = '1';
+		actionButton.style.transform = 'translateX(0) scale(1)';
 		expandedContainer.appendChild(actionButton);
 	});
+
+	mainFAB.style.transform = 'scale(0.9) rotate(45deg)';
+	mainFAB.style.background = `linear-gradient(135deg, ${theme.colors.success}, ${theme.colors.success}dd)`;
+	mainIcon.style.transform = 'rotate(-45deg)';
 
 	// Main FAB click handler
 	mainFAB.addEventListener('click', () => {
@@ -1143,7 +1203,7 @@ function showWhitelistModal() {
 function observeThemeChanges() {
 	const observer = new MutationObserver(() => {
 		// Check if theme has changed and update buttons accordingly
-		const existingContainer = document.getElementById('xblocker-buttons');
+		const existingContainer = document.getElementById('xblocker-dashboard');
 		if (existingContainer) {
 			// Refresh buttons with new theme
 			setTimeout(() => {
@@ -1189,15 +1249,30 @@ function checkPageAndAddButton() {
 	}
 }
 
-// Run the main functions
-checkPageAndAddButton();
+const isXBlockerTestMode = typeof globalThis !== 'undefined' && globalThis.__XB_TEST__;
 
-// Listen for URL changes (for single-page applications)
-let lastUrl = location.href;
-new MutationObserver(() => {
-	const url = location.href;
-	if (url !== lastUrl) {
-		lastUrl = url;
-		checkPageAndAddButton();
-	}
-}).observe(document, { subtree: true, childList: true });
+if (isXBlockerTestMode) {
+	globalThis.__xblockerTestHooks = {
+		addButtons,
+		blockTweet,
+		blockUserDirectly,
+		createDirectBlockRequest,
+		extractUsernameFromTweet,
+		getCookieValue,
+		isTweetPageUrl,
+		normalizeUsername,
+	};
+} else {
+	// Run the main functions
+	checkPageAndAddButton();
+
+	// Listen for URL changes (for single-page applications)
+	let lastUrl = location.href;
+	new MutationObserver(() => {
+		const url = location.href;
+		if (url !== lastUrl) {
+			lastUrl = url;
+			checkPageAndAddButton();
+		}
+	}).observe(document, { subtree: true, childList: true });
+}
