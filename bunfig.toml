@@ -1,0 +1,8 @@
+[test]
+# Use happy-dom for fast DOM testing
+preload = ["./test/setup.js"]
+
+[install]
+# Configure package manager settings
+cache = false
+registry = "https://registry.npmjs.org"

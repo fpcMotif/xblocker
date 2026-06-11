@@ -1,0 +1,22 @@
+{
+  "name": "xblocker",
+  "version": "1.0.0",
+  "description": "Advanced X.com content filtering and user management extension",
+  "main": "content.js",
+  "repository": "https://github.com/daymade/Twitter-Block-Porn",
+  "author": "daymade <daymadev89@gmail.com>",
+  "license": "MIT",
+  "private": "true",
+  "scripts": {
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "lint": "eslint *.js",
+    "lint:fix": "eslint *.js --fix"
+  },
+  "devDependencies": {
+    "eslint": "^8.11.0",
+    "bun-types": "latest",
+    "happy-dom": "^12.10.3"
+  }
+}
