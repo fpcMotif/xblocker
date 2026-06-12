@@ -1,7 +1,12 @@
 [test]
 # Use happy-dom for fast DOM testing
-preload = ["./test/setup.js"]
-
+preload = ["./test/setup.ts"]
+# Goal: 100% coverage of the extension's own source. Reported via `bun test --coverage`.
+coverage = true
+coverageReporter = ["text", "lcov"]
+coverageThreshold = 1.0
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["test/**", ".wxt/**"]
 [install]
 # Configure package manager settings
 cache = false
