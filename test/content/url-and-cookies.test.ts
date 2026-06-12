@@ -6,7 +6,7 @@ import { resetTestEnvironment, setDocumentCookie } from "../setup.ts";
 
 describe("isTweetPageUrl", () => {
   afterEach(() => {
-    delete globalThis.__XB_TEST__;
+    globalThis.__XB_TEST__ = undefined;
   });
 
   test("URL-01 accepts canonical tweet URLs", () => {

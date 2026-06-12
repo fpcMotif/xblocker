@@ -6,8 +6,7 @@ coverage = true
 coverageReporter = ["text", "lcov"]
 coverageThreshold = 1.0
 coverageSkipTestFiles = true
-coveragePathIgnorePatterns = ["test/", ".wxt/"]
-
+coveragePathIgnorePatterns = ["test/**", ".wxt/**"]
 [install]
 # Configure package manager settings
 cache = false

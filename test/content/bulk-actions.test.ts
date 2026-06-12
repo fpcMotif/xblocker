@@ -7,8 +7,25 @@ import {
   installFetchStub,
   populateTweetPage,
 } from "../helpers/content-hooks.ts";
-import { installImmediateTimers } from "../helpers/timers.ts";
-import { resetTestEnvironment, setDocumentCookie, setWindowLocation, storageFake } from "../setup.ts";
+import {
+  installImmediateTimers,
+  installManualTimers,
+  settleMicrotasks,
+} from "../helpers/timers.ts";
+import {
+  resetTestEnvironment,
+  setDocumentCookie,
+  setWindowLocation,
+  storageFake,
+} from "../setup.ts";
+
+function requestBodyText(call: { init: RequestInit | undefined }): string {
+  const body = call.init?.body;
+  if (typeof body !== "string") {
+    throw new Error("Expected request body to be a string");
+  }
+  return body;
+}
 
 describe("blockFirst20CommentTweets", () => {
   let fetchStub: ReturnType<typeof installFetchStub> | null = null;
@@ -45,7 +62,7 @@ describe("blockFirst20CommentTweets", () => {
     await hooks.blockFirst20CommentTweets();
 
     expect(fetchStub.calls).toHaveLength(3);
-    const screenNames = fetchStub.calls.map((call) => String(call.init?.body));
+    const screenNames = fetchStub.calls.map(requestBodyText);
     expect(screenNames).toEqual([
       "screen_name=reply_one",
       "screen_name=reply_two",
@@ -67,7 +84,9 @@ describe("blockFirst20CommentTweets", () => {
 
   test("BULK-04 continues past per-reply failures and blocks the rest", async () => {
     fetchStub = installFetchStub((_, init) =>
-      String(init?.body).includes("bad_user") ? { ok: false, status: 500 } : { ok: true, status: 200 },
+      typeof init?.body === "string" && init.body.includes("bad_user")
+        ? { ok: false, status: 500 }
+        : { ok: true, status: 200 },
     );
     populateTweetPage(["good_one", "bad_user", "good_two"]);
 
@@ -105,8 +124,28 @@ describe("blockFirst20CommentTweets", () => {
 
     await hooks.blockFirst20CommentTweets();
 
-    const screenNames = fetchStub.calls.map((call) => String(call.init?.body));
+    const screenNames = fetchStub.calls.map(requestBodyText);
     expect(screenNames).toEqual(["screen_name=reply_one", "screen_name=reply_three"]);
+  });
+
+  test("BULK-08 shows a warning toast when every direct block fails", async () => {
+    timers?.uninstall();
+    timers = null;
+    const manual = installManualTimers();
+    fetchStub = installFetchStub(() => ({ ok: false, status: 403 }));
+    populateTweetPage(["fail_one"]);
+
+    try {
+      const run = hooks.blockFirst20CommentTweets();
+      await settleMicrotasks();
+      manual.flushUpTo(250);
+      await run;
+
+      expect(document.body.textContent).toContain("Direct block failed");
+      expect(manual.pendingDelays()).toContain(3000);
+    } finally {
+      manual.uninstall();
+    }
   });
 });
 
@@ -183,7 +222,7 @@ describe("muteTweet / muteFirst50CommentTweets", () => {
     link.setAttribute("role", "link");
     tweetArticle.appendChild(link);
 
-    await expect(hooks.muteTweet(tweetArticle)).resolves.toBeUndefined();
+    await hooks.muteTweet(tweetArticle);
   });
 
   test("BULK-11 resolves quietly when the Mute menu item is absent", async () => {
@@ -191,7 +230,7 @@ describe("muteTweet / muteFirst50CommentTweets", () => {
     // moreButton.click does nothing, so no menuitem ever appears.
     document.body.appendChild(tweetArticle);
 
-    await expect(hooks.muteTweet(tweetArticle)).resolves.toBeUndefined();
+    await hooks.muteTweet(tweetArticle);
     expect(moreButton.clicks).toBe(1);
   });
 

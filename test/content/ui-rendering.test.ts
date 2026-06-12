@@ -3,8 +3,23 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { hooks } from "../helpers/content-hooks.ts";
-import { installImmediateTimers, installManualTimers, settleMicrotasks } from "../helpers/timers.ts";
+import {
+  installImmediateTimers,
+  installManualTimers,
+  settleMicrotasks,
+} from "../helpers/timers.ts";
 import { resetTestEnvironment, setWindowLocation, storageFake } from "../setup.ts";
+
+function findBodyElementByText(text: string): HTMLElement {
+  const element = Array.from(document.body.children).find(
+    (node): node is HTMLElement =>
+      node instanceof HTMLElement && (node.textContent?.includes(text) ?? false),
+  );
+  if (!element) {
+    throw new Error(`Unable to find body element containing ${text}`);
+  }
+  return element;
+}
 
 describe("detectTheme", () => {
   beforeEach(() => {
@@ -128,6 +143,20 @@ describe("addButtons", () => {
     expect(bar.querySelector(".xb-progress-bar")).toBeTruthy();
     expect(bar.querySelector(".xb-reply-action-settings")).toBeTruthy();
   });
+
+  test("AB-05 settings button points users to the extension popup", () => {
+    const manual = installManualTimers();
+    try {
+      hooks.addButtons();
+      document
+        .querySelector<HTMLButtonElement>(".xb-reply-action-settings")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      expect(document.body.textContent).toContain("Use the XBlocker extension popup for settings.");
+    } finally {
+      manual.uninstall();
+    }
+  });
 });
 
 describe("showToast", () => {
@@ -160,9 +189,7 @@ describe("showToast", () => {
 
   test("TO-03 dismisses on click", () => {
     hooks.showToast("Click me", "warning");
-    const toast = Array.from(document.body.children).find((node) =>
-      node.textContent?.includes("Click me"),
-    ) as HTMLElement;
+    const toast = findBodyElementByText("Click me");
     toast.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     timers!.flush();
     expect(document.body.contains(toast)).toBe(false);
@@ -170,10 +197,19 @@ describe("showToast", () => {
 
   test("TO-04 defaults to the info color when no type is given", () => {
     hooks.showToast("Default type");
-    const toast = Array.from(document.body.children).find((node) =>
-      node.textContent?.includes("Default type"),
-    ) as HTMLElement;
+    const toast = findBodyElementByText("Default type");
     expect(toast.style.cssText).toContain("#1d9bf0");
+  });
+
+  test("TO-05 appends toast animations to the shared style node once", () => {
+    const style = document.createElement("style");
+    style.id = "xblocker-styles";
+    document.head.appendChild(style);
+
+    hooks.showToast("Animated");
+    hooks.showToast("Still one animation block");
+
+    expect(style.textContent?.match(/slideInToast/g)).toHaveLength(1);
   });
 });
 
@@ -248,6 +284,51 @@ describe("showWhitelistModal", () => {
     hooks.showWhitelistModal();
     const modal = document.getElementById("xblocker-modal")!;
     modal.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(document.getElementById("xblocker-modal")).toBeNull();
+  });
+
+  test("MD-08 appends modal animations to the shared style node", () => {
+    const style = document.createElement("style");
+    style.id = "xblocker-styles";
+    document.head.appendChild(style);
+
+    hooks.showWhitelistModal();
+
+    expect(style.textContent).toContain("@keyframes fadeIn");
+    expect(style.textContent).toContain("@keyframes slideInModal");
+  });
+
+  test("MD-10 focus, blur, and hover states restore their inline styles", () => {
+    hooks.showWhitelistModal();
+    const input = document.querySelector<HTMLInputElement>("#username-input")!;
+    const cancel = document.querySelector<HTMLButtonElement>("#cancel-btn")!;
+    const add = document.querySelector<HTMLButtonElement>("#add-btn")!;
+
+    input.dispatchEvent(new Event("focus"));
+    expect(input.style.borderColor).toBe("#00ba7c");
+    input.dispatchEvent(new Event("blur"));
+    expect(input.style.borderColor).toBe("rgba(0, 0, 0, 0.08)");
+
+    cancel.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    expect(cancel.style.background).toBe("rgba(0, 0, 0, 0.03)");
+    cancel.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+    expect(cancel.style.background).toBe("transparent");
+
+    add.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    expect(add.style.transform).toBe("translateY(-1px)");
+    add.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+    expect(add.style.transform).toBe("translateY(0)");
+  });
+
+  test("MD-11 Escape closes from the input and document key handlers", () => {
+    hooks.showWhitelistModal();
+    document
+      .querySelector<HTMLInputElement>("#username-input")!
+      .dispatchEvent(new KeyboardEvent("keypress", { key: "Escape", bubbles: true }));
+    expect(document.getElementById("xblocker-modal")).toBeNull();
+
+    hooks.showWhitelistModal();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(document.getElementById("xblocker-modal")).toBeNull();
   });
 });

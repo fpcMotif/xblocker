@@ -4,7 +4,7 @@
 
 globalThis.__XB_TEST__ = true;
 await import("../../entrypoints/content.ts");
-delete globalThis.__XB_TEST__;
+globalThis.__XB_TEST__ = undefined;
 
 const installed = globalThis.__xblockerTestHooks;
 if (!installed) {
@@ -26,9 +26,8 @@ export function createTweetArticle(username: string): {
   userLink.setAttribute("role", "link");
   tweetArticle.appendChild(userLink);
 
-  const moreButton = document.createElement("button") as HTMLElement & { clicks: number };
+  const moreButton = Object.assign(document.createElement("button"), { clicks: 0 });
   moreButton.setAttribute("aria-label", "More");
-  moreButton.clicks = 0;
   moreButton.click = () => {
     moreButton.clicks++;
   };
@@ -64,17 +63,19 @@ export function installFetchStub(
 ): { calls: FetchCall[]; uninstall: () => void } {
   const original = globalThis.fetch;
   const calls: FetchCall[] = [];
+  const globals = globalThis as Record<string, unknown>;
 
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  globals["fetch"] = async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const response = responder(url, init);
     calls.push({ url, init });
-    return responder(url, init) as unknown as Response;
-  }) as typeof fetch;
+    return new Response(null, { status: response.status });
+  };
 
   return {
     calls,
     uninstall() {
-      globalThis.fetch = original;
+      globals["fetch"] = original;
     },
   };
 }
@@ -86,17 +87,18 @@ export function installRejectingFetch(message = "network down"): {
 } {
   const original = globalThis.fetch;
   const calls: FetchCall[] = [];
+  const globals = globalThis as Record<string, unknown>;
 
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  globals["fetch"] = async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     calls.push({ url, init });
     throw new Error(message);
-  }) as typeof fetch;
+  };
 
   return {
     calls,
     uninstall() {
-      globalThis.fetch = original;
+      globals["fetch"] = original;
     },
   };
 }

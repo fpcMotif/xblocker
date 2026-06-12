@@ -11,7 +11,7 @@ describe("getWhitelist", () => {
   });
 
   test("WL-01 yields an empty array when nothing is stored", () => {
-    let received: string[] | null = null;
+    let received: string[] = ["not-called"];
     hooks.getWhitelist((whitelist) => {
       received = whitelist;
     });
@@ -20,7 +20,7 @@ describe("getWhitelist", () => {
 
   test("WL-02 returns the stored whitelist verbatim", () => {
     storageFake.data["whitelist"] = ["alice", "bob"];
-    let received: string[] | null = null;
+    let received: string[] = ["not-called"];
     hooks.getWhitelist((whitelist) => {
       received = whitelist;
     });
@@ -29,7 +29,7 @@ describe("getWhitelist", () => {
 
   test("WL-03 coerces a non-array stored value to an empty array", () => {
     storageFake.data["whitelist"] = "corrupted-string";
-    let received: string[] | null = null;
+    let received: string[] = ["not-called"];
     hooks.getWhitelist((whitelist) => {
       received = whitelist;
     });
@@ -38,7 +38,7 @@ describe("getWhitelist", () => {
 
   test("WL-04 coerces a null stored value to an empty array", () => {
     storageFake.data["whitelist"] = null;
-    let received: string[] | null = null;
+    let received: string[] = ["not-called"];
     hooks.getWhitelist((whitelist) => {
       received = whitelist;
     });
@@ -47,7 +47,7 @@ describe("getWhitelist", () => {
 
   test("WL-05 survives a storage get failure (callback gets no items)", () => {
     storageFake.failNextGet = true;
-    let received: string[] | null = null;
+    let received: string[] = ["not-called"];
     expect(() => {
       hooks.getWhitelist((whitelist) => {
         received = whitelist;
@@ -70,7 +70,7 @@ describe("saveWhitelist", () => {
 
   test("WL-07 a later getWhitelist observes a previous saveWhitelist", () => {
     hooks.saveWhitelist(["dave", "erin"]);
-    let received: string[] | null = null;
+    let received: string[] = ["not-called"];
     hooks.getWhitelist((whitelist) => {
       received = whitelist;
     });

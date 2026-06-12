@@ -47,9 +47,7 @@ describe("createDirectBlockRequest", () => {
   });
 
   test("DB-04 throws on an invalid username before any cookie work", () => {
-    expect(() => hooks.createDirectBlockRequest("not a handle")).toThrow(
-      "Missing valid username",
-    );
+    expect(() => hooks.createDirectBlockRequest("not a handle")).toThrow("Missing valid username");
     expect(() => hooks.createDirectBlockRequest("")).toThrow("Missing valid username");
     expect(() => hooks.createDirectBlockRequest("home")).toThrow("Missing valid username");
   });
@@ -92,18 +90,39 @@ describe("blockUserDirectly", () => {
 
   test("DB-08 throws with the HTTP status on 401 (signed out)", async () => {
     fetchStub = installFetchStub(() => ({ ok: false, status: 401 }));
-    await expect(hooks.blockUserDirectly("direct_user")).rejects.toThrow("HTTP 401");
+    await hooks.blockUserDirectly("direct_user").then(
+      () => {
+        throw new Error("Expected direct block to reject");
+      },
+      (error) => {
+        expect(String(error)).toContain("HTTP 401");
+      },
+    );
   });
 
   test("DB-09 throws with the HTTP status on 429 (rate limited)", async () => {
     fetchStub = installFetchStub(() => ({ ok: false, status: 429 }));
-    await expect(hooks.blockUserDirectly("direct_user")).rejects.toThrow("HTTP 429");
+    await hooks.blockUserDirectly("direct_user").then(
+      () => {
+        throw new Error("Expected direct block to reject");
+      },
+      (error) => {
+        expect(String(error)).toContain("HTTP 429");
+      },
+    );
   });
 
   test("DB-10 propagates network-level fetch rejections", async () => {
     const rejecting = installRejectingFetch("connection reset");
     try {
-      await expect(hooks.blockUserDirectly("direct_user")).rejects.toThrow("connection reset");
+      await hooks.blockUserDirectly("direct_user").then(
+        () => {
+          throw new Error("Expected direct block to reject");
+        },
+        (error) => {
+          expect(String(error)).toContain("connection reset");
+        },
+      );
     } finally {
       rejecting.uninstall();
     }
@@ -112,7 +131,14 @@ describe("blockUserDirectly", () => {
   test("DB-11 never calls fetch when request construction fails", async () => {
     setDocumentCookie("");
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    await expect(hooks.blockUserDirectly("direct_user")).rejects.toThrow("Missing X CSRF token");
+    await hooks.blockUserDirectly("direct_user").then(
+      () => {
+        throw new Error("Expected direct block to reject");
+      },
+      (error) => {
+        expect(String(error)).toContain("Missing X CSRF token");
+      },
+    );
     expect(fetchStub.calls).toHaveLength(0);
   });
 });
@@ -178,13 +204,13 @@ describe("blockTweet", () => {
 
   test("BT-05 fails (not throws) when the block API errors", async () => {
     fetchStub = installFetchStub(() => ({ ok: false, status: 403 }));
-    const { tweetArticle } = createTweetArticle("blocked_api_user");
+    const { tweetArticle } = createTweetArticle("api_blocked");
 
     const result = await hooks.blockTweet(tweetArticle);
 
     expect(result.status).toBe("failed");
     if (result.status === "failed") {
-      expect(result.username).toBe("blocked_api_user");
+      expect(result.username).toBe("api_blocked");
       expect(result.error).toBeInstanceOf(Error);
     }
   });

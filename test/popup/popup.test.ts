@@ -1,7 +1,7 @@
 // Catalog: PU-* (renderPopup, whitelist form, settings toggles, normalizeUsername).
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { renderPopup } from "../../entrypoints/popup/main.ts";
+import { mountPopupIfPresent, renderPopup } from "../../entrypoints/popup/main.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 
 function seedState(overrides: {
@@ -59,18 +59,14 @@ describe("renderPopup structure", () => {
       settings: { confirmDestructiveActions: false, keyboardMode: true, protectWhitelist: false },
     });
     await renderPopup(document.body);
-    const toggles = Array.from(
-      document.querySelectorAll<HTMLInputElement>(".xb-switch-input"),
-    );
+    const toggles = Array.from(document.querySelectorAll<HTMLInputElement>(".xb-switch-input"));
     // Order matches renderSettings: protect, confirm, keyboard.
     expect(toggles.map((toggle) => toggle.checked)).toEqual([false, false, true]);
   });
 
   test("PU-06 falls back to default settings when none are stored", async () => {
     await renderPopup(document.body);
-    const toggles = Array.from(
-      document.querySelectorAll<HTMLInputElement>(".xb-switch-input"),
-    );
+    const toggles = Array.from(document.querySelectorAll<HTMLInputElement>(".xb-switch-input"));
     expect(toggles.map((toggle) => toggle.checked)).toEqual([true, true, false]);
   });
 });
@@ -107,7 +103,16 @@ describe("popup whitelist form", () => {
     expect(input.value).toBe("bad name!");
   });
 
-  test("PU-09 ignores a duplicate username", async () => {
+  test("PU-09 rejects reserved X paths", async () => {
+    const { input, form } = await render();
+    input.value = "home";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(storageFake.setCalls).toHaveLength(0);
+    expect(input.value).toBe("home");
+  });
+
+  test("PU-10 ignores a duplicate username", async () => {
     seedState({ whitelist: ["existing"] });
     const { input, form } = await render();
     input.value = "existing";
@@ -116,7 +121,7 @@ describe("popup whitelist form", () => {
     expect(storageFake.setCalls).toHaveLength(0);
   });
 
-  test("PU-10 removing a handle updates storage and the rendered list", async () => {
+  test("PU-11 removing a handle updates storage and the rendered list", async () => {
     seedState({ whitelist: ["removable", "keeper"] });
     await renderPopup(document.body);
 
@@ -131,7 +136,7 @@ describe("popup whitelist form", () => {
     expect(document.body.textContent).toContain("@keeper");
   });
 
-  test("PU-11 BUG XB-BUG-05: removing one of two identical handles still shows one", async () => {
+  test("PU-12 BUG XB-BUG-05: removing one of two identical handles drops both", async () => {
     // Storage can hold duplicates from other code paths. The popup filter
     // removes ALL matching handles, so removing one drops both — pin it.
     seedState({ whitelist: ["dupe", "dupe"] });
@@ -149,23 +154,35 @@ describe("popup settings toggles", () => {
     resetTestEnvironment();
   });
 
-  test("PU-12 toggling a switch persists the new settings object", async () => {
+  test("PU-13 toggling a switch persists the new settings object", async () => {
     await renderPopup(document.body);
     const protectToggle = document.querySelector<HTMLInputElement>(".xb-switch-input")!;
     protectToggle.checked = false;
     protectToggle.dispatchEvent(new Event("change", { bubbles: true }));
 
-    const stored = storageFake.data["settings"] as Record<string, boolean>;
-    expect(stored.protectWhitelist).toBe(false);
+    expect(storageFake.data["settings"]).toEqual({
+      confirmDestructiveActions: true,
+      keyboardMode: false,
+      protectWhitelist: false,
+    });
   });
 
-  test("PU-13 default settings merge with a partial stored settings object", async () => {
+  test("PU-14 default settings merge with a partial stored settings object", async () => {
     seedState({ settings: { keyboardMode: true } });
     await renderPopup(document.body);
-    const toggles = Array.from(
-      document.querySelectorAll<HTMLInputElement>(".xb-switch-input"),
-    );
+    const toggles = Array.from(document.querySelectorAll<HTMLInputElement>(".xb-switch-input"));
     // protect/confirm fall back to defaults (true), keyboard is the stored true.
     expect(toggles.map((toggle) => toggle.checked)).toEqual([true, true, true]);
+  });
+
+  test("PU-15 auto-renders into #app when mounted", async () => {
+    const app = document.createElement("div");
+    app.id = "app";
+    document.body.appendChild(app);
+
+    mountPopupIfPresent();
+    await Promise.resolve();
+
+    expect(app.querySelector('[data-xb-surface="popup"]')).toBeTruthy();
   });
 });

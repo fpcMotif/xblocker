@@ -88,4 +88,24 @@ describe("initializeXBlocker", () => {
     expect(() => hooks.initializeXBlocker()).not.toThrow();
     expect(document.getElementById("xblocker-reply-action-bar")).toBeTruthy();
   });
+
+  test("PL-09 reacts when client-side navigation changes the URL", async () => {
+    setWindowLocation("https://x.com/settings/account");
+    hooks.initializeXBlocker();
+    expect(document.getElementById("xblocker-reply-action-bar")).toBeNull();
+
+    setWindowLocation("https://x.com/author/status/123456789");
+    document.body.appendChild(document.createElement("span"));
+    await Promise.resolve();
+
+    expect(document.getElementById("xblocker-reply-action-bar")).toBeTruthy();
+  });
+
+  test("PL-10 content script main initializes outside test mode", async () => {
+    setWindowLocation("https://x.com/author/status/123456789");
+    globalThis.__XB_TEST__ = undefined;
+
+    expect(() => hooks.runContentScript()).not.toThrow();
+    expect(document.getElementById("xblocker-reply-action-bar")).toBeTruthy();
+  });
 });

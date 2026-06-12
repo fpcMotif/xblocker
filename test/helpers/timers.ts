@@ -15,12 +15,13 @@ type QueuedTimer = { callback: () => void; delay: number };
 /** setTimeout queues callbacks; nothing runs until flush()/flushUpTo(). */
 export function installManualTimers(): ManualTimers {
   const original = globalThis.setTimeout;
+  const globals = globalThis as Record<string, unknown>;
   const queue: QueuedTimer[] = [];
 
-  globalThis.setTimeout = ((callback: () => void, delay?: number) => {
+  globals["setTimeout"] = (callback: () => void, delay?: number) => {
     queue.push({ callback, delay: delay ?? 0 });
-    return queue.length as unknown as ReturnType<typeof setTimeout>;
-  }) as typeof setTimeout;
+    return queue.length;
+  };
 
   return {
     flush() {
@@ -39,7 +40,7 @@ export function installManualTimers(): ManualTimers {
     },
     pendingDelays: () => queue.map((timer) => timer.delay),
     uninstall() {
-      globalThis.setTimeout = original;
+      globals["setTimeout"] = original;
     },
   };
 }
@@ -47,15 +48,16 @@ export function installManualTimers(): ManualTimers {
 /** setTimeout runs callbacks synchronously (delay collapsed to zero). */
 export function installImmediateTimers(): { uninstall: () => void } {
   const original = globalThis.setTimeout;
+  const globals = globalThis as Record<string, unknown>;
 
-  globalThis.setTimeout = ((callback: () => void) => {
+  globals["setTimeout"] = (callback: () => void) => {
     callback();
-    return 0 as unknown as ReturnType<typeof setTimeout>;
-  }) as typeof setTimeout;
+    return 0;
+  };
 
   return {
     uninstall() {
-      globalThis.setTimeout = original;
+      globals["setTimeout"] = original;
     },
   };
 }
