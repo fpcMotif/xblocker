@@ -1,4 +1,7 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
+import { parseUsername, usernameFromTweet } from "../utils/username";
+import { whitelistStore } from "../utils/whitelist-store";
+import { createDirectBlockRequest, xApi, type XApiRequest, type XApiResult } from "../utils/x-api";
 
 type ToastType = "info" | "success" | "warning";
 type ThemeActionColor = "primary" | "success" | "warning" | "danger";
@@ -15,28 +18,16 @@ type ReplyActionConfig = {
   text: string;
   action: () => Promise<void> | void;
 };
-type BlockTweetResult =
-  | { status: "blocked"; username: string }
+type ReplyActionResult =
+  | { status: "blocked" | "muted"; username: string }
   | { status: "skipped"; username: string }
+  | { status: "rate-limited"; username: string }
   | { status: "failed"; username?: string; reason?: string; error?: unknown };
-type DirectBlockRequest = {
-  url: string;
-  options: RequestInit & {
-    method: "POST";
-    credentials: "include";
-    headers: Record<string, string>;
-    body: string;
-  };
-};
 type XBlockerTestHooks = {
   addButtons: () => void;
-  blockTweet: (tweetArticle: Element) => Promise<BlockTweetResult>;
-  blockUserDirectly: (username: string) => Promise<Response>;
-  createDirectBlockRequest: (username: string) => DirectBlockRequest;
+  blockTweet: (tweetArticle: Element, whitelist?: string[]) => Promise<ReplyActionResult>;
+  createDirectBlockRequest: (username: string) => XApiRequest;
   extractUsernameFromTweet: (tweetArticle: Element) => string | null;
-  getCookieValue: (name: string) => string;
-  isTweetPageUrl: (url: string) => boolean;
-  normalizeUsername: (value: string | null | undefined) => string | null;
 };
 
 declare global {
@@ -44,180 +35,118 @@ declare global {
   var __xblockerTestHooks: XBlockerTestHooks | undefined;
 }
 
-const X_AUTH_BEARER_TOKEN =
-  "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
-const DIRECT_BLOCK_DELAY_MS = 250;
+const ACTION_DELAY_MS = 250;
+const BLOCK_REPLY_LIMIT = 20;
+const MUTE_REPLY_LIMIT = 50;
 const TWEET_PAGE_URL_PATTERN = new RegExp(String.raw`https?://(www\.)?x\.com/[^/]+/status/\d+`);
 const LOCAL_TEST_PAGE_PATTERN = new RegExp(String.raw`^https?://(localhost|127\.0\.0\.1)`);
 const TIMELINE_URL_PATTERN = new RegExp(String.raw`https?://(www\.)?x\.com/i/timeline`);
 const PROFILE_URL_PATTERN = new RegExp(String.raw`^https?://(www\.)?x\.com/[^/]+/?$`);
-const RESERVED_X_PATHS = new Set<string>([
-  "home",
-  "i",
-  "intent",
-  "messages",
-  "notifications",
-  "search",
-  "settings",
-  "share",
-]);
 
 function waitFor(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getCookieValue(name: string): string {
-  return (
-    document.cookie
-      .split(";")
-      .map((cookie) => cookie.trim())
-      .find((cookie) => cookie.startsWith(`${name}=`))
-      ?.slice(name.length + 1) || ""
-  );
-}
-
 function isTweetPageUrl(url: string): boolean {
-  const isLocalTestPage =
-    typeof globalThis !== "undefined" &&
-    globalThis.__XB_TEST__ &&
-    LOCAL_TEST_PAGE_PATTERN.test(url);
+  const isLocalTestPage = globalThis.__XB_TEST__ && LOCAL_TEST_PAGE_PATTERN.test(url);
 
   return TWEET_PAGE_URL_PATTERN.test(url) || !!isLocalTestPage;
 }
 
-function normalizeUsername(value: string | null | undefined): string | null {
-  const username = value?.replace(/^@/, "").trim();
-  if (!username || RESERVED_X_PATHS.has(username.toLowerCase())) {
-    return null;
-  }
-
-  return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
-}
-
-function extractUsernameFromTweet(tweetArticle: Element): string | null {
-  const links = tweetArticle.querySelectorAll('a[href^="/"][role="link"]');
-  for (const link of links) {
-    const href = link.getAttribute("href") || "";
-    const firstPathPart = href.split("?")[0]?.split("/").find(Boolean) || "";
-    const username = normalizeUsername(firstPathPart);
-    if (username) {
-      return username;
+function actOnTweet(act: (username: string) => Promise<XApiResult>, acted: "blocked" | "muted") {
+  return async (tweetArticle: Element, whitelist?: string[]): Promise<ReplyActionResult> => {
+    const username = usernameFromTweet(tweetArticle);
+    if (!username) {
+      return { status: "failed", reason: "missing-username" };
     }
-  }
 
-  return null;
-}
+    if (whitelistStore.has(whitelist ?? (await whitelistStore.list()), username)) {
+      return { status: "skipped", username };
+    }
 
-function getXApiBaseUrl(): string {
-  return window.location.hostname === "twitter.com"
-    ? "https://api.twitter.com"
-    : "https://api.x.com";
-}
-
-function createDirectBlockRequest(username: string): DirectBlockRequest {
-  const normalizedUsername = normalizeUsername(username);
-  if (!normalizedUsername) {
-    throw new Error("Missing valid username for direct block.");
-  }
-
-  const csrfToken = getCookieValue("ct0");
-  if (!csrfToken) {
-    throw new Error("Missing X CSRF token; open x.com while signed in and try again.");
-  }
-
-  return {
-    url: `${getXApiBaseUrl()}/1.1/blocks/create.json`,
-    options: {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        Authorization: `Bearer ${X_AUTH_BEARER_TOKEN}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-Csrf-Token": csrfToken,
-        "X-Twitter-Active-User": "yes",
-        "X-Twitter-Auth-Type": "OAuth2Session",
-      },
-      body: new URLSearchParams({ screen_name: normalizedUsername }).toString(),
-    },
+    const result = await act(username);
+    if (result.ok) {
+      return { status: acted, username };
+    }
+    return result.reason === "rate-limited"
+      ? { status: "rate-limited", username }
+      : { status: "failed", username, error: result.error };
   };
 }
 
-async function blockUserDirectly(username: string): Promise<Response> {
-  const request = createDirectBlockRequest(username);
-  const response = await fetch(request.url, request.options);
-  if (!response.ok) {
-    throw new Error(`Direct block failed with HTTP ${response.status}.`);
-  }
-  return response;
-}
+const blockTweet = actOnTweet(xApi.block, "blocked");
+const muteTweet = actOnTweet(xApi.mute, "muted");
 
-async function blockFirst20CommentTweets(): Promise<void> {
+async function actOnCommentTweets(
+  act: (tweetArticle: Element, whitelist: string[]) => Promise<ReplyActionResult>,
+  limit: number,
+  verb: string,
+): Promise<void> {
   if (!isTweetPageUrl(window.location.href)) {
-    console.log("Not on a tweet page. Exiting.");
     return;
   }
 
   const tweetArticles = document.querySelectorAll('article[data-testid="tweet"]');
-  const commentTweets = Array.from(tweetArticles).slice(1);
-  const first20Comments = commentTweets.slice(0, 50);
+  const replies = Array.from(tweetArticles).slice(1, limit + 1);
+  if (replies.length === 0) {
+    showToast("No replies found on this page.", "info");
+    return;
+  }
 
   const progressBar = document.querySelector<HTMLElement>(".xb-progress-bar");
-  const total = first20Comments.length;
-  let blockedCount = 0;
-  let skippedCount = 0;
-  let failedCount = 0;
+  const whitelist = await whitelistStore.list();
+  let acted = 0;
+  let skipped = 0;
+  let failed = 0;
+  let rateLimited = false;
 
-  for (const [index, tweetArticle] of first20Comments.entries()) {
-    const result = await blockTweet(tweetArticle);
-    if (result?.status === "blocked") {
-      blockedCount++;
-    } else if (result?.status === "skipped") {
-      skippedCount++;
-    } else if (result?.status === "failed") {
-      failedCount++;
+  for (const [index, reply] of replies.entries()) {
+    const result = await act(reply, whitelist);
+    if (result.status === "rate-limited") {
+      rateLimited = true;
+      break;
+    }
+    if (result.status === "skipped") {
+      skipped++;
+    } else if (result.status === "failed") {
+      failed++;
+    } else {
+      acted++;
     }
     if (progressBar) {
-      progressBar.style.width = `${((index + 1) / total) * 100}%`;
+      progressBar.style.width = `${((index + 1) / replies.length) * 100}%`;
     }
-    await waitFor(DIRECT_BLOCK_DELAY_MS);
+    await waitFor(ACTION_DELAY_MS);
   }
 
-  if (blockedCount > 0) {
-    showToast(
-      `Blocked ${blockedCount} replies directly${skippedCount ? `, skipped ${skippedCount}` : ""}`,
-      "success",
-    );
-  } else if (failedCount > 0) {
-    showToast("Direct block failed. Please stay signed in to X and retry.", "warning");
+  const summary = [`${verb} ${acted} ${acted === 1 ? "reply" : "replies"}`];
+  if (skipped) {
+    summary.push(`skipped ${skipped}`);
   }
-  console.log(
-    `Finished direct blocking. blocked=${blockedCount}, skipped=${skippedCount}, failed=${failedCount}`,
+  if (failed) {
+    summary.push(`failed ${failed}`);
+  }
+  if (rateLimited) {
+    showToast(`X rate limit hit — ${summary.join(", ")}. Try again in a few minutes.`, "warning");
+  } else {
+    showToast(summary.join(", "), failed ? "warning" : "success");
+  }
+}
+
+function blockFirst20CommentTweets(): Promise<void> {
+  return actOnCommentTweets(blockTweet, BLOCK_REPLY_LIMIT, "Blocked");
+}
+
+function muteFirst50CommentTweets(): Promise<void> {
+  return actOnCommentTweets(muteTweet, MUTE_REPLY_LIMIT, "Muted");
+}
+
+async function addToWhitelist(username: string): Promise<void> {
+  const added = await whitelistStore.add(username);
+  showToast(
+    added ? `✅ Added @${username} to whitelist` : `⚠️ @${username} is already in the whitelist`,
+    added ? "success" : "warning",
   );
-}
-
-function getWhitelist(callback: (whitelist: string[]) => void): void {
-  chrome.storage.local.get("whitelist", (result) => {
-    const whitelist = Array.isArray(result?.whitelist) ? result.whitelist : [];
-    callback(whitelist);
-  });
-}
-
-function saveWhitelist(whitelist: string[]): void {
-  chrome.storage.local.set({ whitelist: whitelist }, () => {
-    console.log("Whitelist saved");
-  });
-}
-
-function addToWhitelist(username: string): void {
-  getWhitelist((whitelist) => {
-    if (!whitelist.includes(username)) {
-      whitelist.push(username);
-      saveWhitelist(whitelist);
-      showToast(`✅ Added @${username} to whitelist`, "success");
-    } else {
-      showToast(`⚠️ @${username} is already in the whitelist`, "warning");
-    }
-  });
 }
 
 function showToast(message: string, type: ToastType = "info"): void {
@@ -287,117 +216,6 @@ function showToast(message: string, type: ToastType = "info"): void {
         toast.remove();
       }
     }, 300);
-  });
-}
-
-// Modify the blockTweet function to skip whitelisted users
-async function blockTweet(tweetArticle: Element): Promise<BlockTweetResult> {
-  const username = extractUsernameFromTweet(tweetArticle);
-
-  return new Promise((resolve) => {
-    getWhitelist(async (whitelist) => {
-      if (username && whitelist.includes(username)) {
-        console.log(`Skipping @${username}, as they are in the whitelist.`);
-        resolve({ status: "skipped", username });
-        return;
-      }
-
-      if (!username) {
-        console.log("Username not found for a comment tweet.");
-        resolve({ status: "failed", reason: "missing-username" });
-        return;
-      }
-
-      try {
-        await blockUserDirectly(username);
-        resolve({ status: "blocked", username });
-      } catch (error) {
-        console.warn(`Direct block failed for @${username}:`, error);
-        resolve({ status: "failed", username, error });
-      }
-    });
-  });
-}
-
-async function muteFirst50CommentTweets(): Promise<void> {
-  if (!isTweetPageUrl(window.location.href)) {
-    console.log("Not on a tweet page. Exiting.");
-    return;
-  }
-
-  const tweetArticles = document.querySelectorAll('article[data-testid="tweet"]');
-  const commentTweets = Array.from(tweetArticles).slice(1);
-  const first50Comments = commentTweets.slice(0, 50);
-
-  const progressBar = document.querySelector<HTMLElement>(".xb-progress-bar");
-  const total = first50Comments.length;
-
-  for (const [index, tweetArticle] of first50Comments.entries()) {
-    await muteTweet(tweetArticle);
-    if (progressBar) {
-      progressBar.style.width = `${((index + 1) / total) * 100}%`;
-    }
-  }
-
-  console.log("Finished muting the first 50 comment tweets.");
-}
-
-async function muteTweet(tweetArticle: Element): Promise<void> {
-  const userLink = tweetArticle.querySelector('a[href^="/"][role="link"]');
-  let username: string | null = null;
-  if (userLink) {
-    const urlParts = (userLink.getAttribute("href") || "").split("/");
-    username = normalizeUsername(urlParts[1]);
-  }
-
-  return new Promise((resolve) => {
-    getWhitelist(async (whitelist) => {
-      if (username && whitelist.includes(username)) {
-        console.log(`Skipping @${username}, as they are in the whitelist.`);
-        resolve();
-        return;
-      }
-
-      // Find the "More" button
-      const moreButton = tweetArticle.querySelector<HTMLElement>('[aria-label="More"]');
-
-      if (moreButton) {
-        // Simulate click on the "More" menu
-        moreButton.click();
-
-        // Wait for the menu to appear
-        await new Promise((r) => setTimeout(r, 500));
-
-        // Find the "Mute @username" menu item
-        const muteItem = Array.from(
-          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-        ).find((item) => item.innerText.trim().startsWith("Mute @"));
-
-        if (muteItem) {
-          // Simulate click on "Mute @username"
-          muteItem.click();
-
-          // Wait for the confirmation modal to appear
-          await new Promise((r) => setTimeout(r, 500));
-
-          // Find and click the "Mute" button in the modal
-          const confirmButton = document.querySelector<HTMLElement>(
-            '[data-testid="confirmationSheetConfirm"]',
-          );
-          if (confirmButton) {
-            confirmButton.click();
-          }
-        } else {
-          console.log("Mute option not found.");
-        }
-
-        // Wait before proceeding to the next tweet
-        await new Promise((r) => setTimeout(r, 500));
-      } else {
-        console.log("More button not found for a comment tweet.");
-      }
-      resolve();
-    });
   });
 }
 
@@ -546,8 +364,8 @@ function createReplyActionButton(config: ReplyActionConfig, theme: Theme): HTMLB
     button.style.background = surface;
   });
 
-  button.addEventListener("click", async () => {
-    await executeReplyAction(button, config, icon, label);
+  button.addEventListener("click", () => {
+    void executeReplyAction(button, config, label);
   });
 
   return button;
@@ -556,47 +374,31 @@ function createReplyActionButton(config: ReplyActionConfig, theme: Theme): HTMLB
 async function executeReplyAction(
   button: HTMLButtonElement,
   config: ReplyActionConfig,
-  icon: SVGSVGElement,
   label: HTMLSpanElement,
 ): Promise<void> {
-  const originalText = label.textContent;
-  const originalIcon = createActionIcon(config.type, 15, "currentColor");
+  const showState = (iconType: ActionIconType, text: string) => {
+    button.querySelector("svg")?.replaceWith(createActionIcon(iconType, 15, "currentColor"));
+    label.textContent = text;
+  };
 
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   button.style.opacity = "0.8";
-
-  const loadingIcon = createActionIcon("loading", 15, "currentColor");
-  button.replaceChild(loadingIcon, icon);
-  label.textContent = "Working";
+  showState("loading", "Working");
 
   try {
     await config.action();
-
-    const successIcon = createActionIcon("whitelist", 15, "currentColor");
-    button.replaceChild(successIcon, loadingIcon);
-    label.textContent = "Done";
-
-    setTimeout(() => {
-      button.replaceChild(originalIcon, successIcon);
-      label.textContent = originalText;
-      button.disabled = false;
-      button.removeAttribute("aria-busy");
-      button.style.opacity = "1";
-    }, 1600);
+    showState("whitelist", "Done");
   } catch {
-    const errorIcon = createActionIcon("block", 15, "currentColor");
-    button.replaceChild(errorIcon, loadingIcon);
-    label.textContent = "Error";
-
-    setTimeout(() => {
-      button.replaceChild(originalIcon, errorIcon);
-      label.textContent = originalText;
-      button.disabled = false;
-      button.removeAttribute("aria-busy");
-      button.style.opacity = "1";
-    }, 1600);
+    showState("block", "Error");
   }
+
+  setTimeout(() => {
+    showState(config.type, config.text);
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.style.opacity = "1";
+  }, 1600);
 }
 
 function addButtons(): void {
@@ -846,84 +648,47 @@ function showWhitelistModal(): void {
   });
 
   // Event handlers
-  const closeModal = () => modal.remove();
+  const closeModal = () => {
+    modal.remove();
+    document.removeEventListener("keydown", onEscape);
+  };
+
+  const onEscape = (e: KeyboardEvent) => {
+    if (e.key === "Escape") closeModal();
+  };
+
+  const submit = () => {
+    const username = parseUsername(input.value);
+    if (!username) {
+      showToast("Enter a valid X username (letters, numbers, underscore).", "warning");
+      return;
+    }
+    void addToWhitelist(username);
+    closeModal();
+  };
 
   cancelBtn.addEventListener("click", closeModal);
   modal.addEventListener("click", (e) => {
     if (e.target === modal) closeModal();
   });
-
-  addBtn.addEventListener("click", () => {
-    const username = input.value.trim();
-    if (username) {
-      addToWhitelist(username);
-      closeModal();
-    }
+  addBtn.addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
   });
-
-  input.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-      const username = input.value.trim();
-      if (username) {
-        addToWhitelist(username);
-        closeModal();
-      }
-    } else if (e.key === "Escape") {
-      closeModal();
-    }
-  });
-
-  // Close on escape key
-  document.addEventListener("keydown", function escapeHandler(e) {
-    if (e.key === "Escape") {
-      closeModal();
-      document.removeEventListener("keydown", escapeHandler);
-    }
-  });
+  document.addEventListener("keydown", onEscape);
 }
 
-// Theme change observer
-function observeThemeChanges(): MutationObserver {
-  const observer = new MutationObserver(() => {
-    // Check if theme has changed and update buttons accordingly
-    const existingContainer = document.getElementById("xblocker-dashboard");
-    if (existingContainer) {
-      // Refresh buttons with new theme
-      setTimeout(() => {
-        addButtons();
-      }, 100);
-    }
-  });
-
-  // Observe changes to document attributes that might indicate theme changes
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ["style", "class", "data-theme"],
-  });
-
-  observer.observe(document.body, {
-    attributes: true,
-    attributeFilter: ["style", "class", "data-theme"],
-  });
-
-  return observer;
-}
-
-// Update checkPageAndAddButton function
 function checkPageAndAddButton(): void {
   const url = window.location.href;
 
   if (TIMELINE_URL_PATTERN.test(url)) {
     // Do not add buttons or run code on the timeline page
-    console.log("On timeline page. Exiting.");
     return;
   }
 
   // Add buttons on tweet pages and user feed pages
   if (TWEET_PAGE_URL_PATTERN.test(url) || PROFILE_URL_PATTERN.test(url)) {
     addButtons();
-    // Start theme observation
-    observeThemeChanges();
   }
 }
 
@@ -940,18 +705,14 @@ function initializeXBlocker(): void {
   }).observe(document, { subtree: true, childList: true });
 }
 
-const isXBlockerTestMode = typeof globalThis !== "undefined" && globalThis.__XB_TEST__;
+const isXBlockerTestMode = globalThis.__XB_TEST__;
 
 if (isXBlockerTestMode) {
   globalThis.__xblockerTestHooks = {
     addButtons,
     blockTweet,
-    blockUserDirectly,
     createDirectBlockRequest,
-    extractUsernameFromTweet,
-    getCookieValue,
-    isTweetPageUrl,
-    normalizeUsername,
+    extractUsernameFromTweet: usernameFromTweet,
   };
 }
 
