@@ -30,13 +30,28 @@ type DirectBlockRequest = {
 };
 type XBlockerTestHooks = {
   addButtons: () => void;
+  addToWhitelist: (username: string) => void;
+  blockFirst20CommentTweets: () => Promise<void>;
   blockTweet: (tweetArticle: Element) => Promise<BlockTweetResult>;
   blockUserDirectly: (username: string) => Promise<Response>;
+  checkPageAndAddButton: () => void;
+  createActionIcon: (type: ActionIconType, size?: number, color?: string) => SVGSVGElement;
   createDirectBlockRequest: (username: string) => DirectBlockRequest;
+  createReplyActionButton: (config: ReplyActionConfig, theme: Theme) => HTMLButtonElement;
+  detectTheme: () => Theme;
   extractUsernameFromTweet: (tweetArticle: Element) => string | null;
   getCookieValue: (name: string) => string;
+  getWhitelist: (callback: (whitelist: string[]) => void) => void;
+  initializeXBlocker: () => void;
   isTweetPageUrl: (url: string) => boolean;
+  muteFirst50CommentTweets: () => Promise<void>;
+  muteTweet: (tweetArticle: Element) => Promise<void>;
   normalizeUsername: (value: string | null | undefined) => string | null;
+  observeThemeChanges: () => MutationObserver;
+  saveWhitelist: (whitelist: string[]) => void;
+  showToast: (message: string, type?: ToastType) => void;
+  showWhitelistModal: () => void;
+  waitFor: (ms: number) => Promise<void>;
 };
 
 declare global {
@@ -945,13 +960,28 @@ const isXBlockerTestMode = typeof globalThis !== "undefined" && globalThis.__XB_
 if (isXBlockerTestMode) {
   globalThis.__xblockerTestHooks = {
     addButtons,
+    addToWhitelist,
+    blockFirst20CommentTweets,
     blockTweet,
     blockUserDirectly,
+    checkPageAndAddButton,
+    createActionIcon,
     createDirectBlockRequest,
+    createReplyActionButton,
+    detectTheme,
     extractUsernameFromTweet,
     getCookieValue,
+    getWhitelist,
+    initializeXBlocker,
     isTweetPageUrl,
+    muteFirst50CommentTweets,
+    muteTweet,
     normalizeUsername,
+    observeThemeChanges,
+    saveWhitelist,
+    showToast,
+    showWhitelistModal,
+    waitFor,
   };
 }
 
