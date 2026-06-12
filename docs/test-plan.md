@@ -24,10 +24,10 @@ here is the extension's only persistence and network surface:
 | File | Purpose |
 | --- | --- |
 | `test/setup.ts` | happy-dom globals, stateful `chrome.storage` fake, `setWindowLocation`/`setDocumentCookie`/`resetTestEnvironment` |
-| `test/helpers/content-hooks.ts` | Loads `content.ts` once in `__XB_TEST__` mode, exposes internals + DOM/fetch builders |
+| `test/helpers/content-hooks.ts` | Loads `content/index.ts` once in `__XB_TEST__` mode, exposes internals + DOM/fetch builders |
 | `test/helpers/timers.ts` | Manual / immediate `setTimeout` control + microtask draining |
 
-`content.ts` exposes its internals via `globalThis.__xblockerTestHooks` only when
+`content/index.ts` exposes its internals via `globalThis.__xblockerTestHooks` only when
 `__XB_TEST__` is set — the production bundle never installs them.
 
 ## Coverage map (file → suites)
@@ -39,8 +39,12 @@ here is the extension's only persistence and network surface:
 | `createDirectBlockRequest`, `blockUserDirectly`, `blockTweet` | `content/direct-block.test.ts` | DB-01..11, BT-01..07 |
 | `blockFirst20CommentTweets`, `muteFirst50CommentTweets`, `muteTweet` | `content/bulk-actions.test.ts` | BULK-01..13 |
 | `getWhitelist`, `saveWhitelist`, `addToWhitelist` | `content/whitelist-storage.test.ts` | WL-01..12 |
-| `detectTheme`, `createActionIcon`, `addButtons`, `showToast`, `showWhitelistModal`, `createReplyActionButton` | `content/ui-rendering.test.ts` | TH/IC/AB/TO/MD/RB |
-| `checkPageAndAddButton`, `observeThemeChanges`, `initializeXBlocker` | `content/page-lifecycle.test.ts` | PL-01..08 |
+| `detectTheme`, `applyTheme`, `ensureStyles`, `createIcon`, `createActionButton`, `showToast`, `showWhitelistModal` | `content/ui-rendering.test.ts` | TH/ST/IC/BT/TO/MD |
+| `computeRailY`, `exceedsJitter`, `lerp` (pure geometry) | `content/position.test.ts` | RAIL/JIT/LERP/CONST |
+| `ReplyRail` state machine (collapsed/tracking/settled, dwell, grace, suppression, follow loop) | `content/rail-state.test.ts` | RS-01..21 |
+| `ReplyRail` actions (bulk batches, counts, ring, drag persistence, session badge) | `content/rail-actions.test.ts` | RA-01..15 |
+| `isReplyArticle` classification + coverage attribution warm-up | `content/misc-coverage.test.ts` | MC-01..05 |
+| `checkPageAndAddButton`, `addButtons`, `observeThemeChanges`, `initializeXBlocker`, test hooks | `content/page-lifecycle.test.ts` | PL-01..21 |
 | `renderPopup`, popup whitelist form, settings toggles, `normalizeUsername` | `popup/popup.test.ts` | PU-01..13 |
 
 ## Adversarial cases & pinned bugs
@@ -48,14 +52,17 @@ here is the extension's only persistence and network surface:
 These tests deliberately probe edge cases. Several **pin current buggy behavior**
 so a future fix flips the assertion (search `BUG XB-BUG`):
 
-- **XB-BUG-02** (BT-03): whitelist matching is case-sensitive; `Safe_User` is
-  blocked even though `safe_user` is whitelisted.
-- **XB-BUG-03** (WL-11): content-script `addToWhitelist` stores raw (`@frank`)
-  without normalizing, so the entry can never match an extracted handle.
+- **XB-BUG-02** (BT-03, WL-07): fixed — whitelist matching ignores handle
+  casing; the tests assert the skip.
+- **XB-BUG-03** (WL-11, MD-06): fixed — `addToWhitelist` and the modal
+  normalize and validate before storing, so entries always match extracted
+  handles.
 - **XB-BUG-04** (BULK-03): `blockFirst20CommentTweets` actually caps at 50.
 - **XB-BUG-05** (PU-11): popup remove filters all identical handles at once.
 - **XB-BUG-07** (URL-04): tweet-URL regex is unanchored.
-- **XB-BUG-08** (WL-12): concurrent `addToWhitelist` calls race and drop entries.
+- **XB-BUG-08** (WL-12, WL-17, WL-18, MD-11): fixed — whitelist mutations are
+  serialized through a single promise chain and the save is aborted when the
+  storage read fails.
 
 Other harsh inputs: boundary handle lengths (1/15/16 chars), reserved paths
 (case-insensitive), unicode/emoji/injection-shaped handles, empty/duplicate

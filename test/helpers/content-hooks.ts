@@ -3,12 +3,12 @@
 // __XB_TEST__ flag is guaranteed to be set before the first import.
 
 globalThis.__XB_TEST__ = true;
-await import("../../entrypoints/content.ts");
+await import("../../entrypoints/content/index.ts");
 globalThis.__XB_TEST__ = undefined;
 
 const installed = globalThis.__xblockerTestHooks;
 if (!installed) {
-  throw new Error("content.ts did not install __xblockerTestHooks in test mode");
+  throw new Error("content/index.ts did not install __xblockerTestHooks in test mode");
 }
 
 export const hooks = installed;

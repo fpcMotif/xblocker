@@ -29,7 +29,10 @@ Object.assign(g, {
   Event: happyWindow.Event,
   KeyboardEvent: happyWindow.KeyboardEvent,
   MouseEvent: happyWindow.MouseEvent,
+  SVGCircleElement: happyWindow.SVGCircleElement,
   location: happyWindow.location,
+  requestAnimationFrame: happyWindow.requestAnimationFrame.bind(happyWindow),
+  cancelAnimationFrame: happyWindow.cancelAnimationFrame.bind(happyWindow),
 });
 
 const activeObservers = new Set<MutationObserver>();

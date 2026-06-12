@@ -1,8 +1,8 @@
-// Catalog: URL-* (isTweetPageUrl) and CK-* (getCookieValue).
+// Catalog: URL-* (isTweetPageUrl), CK-* (getCookieValue), API-* (API base selection).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { hooks } from "../helpers/content-hooks.ts";
-import { resetTestEnvironment, setDocumentCookie } from "../setup.ts";
+import { resetTestEnvironment, setDocumentCookie, setWindowLocation } from "../setup.ts";
 
 describe("isTweetPageUrl", () => {
   afterEach(() => {
@@ -95,5 +95,60 @@ describe("getCookieValue", () => {
     setDocumentCookie("a=1;   ct0=spaced  ;b=2");
     // Each cookie segment is trimmed whole, so trailing value whitespace is lost.
     expect(hooks.getCookieValue("ct0")).toBe("spaced");
+  });
+});
+
+describe("direct action API base selection", () => {
+  beforeEach(() => {
+    resetTestEnvironment();
+    setDocumentCookie("ct0=csrf-token");
+  });
+
+  test("API-01 uses api.twitter.com when the page hostname is twitter.com", () => {
+    setWindowLocation("https://twitter.com/user/status/123456789");
+    const request = hooks.createDirectBlockRequest("targetuser");
+    expect(request.url).toBe("https://api.twitter.com/1.1/blocks/create.json");
+  });
+
+  test("API-02 uses api.x.com when the page hostname is x.com", () => {
+    setWindowLocation("https://x.com/user/status/123456789");
+    const request = hooks.createDirectBlockRequest("targetuser");
+    expect(request.url).toBe("https://api.x.com/1.1/blocks/create.json");
+  });
+
+  test("API-03 any hostname other than bare twitter.com falls back to api.x.com", () => {
+    // The hostname check is an exact string match, so even www.twitter.com
+    // (and localhost fixtures) route to the api.x.com base.
+    setWindowLocation("https://www.twitter.com/user/status/123456789");
+    expect(hooks.createDirectBlockRequest("targetuser").url).toBe(
+      "https://api.x.com/1.1/blocks/create.json",
+    );
+
+    setWindowLocation("http://localhost:5555/fixture");
+    expect(hooks.createDirectBlockRequest("targetuser").url).toBe(
+      "https://api.x.com/1.1/blocks/create.json",
+    );
+  });
+
+  test("API-04 mute requests share the same base selection and use the mutes endpoint", () => {
+    setWindowLocation("https://twitter.com/user/status/123456789");
+    expect(hooks.createDirectMuteRequest("targetuser").url).toBe(
+      "https://api.twitter.com/1.1/mutes/users/create.json",
+    );
+
+    setWindowLocation("https://x.com/user/status/123456789");
+    expect(hooks.createDirectMuteRequest("targetuser").url).toBe(
+      "https://api.x.com/1.1/mutes/users/create.json",
+    );
+  });
+
+  test("API-05 request carries the ct0 cookie as the CSRF header regardless of base", () => {
+    setDocumentCookie("auth_token=abc; ct0=cookie-derived-csrf; lang=en");
+    setWindowLocation("https://twitter.com/user/status/123456789");
+    const request = hooks.createDirectBlockRequest("targetuser");
+    expect(request.options.method).toBe("POST");
+    expect(request.options.credentials).toBe("include");
+    expect(request.options.headers["X-Csrf-Token"]).toBe("cookie-derived-csrf");
+    expect(request.options.body).toBe("screen_name=targetuser");
   });
 });

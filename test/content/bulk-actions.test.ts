@@ -1,17 +1,21 @@
-// Catalog: BULK-* (blockFirst20CommentTweets / muteFirst50CommentTweets / muteTweet).
+// Catalog: BULK-* (blockReplies / muteReplies batch runs over reply articles).
+//
+// Rewritten for the direct-API refactor: blockFirst20CommentTweets /
+// muteFirst50CommentTweets are gone, and muting no longer walks the X
+// More-menu (old DOM menu tests deleted; per-tweet direct-mute coverage lives
+// in direct-mute.test.ts). The old `.xb-progress-bar` width assertions are
+// replaced by onProgress assertions, and the old all-fail warning toast test
+// (old BULK-08) moved to dock behavior — see ui-rendering.test.ts.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { batchState } from "../../entrypoints/content/actions.ts";
 import {
-  createTweetArticle,
+  createAnonymousTweetArticle,
   hooks,
   installFetchStub,
   populateTweetPage,
 } from "../helpers/content-hooks.ts";
-import {
-  installImmediateTimers,
-  installManualTimers,
-  settleMicrotasks,
-} from "../helpers/timers.ts";
+import { installImmediateTimers } from "../helpers/timers.ts";
 import {
   resetTestEnvironment,
   setDocumentCookie,
@@ -27,7 +31,186 @@ function requestBodyText(call: { init: RequestInit | undefined }): string {
   return body;
 }
 
-describe("blockFirst20CommentTweets", () => {
+describe("blockReplies", () => {
+  let fetchStub: ReturnType<typeof installFetchStub> | null = null;
+  let timers: { uninstall: () => void } | null = null;
+
+  beforeEach(() => {
+    resetTestEnvironment();
+    setDocumentCookie("ct0=csrf-token");
+    setWindowLocation("https://x.com/author/status/123456789");
+    // Collapses the 250ms inter-reply delay so batches finish synchronously.
+    timers = installImmediateTimers();
+  });
+
+  afterEach(() => {
+    fetchStub?.uninstall();
+    fetchStub = null;
+    timers?.uninstall();
+    timers = null;
+  });
+
+  test("BULK-01 returns null without any network traffic when not on a tweet page", async () => {
+    setWindowLocation("https://x.com/author");
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["reply_one", "reply_two"]);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toBeNull();
+    expect(fetchStub.calls).toHaveLength(0);
+  });
+
+  test("BULK-02 skips the leading main tweet and blocks only the replies", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const replies = populateTweetPage(["reply_one", "reply_two", "reply_three"]);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ acted: 3, skipped: 0, failed: 0 });
+    expect(fetchStub.calls.map(requestBodyText)).toEqual([
+      "screen_name=reply_one",
+      "screen_name=reply_two",
+      "screen_name=reply_three",
+    ]);
+    const main = document.querySelectorAll('article[data-testid="tweet"]')[0];
+    expect(main).toBeInstanceOf(HTMLElement);
+    if (main instanceof HTMLElement) {
+      expect(main.dataset.xbBlocked).toBeUndefined();
+    }
+    for (const reply of replies) {
+      expect(reply.dataset.xbBlocked).toBe("true");
+    }
+  });
+
+  test("BULK-03 counts mixed whitelist/failure/success outcomes in the summary", async () => {
+    storageFake.data["whitelist"] = ["safe_user"];
+    fetchStub = installFetchStub((_, init) =>
+      typeof init?.body === "string" && init.body.includes("bad_user")
+        ? { ok: false, status: 500 }
+        : { ok: true, status: 200 },
+    );
+    populateTweetPage(["good_one", "safe_user", "bad_user", "good_two"]);
+    // A reply with no author link counts as failed (missing-username).
+    document.body.appendChild(createAnonymousTweetArticle());
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ acted: 2, skipped: 1, failed: 2 });
+    // The whitelisted and anonymous replies never reach the network.
+    expect(fetchStub.calls.map(requestBodyText)).toEqual([
+      "screen_name=good_one",
+      "screen_name=bad_user",
+      "screen_name=good_two",
+    ]);
+  });
+
+  test("BULK-04 reports onProgress increments for every reply, including skips and failures", async () => {
+    storageFake.data["whitelist"] = ["safe_user"];
+    fetchStub = installFetchStub((_, init) =>
+      typeof init?.body === "string" && init.body.includes("bad_user")
+        ? { ok: false, status: 500 }
+        : { ok: true, status: 200 },
+    );
+    populateTweetPage(["good_one", "safe_user", "bad_user"]);
+    const progress: Array<{ done: number; total: number }> = [];
+
+    await hooks.blockReplies((update) => {
+      progress.push({ ...update });
+    });
+
+    expect(progress).toEqual([
+      { done: 1, total: 3 },
+      { done: 2, total: 3 },
+      { done: 3, total: 3 },
+    ]);
+  });
+
+  test("BULK-05 marks only successfully blocked articles with data-xb-blocked", async () => {
+    storageFake.data["whitelist"] = ["safe_user"];
+    fetchStub = installFetchStub((_, init) =>
+      typeof init?.body === "string" && init.body.includes("bad_user")
+        ? { ok: false, status: 500 }
+        : { ok: true, status: 200 },
+    );
+    const [blocked, whitelisted, failed] = populateTweetPage(["good_one", "safe_user", "bad_user"]);
+
+    await hooks.blockReplies();
+
+    expect(blocked?.dataset.xbBlocked).toBe("true");
+    expect(whitelisted?.dataset.xbBlocked).toBeUndefined();
+    expect(failed?.dataset.xbBlocked).toBeUndefined();
+  });
+
+  test("BULK-06 raises batchState.running for the duration of the run only", async () => {
+    const observedDuringFetch: boolean[] = [];
+    fetchStub = installFetchStub(() => {
+      observedDuringFetch.push(batchState.running);
+      return { ok: true, status: 200 };
+    });
+    populateTweetPage(["reply_one", "reply_two"]);
+
+    expect(batchState.running).toBe(false);
+    await hooks.blockReplies();
+
+    expect(observedDuringFetch).toEqual([true, true]);
+    expect(batchState.running).toBe(false);
+  });
+
+  test("BULK-07 returns an all-zero summary and never reports progress with zero replies", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage([]);
+    const progress: Array<{ done: number; total: number }> = [];
+
+    const summary = await hooks.blockReplies((update) => {
+      progress.push({ ...update });
+    });
+
+    expect(summary).toEqual({ acted: 0, skipped: 0, failed: 0 });
+    expect(progress).toHaveLength(0);
+    expect(fetchStub.calls).toHaveLength(0);
+    expect(batchState.running).toBe(false);
+  });
+
+  test("BULK-08 caps the batch at the configured maxReplies setting", async () => {
+    storageFake.data["settings"] = { maxReplies: 2 };
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["reply_1", "reply_2", "reply_3", "reply_4", "reply_5"]);
+
+    const summary = await hooks.blockReplies();
+
+    expect(fetchStub.calls.map(requestBodyText)).toEqual([
+      "screen_name=reply_1",
+      "screen_name=reply_2",
+    ]);
+    expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
+  });
+
+  test("BULK-09 caps the batch at the default of 50 when no setting is stored", async () => {
+    // Replaces the old XB-BUG-04 pin: blockFirst20CommentTweets sliced to 50
+    // despite the "20" in its name. The cap is now explicit via getMaxReplies.
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(Array.from({ length: 60 }, (_, i) => `reply_${i}`));
+
+    const summary = await hooks.blockReplies();
+
+    expect(fetchStub.calls).toHaveLength(50);
+    expect(summary).toEqual({ acted: 50, skipped: 0, failed: 0 });
+  });
+
+  test("BULK-10 clamps stored maxReplies values to the 1..200 range", async () => {
+    storageFake.data["settings"] = { maxReplies: 999 };
+    expect(await hooks.getMaxReplies()).toBe(200);
+
+    storageFake.data["settings"] = { maxReplies: 0 };
+    expect(await hooks.getMaxReplies()).toBe(1);
+
+    storageFake.data["settings"] = { maxReplies: "not-a-number" };
+    expect(await hooks.getMaxReplies()).toBe(50);
+  });
+});
+
+describe("muteReplies", () => {
   let fetchStub: ReturnType<typeof installFetchStub> | null = null;
   let timers: { uninstall: () => void } | null = null;
 
@@ -45,222 +228,60 @@ describe("blockFirst20CommentTweets", () => {
     timers = null;
   });
 
-  test("BULK-01 exits immediately when not on a tweet page", async () => {
+  test("BULK-11 returns null without any network traffic when not on a tweet page", async () => {
     setWindowLocation("https://x.com/author");
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    populateTweetPage(["reply_one", "reply_two"]);
+    populateTweetPage(["reply_one"]);
 
-    await hooks.blockFirst20CommentTweets();
+    const summary = await hooks.muteReplies();
 
+    expect(summary).toBeNull();
     expect(fetchStub.calls).toHaveLength(0);
   });
 
-  test("BULK-02 skips the leading main tweet and blocks only the replies", async () => {
+  test("BULK-12 mutes replies via the mute endpoint, skipping the main tweet", async () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    populateTweetPage(["reply_one", "reply_two", "reply_three"]);
+    const replies = populateTweetPage(["reply_one", "reply_two"]);
+    const progress: Array<{ done: number; total: number }> = [];
 
-    await hooks.blockFirst20CommentTweets();
+    const summary = await hooks.muteReplies((update) => {
+      progress.push({ ...update });
+    });
 
-    expect(fetchStub.calls).toHaveLength(3);
-    const screenNames = fetchStub.calls.map(requestBodyText);
-    expect(screenNames).toEqual([
+    expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
+    expect(fetchStub.calls).toHaveLength(2);
+    for (const call of fetchStub.calls) {
+      expect(call.url).toBe("https://api.x.com/1.1/mutes/users/create.json");
+    }
+    expect(fetchStub.calls.map(requestBodyText)).toEqual([
       "screen_name=reply_one",
       "screen_name=reply_two",
-      "screen_name=reply_three",
     ]);
+    expect(progress).toEqual([
+      { done: 1, total: 2 },
+      { done: 2, total: 2 },
+    ]);
+    for (const reply of replies) {
+      expect(reply.dataset.xbBlocked).toBe("true");
+    }
   });
 
-  test("BULK-03 BUG XB-BUG-04: caps at 50 replies despite the '20' name", async () => {
-    // The function is named blockFirst20CommentTweets but slices (0, 50).
-    // Pin the real cap so the naming bug is visible and a rename/refactor is safe.
-    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    const replies = Array.from({ length: 60 }, (_, i) => `reply_${i}`);
-    populateTweetPage(replies);
-
-    await hooks.blockFirst20CommentTweets();
-
-    expect(fetchStub.calls).toHaveLength(50);
-  });
-
-  test("BULK-04 continues past per-reply failures and blocks the rest", async () => {
+  test("BULK-13 counts whitelist skips and API failures in the mute summary", async () => {
+    storageFake.data["whitelist"] = ["safe_user"];
     fetchStub = installFetchStub((_, init) =>
       typeof init?.body === "string" && init.body.includes("bad_user")
         ? { ok: false, status: 500 }
         : { ok: true, status: 200 },
     );
-    populateTweetPage(["good_one", "bad_user", "good_two"]);
+    populateTweetPage(["safe_user", "bad_user", "good_one"]);
 
-    await hooks.blockFirst20CommentTweets();
+    const summary = await hooks.muteReplies();
 
-    expect(fetchStub.calls).toHaveLength(3);
-  });
-
-  test("BULK-05 advances the progress bar to 100% when replies exist", async () => {
-    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    populateTweetPage(["reply_one", "reply_two"]);
-    const bar = document.createElement("div");
-    bar.className = "xb-progress-bar";
-    document.body.appendChild(bar);
-
-    await hooks.blockFirst20CommentTweets();
-
-    expect(bar.style.width).toBe("100%");
-  });
-
-  test("BULK-06 does nothing harmful with zero replies (only the main tweet)", async () => {
-    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    const main = createTweetArticle("solo_author").tweetArticle;
-    document.body.appendChild(main);
-
-    await hooks.blockFirst20CommentTweets();
-
-    expect(fetchStub.calls).toHaveLength(0);
-  });
-
-  test("BULK-07 honors the whitelist during bulk blocking", async () => {
-    storageFake.data["whitelist"] = ["reply_two"];
-    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    populateTweetPage(["reply_one", "reply_two", "reply_three"]);
-
-    await hooks.blockFirst20CommentTweets();
-
-    const screenNames = fetchStub.calls.map(requestBodyText);
-    expect(screenNames).toEqual(["screen_name=reply_one", "screen_name=reply_three"]);
-  });
-
-  test("BULK-08 shows a warning toast when every direct block fails", async () => {
-    timers?.uninstall();
-    timers = null;
-    const manual = installManualTimers();
-    fetchStub = installFetchStub(() => ({ ok: false, status: 403 }));
-    populateTweetPage(["fail_one"]);
-
-    try {
-      const run = hooks.blockFirst20CommentTweets();
-      await settleMicrotasks();
-      manual.flushUpTo(250);
-      await run;
-
-      expect(document.body.textContent).toContain("Direct block failed");
-      expect(manual.pendingDelays()).toContain(3000);
-    } finally {
-      manual.uninstall();
-    }
-  });
-});
-
-describe("muteTweet / muteFirst50CommentTweets", () => {
-  let timers: { uninstall: () => void } | null = null;
-
-  beforeEach(() => {
-    resetTestEnvironment();
-    setWindowLocation("https://x.com/author/status/123456789");
-    timers = installImmediateTimers();
-  });
-
-  afterEach(() => {
-    timers?.uninstall();
-    timers = null;
-  });
-
-  function buildMenuTweet(username: string): {
-    moreButton: HTMLElement & { clicks: number };
-    tweetArticle: HTMLElement;
-    confirmClicks: () => number;
-  } {
-    const { moreButton, tweetArticle } = createTweetArticle(username);
-    let confirmClicks = 0;
-
-    moreButton.click = () => {
-      moreButton.clicks++;
-      const menuItem = document.createElement("div");
-      menuItem.setAttribute("role", "menuitem");
-      Object.defineProperty(menuItem, "innerText", {
-        configurable: true,
-        value: `Mute @${username}`,
-      });
-      menuItem.click = () => {
-        const confirm = document.createElement("button");
-        confirm.setAttribute("data-testid", "confirmationSheetConfirm");
-        confirm.click = () => {
-          confirmClicks++;
-        };
-        document.body.appendChild(confirm);
-      };
-      document.body.appendChild(menuItem);
-    };
-
-    return { moreButton, tweetArticle, confirmClicks: () => confirmClicks };
-  }
-
-  test("BULK-08 mutes through the X menu: More -> Mute -> confirm", async () => {
-    const tweet = buildMenuTweet("noisy_user");
-    document.body.appendChild(tweet.tweetArticle);
-
-    await hooks.muteTweet(tweet.tweetArticle);
-
-    expect(tweet.moreButton.clicks).toBe(1);
-    expect(tweet.confirmClicks()).toBe(1);
-  });
-
-  test("BULK-09 skips muting whitelisted users (More button never clicked)", async () => {
-    storageFake.data["whitelist"] = ["noisy_user"];
-    const tweet = buildMenuTweet("noisy_user");
-    document.body.appendChild(tweet.tweetArticle);
-
-    await hooks.muteTweet(tweet.tweetArticle);
-
-    expect(tweet.moreButton.clicks).toBe(0);
-    expect(tweet.confirmClicks()).toBe(0);
-  });
-
-  test("BULK-10 resolves quietly when the tweet has no More button", async () => {
-    const tweetArticle = document.createElement("article");
-    tweetArticle.setAttribute("data-testid", "tweet");
-    const link = document.createElement("a");
-    link.setAttribute("href", "/menuless_user/status/1");
-    link.setAttribute("role", "link");
-    tweetArticle.appendChild(link);
-
-    await hooks.muteTweet(tweetArticle);
-  });
-
-  test("BULK-11 resolves quietly when the Mute menu item is absent", async () => {
-    const { moreButton, tweetArticle } = createTweetArticle("no_menu_user");
-    // moreButton.click does nothing, so no menuitem ever appears.
-    document.body.appendChild(tweetArticle);
-
-    await hooks.muteTweet(tweetArticle);
-    expect(moreButton.clicks).toBe(1);
-  });
-
-  test("BULK-12 muteFirst50 exits immediately when not on a tweet page", async () => {
-    setWindowLocation("https://x.com/author");
-    const tweet = buildMenuTweet("noisy_user");
-    document.body.appendChild(tweet.tweetArticle);
-
-    await hooks.muteFirst50CommentTweets();
-
-    expect(tweet.moreButton.clicks).toBe(0);
-  });
-
-  test("BULK-13 muteFirst50 skips the main tweet and updates the progress bar", async () => {
-    const main = createTweetArticle("thread_author").tweetArticle;
-    document.body.appendChild(main);
-    const replies = ["reply_a", "reply_b"].map((name) => {
-      const tweet = buildMenuTweet(name);
-      document.body.appendChild(tweet.tweetArticle);
-      return tweet;
-    });
-    const bar = document.createElement("div");
-    bar.className = "xb-progress-bar";
-    document.body.appendChild(bar);
-
-    await hooks.muteFirst50CommentTweets();
-
-    for (const reply of replies) {
-      expect(reply.confirmClicks()).toBe(1);
-    }
-    expect(bar.style.width).toBe("100%");
+    expect(summary).toEqual({ acted: 1, skipped: 1, failed: 1 });
+    expect(fetchStub.calls.map(requestBodyText)).toEqual([
+      "screen_name=bad_user",
+      "screen_name=good_one",
+    ]);
+    expect(batchState.running).toBe(false);
   });
 });

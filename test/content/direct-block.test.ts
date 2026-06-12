@@ -95,7 +95,7 @@ describe("blockUserDirectly", () => {
         throw new Error("Expected direct block to reject");
       },
       (error) => {
-        expect(String(error)).toContain("HTTP 401");
+        expect(String(error)).toContain("Direct block failed with HTTP 401.");
       },
     );
   });
@@ -164,6 +164,9 @@ describe("blockTweet", () => {
 
     expect(result).toEqual({ status: "blocked", username: "direct_user" });
     expect(fetchStub.calls).toHaveLength(1);
+    const call = fetchStub.calls[0]!;
+    expect(call.url).toBe("https://api.x.com/1.1/blocks/create.json");
+    expect(call.init?.body).toBe("screen_name=direct_user");
     expect(moreButton.clicks).toBe(0);
   });
 
@@ -178,19 +181,17 @@ describe("blockTweet", () => {
     expect(fetchStub.calls).toHaveLength(0);
   });
 
-  test("BT-03 BUG XB-BUG-02: whitelist matching is case-sensitive, so casing bypasses it", async () => {
-    // X handles are case-insensitive; the whitelist compare is not. A user
-    // whitelisted as "safe_user" is still blocked when the tweet link casing
-    // differs. This pins the current (wrong) behavior — fixing it should
-    // flip this expectation to "skipped".
+  test("BT-03 whitelist matching ignores handle casing (XB-BUG-02 fixed)", async () => {
+    // X handles are case-insensitive, so "Safe_User" matches the stored
+    // "safe_user" entry and the block is skipped without network traffic.
     storageFake.data["whitelist"] = ["safe_user"];
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     const { tweetArticle } = createTweetArticle("Safe_User");
 
     const result = await hooks.blockTweet(tweetArticle);
 
-    expect(result).toEqual({ status: "blocked", username: "Safe_User" });
-    expect(fetchStub.calls).toHaveLength(1);
+    expect(result).toEqual({ status: "skipped", username: "Safe_User" });
+    expect(fetchStub.calls).toHaveLength(0);
   });
 
   test("BT-04 fails with missing-username when no author link exists", async () => {
@@ -241,5 +242,35 @@ describe("blockTweet", () => {
       username: "toggled_user",
     });
     expect(storageFake.getCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("BT-08 fails (not throws) on a network-level fetch rejection", async () => {
+    const rejecting = installRejectingFetch("connection reset");
+    try {
+      const { tweetArticle } = createTweetArticle("offline_user");
+
+      const result = await hooks.blockTweet(tweetArticle);
+
+      expect(result.status).toBe("failed");
+      if (result.status === "failed") {
+        expect(result.username).toBe("offline_user");
+        expect(String(result.error)).toContain("connection reset");
+      }
+      expect(rejecting.calls).toHaveLength(1);
+    } finally {
+      rejecting.uninstall();
+    }
+  });
+
+  test("BT-09 treats a whitelist read failure as an empty whitelist and blocks", async () => {
+    storageFake.data["whitelist"] = ["resilient_user"];
+    storageFake.failNextGet = true;
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const { tweetArticle } = createTweetArticle("resilient_user");
+
+    const result = await hooks.blockTweet(tweetArticle);
+
+    expect(result).toEqual({ status: "blocked", username: "resilient_user" });
+    expect(fetchStub.calls).toHaveLength(1);
   });
 });
