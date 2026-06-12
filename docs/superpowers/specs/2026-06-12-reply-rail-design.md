@@ -3,8 +3,10 @@
 Date: 2026-06-12
 Status: Design approved. Supersedes `2026-06-12-cursor-console-design.md` (the per-author
 cursor console is removed; this rail is the only in-page surface).
-Open item: motion personality (Glide / Spring / Magnetic rows) — to be chosen via the
-playable prototype before implementation.
+Motion personality: **Glide** (damped lerp, factor 0.22) — chosen by the user from the
+`prototypes/reply-rail-prototype.html` comparison (Spring and Magnetic rows rejected);
+prototype deleted after the verdict. Dwell 1000ms / jitter 4px / collapse grace 600ms
+felt right as specced.
 
 ## Problem
 
@@ -58,11 +60,8 @@ reply-mode entry.
 - Dwell detection: no cursor movement beyond a ~4px jitter threshold for 1000ms.
 - `prefers-reduced-motion: reduce`: no glide — snap positioning; expand/collapse is
   opacity-only.
-- Personality variants (prototype will decide):
-  - (a) **Glide** — damped lerp (like the old FOLLOW_FACTOR behavior)
-  - (b) **Spring** — spring physics with slight overshoot
-  - (c) **Magnetic rows** — rail aligns to the vertical center of the hovered reply
-    row, stepping reply-to-reply like a focus indicator
+- Personality: **Glide** — damped lerp toward `cursorY - railHeight/2`, factor 0.22
+  (decided via prototype; Spring physics and Magnetic row-snapping were rejected).
 
 ## Reply-mode detection & suppression
 
