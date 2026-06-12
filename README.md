@@ -7,6 +7,10 @@ A modern Chrome extension for efficiently managing content on X.com (formerly Tw
 - 🚫 **Smart Blocking**: Block multiple comment users with one click
 - 🔇 **Intelligent Muting**: Mute unwanted comments efficiently
 - ✅ **Whitelist Management**: Protect trusted users from being blocked/muted
+- 🗂️ **Blocked-account store**: Remembers who you've blocked by stable numeric id, so it
+  skips re-blocking and shows a real blocked count
+- ☁️ **Cloud backup (optional)**: Mirror your blocked list to [Convex](https://convex.dev)
+  so it follows you across machines — opt-in, off by default
 - 🎛️ **Reply Action Bar**: Clear in-page actions without burying core controls in a menu
 - ⚙️ **Popup Settings**: Manage whitelist and behavior preferences from the Chrome popup
 - 📊 **Progress Tracking**: Real-time progress bars during operations
@@ -84,13 +88,16 @@ bun test --coverage
 
 #### Test Structure
 
-- `test/setup.js` - Test environment configuration and mocks
-- `test/reply-action-bar.test.js` - In-page Reply Action Bar behavior tests
-- `test/popup.test.js` - Extension popup behavior tests
-- `test/whitelist.test.js` - Whitelist functionality tests
-- `test/ui.test.js` - UI components and interactions tests
-- `test/blocking.test.js` - Blocking and muting logic tests
-- `test/integration.test.js` - End-to-end workflow tests
+The test suite is TypeScript, run by Bun (`bun test`).
+
+- `test/setup.ts` - Test environment configuration and an in-memory `chrome.storage` mock
+- `test/blocked-store.test.ts` - Blocked-account store and dedupe/rollup logic
+- `test/reply-action-bar.test.ts` - In-page Reply Action Bar behavior tests
+- `test/popup.test.ts` - Extension popup behavior tests
+- `test/whitelist.test.ts` - Whitelist functionality tests
+- `test/ui.test.ts` - UI components and interactions tests
+- `test/blocking.test.ts` - Blocking and muting logic tests
+- `test/integration.test.ts` - End-to-end workflow tests
 
 #### Mocking
 
@@ -123,7 +130,11 @@ The test environment includes mocks for:
 ### Core Components
 
 - `entrypoints/content.ts` - WXT TypeScript content script with all extension behavior
-- `entrypoints/popup/` - Chrome extension popup for settings and whitelist management
+- `entrypoints/popup/` - Chrome extension popup for settings, whitelist, and cloud backup
+- `entrypoints/lib/blocked-merge.ts` - pure, dependency-free dedupe/rollup logic
+- `entrypoints/lib/blocked-store.ts` - blocked-account store over `chrome.storage.local`
+- `entrypoints/lib/convex-sync.ts` - optional Convex cloud backup adapter (popup only)
+- `convex/` - optional Convex backend (schema + functions) for cloud backup
 - `wxt.config.ts` - Manifest V3 metadata, permissions, and host permissions
 - `bts.jsonc` - Better-T-Stack stack record for the WXT vanilla TypeScript addon
 - `.oxlintrc.json` / `.oxfmtrc.json` - OXC lint and format configuration
@@ -144,6 +155,30 @@ Uses Chrome's `chrome.storage.local` API to persist:
 
 - User whitelist data
 - Extension preferences
+- Blocked / muted accounts (`blockedAccounts`), keyed on the **stable numeric X user id**
+  captured from the block response — screen names are kept only for display since they
+  are mutable and recyclable. One record per account; repeat blocks/mutes (even from
+  different accounts) are appended as history, never duplicated.
+- A cloud sync outbox (`blockedOutbox`) of actions waiting to be backed up
+
+The blocked store lives behind a small module interface (`entrypoints/lib/blocked-store.ts`)
+over a pure, separately tested merge/dedupe core (`entrypoints/lib/blocked-merge.ts`).
+
+### Cloud backup (optional)
+
+XBlocker can mirror your blocked list to [Convex](https://convex.dev) so it survives
+across machines and browser profiles. It is **opt-in** (off by default); the local store
+is always the source of truth and the extension works fully offline without it.
+
+- Identity is your Google account (OIDC), so the backup is scoped to you across devices.
+- The same dedup invariant holds in the cloud: one row per `(owner, xUserId)`, many
+  action events.
+- All Convex traffic and the OAuth flow run from the popup, never from the x.com content
+  script (`entrypoints/lib/convex-sync.ts` is loaded lazily and only when backup is used).
+
+To enable it, follow [`convex/README.md`](convex/README.md): create a Convex deployment and
+a Google OAuth client, set `VITE_CONVEX_URL` + `VITE_GOOGLE_OAUTH_CLIENT_ID` (see
+`.env.example`), rebuild, then open the popup → **Cloud backup** → **Sign in**.
 
 ## Browser Compatibility
 

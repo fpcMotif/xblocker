@@ -26,5 +26,16 @@
     "es2024": true,
     "webextensions": true
   },
-  "ignorePatterns": [".output/**", ".wxt/**", "coverage/**", "node_modules/**"]
+  "ignorePatterns": [".output/**", ".wxt/**", "coverage/**", "node_modules/**", "convex/**"],
+  "overrides": [
+    {
+      "files": ["test/**/*.ts"],
+      "rules": {
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-unnecessary-boolean-literal-compare": "off",
+        "typescript/no-useless-default-assignment": "off",
+        "typescript/unbound-method": "off"
+      }
+    }
+  ]
 }
