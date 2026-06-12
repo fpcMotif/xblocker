@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 
 describe("Blocking and Muting Functions", () => {
+  const realSetTimeout = global.setTimeout;
+
   beforeEach(() => {
     // Reset DOM
     document.body.innerHTML = "";
@@ -23,6 +25,7 @@ describe("Blocking and Muting Functions", () => {
   });
 
   afterEach(() => {
+    global.setTimeout = realSetTimeout;
     document.body.innerHTML = "";
     document.head.innerHTML = "";
   });

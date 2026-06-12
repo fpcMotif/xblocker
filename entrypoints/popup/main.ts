@@ -1,3 +1,6 @@
+import { parseUsername } from "../../utils/username";
+import { whitelistStore } from "../../utils/whitelist-store";
+
 type PopupSettings = {
   confirmDestructiveActions: boolean;
   keyboardMode: boolean;
@@ -15,29 +18,18 @@ const DEFAULT_SETTINGS: PopupSettings = {
   protectWhitelist: true,
 };
 
-function normalizeUsername(value: string): string | null {
-  const username = value.replace(/^@/, "").trim();
-  return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
-}
-
-function getStoredState(): Promise<PopupState> {
+function getStoredSettings(): Promise<PopupSettings> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(["settings", "whitelist"], (result) => {
+    chrome.storage.local.get("settings", (result) => {
       const storedSettings =
         typeof result?.settings === "object" && result.settings ? result.settings : {};
-      const settings = { ...DEFAULT_SETTINGS, ...storedSettings };
-      const whitelist = Array.isArray(result?.whitelist) ? result.whitelist : [];
-      resolve({ settings, whitelist });
+      resolve({ ...DEFAULT_SETTINGS, ...storedSettings });
     });
   });
 }
 
 function saveSettings(settings: PopupSettings): void {
   void chrome.storage.local.set({ settings });
-}
-
-function saveWhitelist(whitelist: string[]): void {
-  void chrome.storage.local.set({ whitelist });
 }
 
 function ensurePopupStyles(): void {
@@ -506,6 +498,11 @@ function renderWhitelist(section: HTMLElement, state: PopupState): void {
   const list = document.createElement("div");
   list.className = "xb-whitelist-list";
 
+  const refresh = async () => {
+    state.whitelist = await whitelistStore.list();
+    drawList();
+  };
+
   const drawList = () => {
     list.replaceChildren();
     for (const username of state.whitelist) {
@@ -529,9 +526,7 @@ function renderWhitelist(section: HTMLElement, state: PopupState): void {
       removeButton.type = "button";
       removeButton.textContent = "Remove";
       removeButton.addEventListener("click", () => {
-        state.whitelist = state.whitelist.filter((item) => item !== username);
-        saveWhitelist(state.whitelist);
-        drawList();
+        void whitelistStore.remove(username).then(refresh);
       });
 
       row.append(handle, removeButton);
@@ -541,13 +536,13 @@ function renderWhitelist(section: HTMLElement, state: PopupState): void {
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const username = normalizeUsername(input.value);
-    if (!username || state.whitelist.includes(username)) return;
+    const username = parseUsername(input.value);
+    if (!username) return;
 
-    state.whitelist = [...state.whitelist, username];
-    saveWhitelist(state.whitelist);
-    input.value = "";
-    drawList();
+    void whitelistStore.add(username).then((added) => {
+      if (added) input.value = "";
+      return refresh();
+    });
   });
 
   drawList();
@@ -598,7 +593,8 @@ function renderSettings(section: HTMLElement, settings: PopupSettings): void {
 
 export async function renderPopup(root: HTMLElement): Promise<void> {
   ensurePopupStyles();
-  const state = await getStoredState();
+  const [settings, whitelist] = await Promise.all([getStoredSettings(), whitelistStore.list()]);
+  const state: PopupState = { settings, whitelist };
 
   const popup = document.createElement("main");
   popup.className = "xb-popup";
@@ -663,4 +659,6 @@ export async function renderPopup(root: HTMLElement): Promise<void> {
 const appRoot = document.getElementById("app");
 if (appRoot) {
   void renderPopup(appRoot);
+  // Re-render when another surface (e.g. the page modal) edits the whitelist.
+  whitelistStore.onChange(() => void renderPopup(appRoot));
 }
