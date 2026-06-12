@@ -88,7 +88,8 @@ timers.
 ## Testing (bun test + happy-dom, 100% coverage gate)
 
 - `position.test.ts`: `computeRailY` clamping, lerp, jitter threshold.
-- `rail.test.ts` (replaces `cursor-console.test.ts` + `dock.test.ts`): state
+- `rail-state.test.ts` + `rail-actions.test.ts` (replace `cursor-console.test.ts` +
+  `dock.test.ts`; split so the state-machine and actions tasks own separate files): state
   transitions per the table above; freeze triggers (dwell / leave-column / hover);
   resume on movement; collapse grace; Escape; suppression; drag persistence; batch
   progress ring; reply counts on bulk buttons; reduced-motion snap.
