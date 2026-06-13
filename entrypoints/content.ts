@@ -34,13 +34,29 @@ type DirectBlockRequest = {
 };
 type XBlockerTestHooks = {
   addButtons: () => void;
+  addToWhitelist: (username: string) => void;
+  blockFirst20CommentTweets: () => Promise<void>;
   blockTweet: (tweetArticle: Element) => Promise<BlockTweetResult>;
   blockUserDirectly: (username: string) => Promise<DirectBlockOutcome>;
+  checkPageAndAddButton: () => void;
+  createActionIcon: (type: ActionIconType, size?: number, color?: string) => SVGSVGElement;
   createDirectBlockRequest: (username: string) => DirectBlockRequest;
+  createReplyActionButton: (config: ReplyActionConfig, theme: Theme) => HTMLButtonElement;
+  detectTheme: () => Theme;
   extractUsernameFromTweet: (tweetArticle: Element) => string | null;
   getCookieValue: (name: string) => string;
+  getWhitelist: (callback: (whitelist: string[]) => void) => void;
+  initializeXBlocker: () => void;
   isTweetPageUrl: (url: string) => boolean;
+  muteFirst50CommentTweets: () => Promise<void>;
+  muteTweet: (tweetArticle: Element) => Promise<void>;
   normalizeUsername: (value: string | null | undefined) => string | null;
+  observeThemeChanges: () => MutationObserver;
+  runContentScript: () => void;
+  saveWhitelist: (whitelist: string[]) => void;
+  showToast: (message: string, type?: ToastType) => void;
+  showWhitelistModal: () => void;
+  waitFor: (ms: number) => Promise<void>;
 };
 
 declare global {
@@ -426,9 +442,9 @@ async function muteTweet(tweetArticle: Element): Promise<void> {
         await new Promise((r) => setTimeout(r, 500));
 
         // Find the "Mute @username" menu item
-        const muteItem = Array.from(
-          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-        ).find((item) => item.innerText.trim().startsWith("Mute @"));
+        const muteItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+          .toReversed()
+          .find((item) => item.innerText.trim() === `Mute @${username}`);
 
         if (muteItem) {
           // Simulate click on "Mute @username"
@@ -438,9 +454,9 @@ async function muteTweet(tweetArticle: Element): Promise<void> {
           await new Promise((r) => setTimeout(r, 500));
 
           // Find and click the "Mute" button in the modal
-          const confirmButton = document.querySelector<HTMLElement>(
-            '[data-testid="confirmationSheetConfirm"]',
-          );
+          const confirmButton = Array.from(
+            document.querySelectorAll<HTMLElement>('[data-testid="confirmationSheetConfirm"]'),
+          ).at(-1);
           if (confirmButton) {
             confirmButton.click();
             // The mute menu flow gives us no numeric id, so record by screen name.
@@ -874,14 +890,9 @@ function showWhitelistModal(): void {
   modal.appendChild(modalContent);
   document.body.appendChild(modal);
 
-  const input = modal.querySelector<HTMLInputElement>("#username-input");
-  const cancelBtn = modal.querySelector<HTMLButtonElement>("#cancel-btn");
-  const addBtn = modal.querySelector<HTMLButtonElement>("#add-btn");
-
-  if (!input || !cancelBtn || !addBtn) {
-    modal.remove();
-    return;
-  }
+  const input = modal.querySelector<HTMLInputElement>("#username-input")!;
+  const cancelBtn = modal.querySelector<HTMLButtonElement>("#cancel-btn")!;
+  const addBtn = modal.querySelector<HTMLButtonElement>("#add-btn")!;
 
   // Focus input
   input.focus();
@@ -1010,26 +1021,48 @@ function initializeXBlocker(): void {
   }).observe(document, { subtree: true, childList: true });
 }
 
-const isXBlockerTestMode = typeof globalThis !== "undefined" && globalThis.__XB_TEST__;
+function isTestMode(): boolean {
+  return typeof globalThis !== "undefined" && !!globalThis.__XB_TEST__;
+}
+
+function runContentScript(): void {
+  if (!isTestMode()) {
+    initializeXBlocker();
+  }
+}
+
+const isXBlockerTestMode = isTestMode();
 
 if (isXBlockerTestMode) {
   globalThis.__xblockerTestHooks = {
     addButtons,
+    addToWhitelist,
+    blockFirst20CommentTweets,
     blockTweet,
     blockUserDirectly,
+    checkPageAndAddButton,
+    createActionIcon,
     createDirectBlockRequest,
+    createReplyActionButton,
+    detectTheme,
     extractUsernameFromTweet,
     getCookieValue,
+    getWhitelist,
+    initializeXBlocker,
     isTweetPageUrl,
+    muteFirst50CommentTweets,
+    muteTweet,
     normalizeUsername,
+    observeThemeChanges,
+    runContentScript,
+    saveWhitelist,
+    showToast,
+    showWhitelistModal,
+    waitFor,
   };
 }
 
 export default defineContentScript({
   matches: ["https://x.com/*"],
-  main() {
-    if (!isXBlockerTestMode) {
-      initializeXBlocker();
-    }
-  },
+  main: runContentScript,
 });

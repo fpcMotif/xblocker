@@ -2,11 +2,12 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "strict": false,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
     "allowImportingTsExtensions": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
-    "noUncheckedIndexedAccess": false,
     "types": ["bun-types", "chrome", "node"]
   },
   "include": ["./**/*.ts"],

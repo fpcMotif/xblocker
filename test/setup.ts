@@ -1,148 +1,213 @@
-// Test setup file for DOM environment
-import { beforeEach, expect } from "bun:test";
+// Shared test environment: happy-dom globals + a stateful chrome.storage fake.
+//
+// Design goals (see docs/test-plan.md):
+// - The storage fake is STATEFUL: set() mutates a store that later get() calls
+//   observe, so persistence bugs are visible (the legacy setup.js fake always
+//   returned an empty whitelist and silently dropped writes).
+// - The fake supports a "manual" dispatch mode where callbacks are queued and
+//   flushed explicitly. This exposes read-modify-write races (XB-BUG-08) that a
+//   synchronous fake can never reproduce.
+// - Failures can be injected per call (failNextGet/failNextSet) to assert the
+//   extension degrades gracefully when chrome.storage errors.
 import { Window } from "happy-dom";
 
-// Setup Happy DOM environment
-const window = new Window();
-const document = window.document;
+const happyWindow = new Window();
+const happyDocument = happyWindow.document;
 
-// Set globals
-global.window = window;
-global.document = document;
-global.navigator = window.navigator;
-global.getComputedStyle = (...args) => window.getComputedStyle(...args);
-global.HTMLElement = window.HTMLElement;
-global.Element = window.Element;
-global.Node = window.Node;
-global.Event = window.Event;
-global.KeyboardEvent = window.KeyboardEvent;
-global.MouseEvent = window.MouseEvent;
-global.location = window.location;
+const g = globalThis as Record<string, unknown>;
 
-// Mock Chrome extension APIs with a real in-memory storage area so that
-// read-modify-write code (the blocked store, whitelist, settings) can be tested
-// end to end. Individual test files may still override get/set for focused cases.
-function createInMemoryStorage() {
-  let data = {};
-  const changeListeners = [];
+Object.assign(g, {
+  window: happyWindow,
+  document: happyDocument,
+  navigator: happyWindow.navigator,
+  getComputedStyle: happyWindow.getComputedStyle.bind(happyWindow),
+  HTMLElement: happyWindow.HTMLElement,
+  HTMLButtonElement: happyWindow.HTMLButtonElement,
+  HTMLInputElement: happyWindow.HTMLInputElement,
+  Element: happyWindow.Element,
+  Node: happyWindow.Node,
+  Event: happyWindow.Event,
+  KeyboardEvent: happyWindow.KeyboardEvent,
+  MouseEvent: happyWindow.MouseEvent,
+  location: happyWindow.location,
+});
 
-  function selectKeys(keys) {
-    if (keys == null) return { ...data };
-    if (typeof keys === "string") {
-      return keys in data ? { [keys]: data[keys] } : {};
-    }
-    if (Array.isArray(keys)) {
-      const out = {};
-      for (const key of keys) {
-        if (key in data) out[key] = data[key];
-      }
-      return out;
-    }
-    // Object form: keys are defaults.
-    const out = {};
-    for (const [key, fallback] of Object.entries(keys)) {
-      out[key] = key in data ? data[key] : fallback;
-    }
-    return out;
+const activeObservers = new Set<MutationObserver>();
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- happy-dom's observer is runtime-compatible with the DOM shape used by these tests.
+const BaseMutationObserver = happyWindow.MutationObserver as unknown as typeof MutationObserver;
+
+g.MutationObserver = class TrackedMutationObserver extends BaseMutationObserver {
+  constructor(callback: MutationCallback) {
+    super(callback);
+    activeObservers.add(this);
   }
 
-  const area = {
-    get: (keys, callback) => {
-      const result = selectKeys(keys);
-      if (callback) callback(result);
-      return Promise.resolve(result);
-    },
-    set: (items, callback) => {
-      const changes = {};
-      for (const [key, value] of Object.entries(items)) {
-        changes[key] = { oldValue: data[key], newValue: value };
-        data[key] = value;
-      }
-      for (const listener of changeListeners) listener(changes, "local");
-      if (callback) callback();
-      return Promise.resolve();
-    },
-    remove: (keys, callback) => {
-      const list = Array.isArray(keys) ? keys : [keys];
-      const changes = {};
-      for (const key of list) {
-        if (key in data) {
-          changes[key] = { oldValue: data[key], newValue: undefined };
-          delete data[key];
-        }
-      }
-      for (const listener of changeListeners) listener(changes, "local");
-      if (callback) callback();
-      return Promise.resolve();
-    },
-    clear: (callback) => {
-      data = {};
-      if (callback) callback();
-      return Promise.resolve();
-    },
-    __reset: () => {
-      data = {};
-      changeListeners.length = 0;
-    },
-  };
-
-  return { area, changeListeners };
-}
-
-// Install a brand-new in-memory chrome.storage on the global. Tests run in one shared
-// process, and several files replace chrome.storage methods (or global.setTimeout) in
-// their own beforeEach without restoring them. Reinstalling a fresh area before every
-// test keeps each test isolated regardless of what ran before it.
-function installFreshChrome() {
-  const { area: localArea, changeListeners } = createInMemoryStorage();
-  global.chrome = {
-    storage: {
-      local: localArea,
-      onChanged: {
-        addListener: (listener) => changeListeners.push(listener),
-        removeListener: (listener) => {
-          const index = changeListeners.indexOf(listener);
-          if (index !== -1) changeListeners.splice(index, 1);
-        },
-      },
-    },
-  };
-}
-
-const originalSetTimeout = global.setTimeout;
-installFreshChrome();
-
-beforeEach(() => {
-  installFreshChrome();
-  // blocking.test.js overrides setTimeout to run synchronously and never restores it.
-  global.setTimeout = originalSetTimeout;
-});
-
-// Mock console methods to avoid noise in tests
-global.console = {
-  ...console,
-  log: () => {},
-  error: () => {},
-  warn: () => {},
+  disconnect(): void {
+    super.disconnect();
+    activeObservers.delete(this);
+  }
 };
 
-// Add custom matchers and utilities
-expect.extend({
-  toHaveStyle(received, property, value) {
-    const element = received;
-    const actualValue = element.style[property] || getComputedStyle(element)[property];
+export type StorageItems = Record<string, unknown>;
+export type StorageGetKeys = string | string[] | StorageItems | null | undefined;
+export type StorageGetCallback = (items?: StorageItems) => void;
 
-    if (actualValue === value) {
-      return {
-        message: () => `Expected element not to have style ${property}: ${value}`,
-        pass: true,
-      };
-    } else {
-      return {
-        message: () =>
-          `Expected element to have style ${property}: ${value}, but got: ${actualValue}`,
-        pass: false,
-      };
+type DispatchMode = "sync" | "manual";
+
+export class FakeChromeStorageArea {
+  data: StorageItems = {};
+  getCalls: StorageGetKeys[] = [];
+  setCalls: StorageItems[] = [];
+  failNextGet = false;
+  failNextSet = false;
+  private mode: DispatchMode = "sync";
+  private pending: Array<() => void> = [];
+
+  get(keys: StorageGetKeys, callback: StorageGetCallback): void {
+    this.getCalls.push(keys);
+    this.dispatch(() => {
+      if (this.failNextGet) {
+        this.failNextGet = false;
+        // Real chrome invokes the callback with no items and sets
+        // chrome.runtime.lastError. The extension never reads lastError, so the
+        // observable contract is simply "callback receives nothing usable".
+        callback(undefined);
+        return;
+      }
+      callback(this.snapshotFor(keys));
+    });
+  }
+
+  set(items: StorageItems, callback?: () => void): void {
+    this.setCalls.push(structuredClone(items));
+    this.dispatch(() => {
+      if (this.failNextSet) {
+        this.failNextSet = false;
+        callback?.();
+        return;
+      }
+      Object.assign(this.data, structuredClone(items));
+      callback?.();
+    });
+  }
+
+  /** Drop every stored key. Used by the blocked-store suite to start each test
+   *  from an empty area; mirrors chrome.storage.local.clear(). */
+  clear(callback?: () => void): void {
+    this.dispatch(() => {
+      this.data = {};
+      callback?.();
+    });
+  }
+
+  /** Queue callbacks instead of running them, until flush() is called. */
+  useManualDispatch(): void {
+    this.mode = "manual";
+  }
+
+  /** Run every queued callback (in FIFO order), including ones queued while flushing. */
+  flush(): void {
+    while (this.pending.length > 0) {
+      const next = this.pending.shift();
+      next?.();
     }
+  }
+
+  pendingCount(): number {
+    return this.pending.length;
+  }
+
+  reset(): void {
+    this.data = {};
+    this.getCalls = [];
+    this.setCalls = [];
+    this.failNextGet = false;
+    this.failNextSet = false;
+    this.mode = "sync";
+    this.pending = [];
+  }
+
+  private dispatch(task: () => void): void {
+    if (this.mode === "manual") {
+      this.pending.push(task);
+      return;
+    }
+    task();
+  }
+
+  private snapshotFor(keys: StorageGetKeys): StorageItems {
+    if (keys === null || keys === undefined) {
+      return structuredClone(this.data);
+    }
+    const names =
+      typeof keys === "string" ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
+    const result: StorageItems = {};
+    for (const name of names) {
+      if (typeof name === "string" && name in this.data) {
+        result[name] = structuredClone(this.data[name]);
+      }
+    }
+    return result;
+  }
+}
+
+export const storageFake = new FakeChromeStorageArea();
+
+g.chrome = {
+  runtime: { lastError: undefined },
+  storage: {
+    local: {
+      get: (keys: StorageGetKeys, callback: StorageGetCallback) => storageFake.get(keys, callback),
+      set: (items: StorageItems, callback?: () => void) => storageFake.set(items, callback),
+      clear: (callback?: () => void) => storageFake.clear(callback),
+    },
   },
-});
+};
+
+/** Point window.location/location at a fake URL without happy-dom navigation. */
+export function setWindowLocation(href: string): void {
+  const url = new URL(href);
+  const fakeLocation = { hostname: url.hostname, href };
+  Object.defineProperty(happyWindow, "location", {
+    configurable: true,
+    value: fakeLocation,
+    writable: true,
+  });
+  g.location = fakeLocation;
+}
+
+/** Override document.cookie with a fixed cookie string. */
+export function setDocumentCookie(value: string): void {
+  Object.defineProperty(happyDocument, "cookie", {
+    configurable: true,
+    get: () => value,
+    set: () => {},
+  });
+}
+
+/** Reset DOM + storage between tests. Call from beforeEach. */
+export function resetTestEnvironment(): void {
+  for (const observer of activeObservers) {
+    observer.disconnect();
+  }
+  activeObservers.clear();
+
+  const doc = happyDocument;
+  doc.body.innerHTML = "";
+  doc.head.innerHTML = "";
+  doc.documentElement.style.colorScheme = "";
+  doc.documentElement.removeAttribute("data-theme");
+  doc.body.style.backgroundColor = "rgb(255, 255, 255)";
+  storageFake.reset();
+  setDocumentCookie("");
+  setWindowLocation("https://x.com/someuser/status/123456789");
+}
+
+// Silence extension logging so test output stays readable. Failures are
+// asserted on behavior, never on console output.
+g.console = {
+  ...console,
+  log: () => {},
+  warn: () => {},
+  error: () => {},
+};

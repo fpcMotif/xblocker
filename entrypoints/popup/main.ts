@@ -21,8 +21,23 @@ const DEFAULT_SETTINGS: PopupSettings = {
   cloudBackup: false,
 };
 
+const RESERVED_X_PATHS = new Set<string>([
+  "home",
+  "i",
+  "intent",
+  "messages",
+  "notifications",
+  "search",
+  "settings",
+  "share",
+]);
+
 function normalizeUsername(value: string): string | null {
   const username = value.replace(/^@/, "").trim();
+  if (!username || RESERVED_X_PATHS.has(username.toLowerCase())) {
+    return null;
+  }
+
   return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
 }
 
@@ -779,7 +794,12 @@ export async function renderPopup(root: HTMLElement): Promise<void> {
   root.replaceChildren(popup);
 }
 
-const appRoot = document.getElementById("app");
-if (appRoot) {
-  void renderPopup(appRoot);
+export function mountPopupIfPresent(): Promise<void> {
+  const appRoot = document.getElementById("app");
+  if (appRoot) {
+    return renderPopup(appRoot);
+  }
+  return Promise.resolve();
 }
+
+void mountPopupIfPresent();

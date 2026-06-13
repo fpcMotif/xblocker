@@ -4,6 +4,7 @@ import {
   accountKeyFor,
   mergeBlockedAccount,
   summarizeAccounts,
+  type BlockedStats,
 } from "../entrypoints/lib/blocked-merge.ts";
 import { createBlockedStore } from "../entrypoints/lib/blocked-store.ts";
 
@@ -249,5 +250,158 @@ describe("BlockedStore (through chrome.storage.local)", () => {
     const remote = await store.get("2");
     expect(remote?.blockCount).toBe(3);
     expect(remote?.handle).toBe("remote");
+  });
+});
+
+describe("BlockedStore edge cases", () => {
+  test("has() reports membership by key", async () => {
+    const store = createBlockedStore();
+    await store.record({ handle: "spammer", kind: "block", source: "reply-bar", xUserId: "111" });
+
+    expect(await store.has("111")).toBe(true);
+    expect(await store.has("999")).toBe(false);
+  });
+
+  test("generates a non-crypto id when crypto.randomUUID is unavailable", async () => {
+    const store = createBlockedStore();
+    const originalCrypto = globalThis.crypto;
+    // Force genId down its non-crypto fallback branch.
+    Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
+    try {
+      const account = await store.record({ handle: "noid", kind: "block", source: "reply-bar" });
+      expect(account.actions[0]?.actionId).toBeTruthy();
+    } finally {
+      Object.defineProperty(globalThis, "crypto", { value: originalCrypto, configurable: true });
+    }
+  });
+
+  test("markSynced is a no-op for an empty id list", async () => {
+    const store = createBlockedStore();
+    await store.record({ handle: "spammer", kind: "block", source: "reply-bar", xUserId: "1" });
+
+    await store.markSynced([]);
+    expect(await store.pending()).toHaveLength(1);
+  });
+
+  test("mergeRemote returns early when there is nothing to merge", async () => {
+    const store = createBlockedStore();
+    await store.record({ handle: "local", kind: "block", source: "reply-bar", xUserId: "1" });
+
+    await store.mergeRemote([]);
+    expect(await store.list()).toHaveLength(1);
+  });
+
+  test("mergeRemote rolls a newer remote row into the matching local account", async () => {
+    const store = createBlockedStore();
+    await store.record({ handle: "spammer", kind: "block", source: "reply-bar", xUserId: "1" });
+
+    await store.mergeRemote([
+      {
+        xUserId: "1",
+        handle: "renamed",
+        idUnknown: false,
+        firstActionAt: 1,
+        lastActionAt: Date.now() + 60_000,
+        blockCount: 5,
+        muteCount: 2,
+        status: "active",
+      },
+    ]);
+
+    const account = await store.get("1");
+    expect(account?.blockCount).toBe(5);
+    expect(account?.muteCount).toBe(2);
+    expect(account?.handle).toBe("renamed"); // remote row is newer, so its handle wins
+  });
+
+  test("mergeRemote matches a handle-keyed local record by its learned id", async () => {
+    const store = createBlockedStore();
+    // First seen with no id (stored under the "@handle" key)...
+    await store.record({ handle: "ghost", kind: "block", source: "reply-bar" });
+    // ...then learned the numeric id (the record stays under the "@handle" key).
+    await store.record({ handle: "ghost", kind: "block", source: "popup", xUserId: "1" });
+
+    await store.mergeRemote([
+      {
+        xUserId: "1",
+        handle: "ghost",
+        idUnknown: false,
+        firstActionAt: 1,
+        lastActionAt: 2,
+        blockCount: 9,
+        muteCount: 0,
+        status: "active",
+      },
+    ]);
+
+    const list = await store.list();
+    // Matched the existing handle-keyed record rather than creating a duplicate.
+    expect(list).toHaveLength(1);
+    expect(list[0]?.blockCount).toBe(9);
+  });
+
+  test("onChange forwards local blockedAccounts changes to the subscriber", () => {
+    const store = createBlockedStore();
+    const listeners: Array<(c: Record<string, { newValue?: unknown }>, area: string) => void> = [];
+    const fakeOnChanged = {
+      addListener(fn: (c: Record<string, { newValue?: unknown }>, area: string) => void) {
+        listeners.push(fn);
+      },
+      removeListener(fn: (c: Record<string, { newValue?: unknown }>, area: string) => void) {
+        const index = listeners.indexOf(fn);
+        if (index !== -1) listeners.splice(index, 1);
+      },
+    };
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- install a runtime onChanged fake the static chrome typings don't model.
+    const chromeStorage = chrome.storage as unknown as Record<string, unknown>;
+    const originalOnChanged = chromeStorage["onChanged"];
+    chromeStorage["onChanged"] = fakeOnChanged;
+    try {
+      const seen: BlockedStats[] = [];
+      const unsubscribe = store.onChange((stats) => seen.push(stats));
+
+      const map = {
+        "1": {
+          key: "1",
+          handle: "spammer",
+          idUnknown: false,
+          xUserId: "1",
+          firstActionAt: 1,
+          lastActionAt: 1,
+          blockCount: 1,
+          muteCount: 0,
+          status: "active",
+          actions: [],
+        },
+      };
+      const fire = (changes: Record<string, { newValue?: unknown }>, area: string) => {
+        for (const listener of listeners) listener(changes, area);
+      };
+      // A change in another storage area is ignored.
+      fire({ blockedAccounts: { newValue: map } }, "sync");
+      // A non-object payload summarizes to an empty set.
+      fire({ blockedAccounts: { newValue: 42 } }, "local");
+      // A real local map is summarized and forwarded.
+      fire({ blockedAccounts: { newValue: map } }, "local");
+
+      expect(seen).toEqual([
+        { accounts: 0, blocked: 0, muted: 0 },
+        { accounts: 1, blocked: 1, muted: 0 },
+      ]);
+
+      unsubscribe();
+      expect(listeners).toHaveLength(0);
+    } finally {
+      chromeStorage["onChanged"] = originalOnChanged;
+    }
+  });
+
+  test("onChange is inert when chrome.storage.onChanged is unavailable", () => {
+    const store = createBlockedStore();
+    const unsubscribe = store.onChange(() => {
+      throw new Error("should never fire without an onChanged API");
+    });
+    // Returns a usable no-op unsubscribe.
+    expect(() => unsubscribe()).not.toThrow();
   });
 });
