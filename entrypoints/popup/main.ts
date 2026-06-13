@@ -1,18 +1,24 @@
+import { blockedStore } from "../lib/blocked-store";
+import type { BlockedStats } from "../lib/blocked-merge";
+
 type PopupSettings = {
   confirmDestructiveActions: boolean;
   keyboardMode: boolean;
   protectWhitelist: boolean;
+  cloudBackup: boolean;
 };
 
 type PopupState = {
   settings: PopupSettings;
   whitelist: string[];
+  stats: BlockedStats;
 };
 
 const DEFAULT_SETTINGS: PopupSettings = {
   confirmDestructiveActions: true,
   keyboardMode: false,
   protectWhitelist: true,
+  cloudBackup: false,
 };
 
 const RESERVED_X_PATHS = new Set<string>([
@@ -37,12 +43,13 @@ function normalizeUsername(value: string): string | null {
 
 function getStoredState(): Promise<PopupState> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(["settings", "whitelist"], (result) => {
+    chrome.storage.local.get(["settings", "whitelist"], async (result) => {
       const storedSettings =
         typeof result?.settings === "object" && result.settings ? result.settings : {};
       const settings = { ...DEFAULT_SETTINGS, ...storedSettings };
       const whitelist = Array.isArray(result?.whitelist) ? result.whitelist : [];
-      resolve({ settings, whitelist });
+      const stats = await blockedStore.stats();
+      resolve({ settings, whitelist, stats });
     });
   });
 }
@@ -468,8 +475,8 @@ function renderActionSummary(section: HTMLElement, state: PopupState): void {
   list.className = "xb-action-summary";
 
   const summaryRows: Array<[string, string, string, string]> = [
-    ["Block replies", "0", "Blocked", "danger"],
-    ["Mute replies", "0", "Muted", "warning"],
+    ["Block replies", String(state.stats.blocked), "Blocked", "danger"],
+    ["Mute replies", String(state.stats.muted), "Muted", "warning"],
     ["Whitelist", String(state.whitelist.length), "Whitelisted", "success"],
   ];
 
@@ -611,6 +618,93 @@ function renderSettings(section: HTMLElement, settings: PopupSettings): void {
   section.appendChild(list);
 }
 
+// Drive a one-shot cloud sync: drain the local outbox to Convex, then pull and merge
+// remote accounts. convex-sync is loaded lazily so the (heavier) Convex bundle is only
+// pulled in when backup is actually used. No sign-in — it talks to your deployment.
+async function runCloudSync(setStatus: (message: string) => void): Promise<void> {
+  setStatus("Syncing…");
+  const sync = await import("../lib/convex-sync");
+
+  if (!sync.isCloudConfigured()) {
+    setStatus("Not configured. Set VITE_CONVEX_URL, then rebuild.");
+    return;
+  }
+
+  const pending = await blockedStore.pending();
+  if (pending.length > 0) {
+    const synced = await sync.pushOutbox(pending);
+    await blockedStore.markSynced(synced);
+  }
+  const remote = await sync.pullBlocked();
+  await blockedStore.mergeRemote(remote);
+
+  setStatus("Backed up to your Convex.");
+}
+
+function renderCloudBackup(section: HTMLElement, settings: PopupSettings): void {
+  const status = document.createElement("p");
+  status.className = "xb-toggle-description";
+  status.textContent = settings.cloudBackup
+    ? "Backup on. Your blocked list mirrors to your Convex."
+    : "Off. Your blocked list stays on this device only.";
+
+  const setStatus = (message: string) => {
+    status.textContent = message;
+  };
+
+  const toggleRow = document.createElement("label");
+  toggleRow.className = "xb-toggle-row";
+
+  const copy = document.createElement("span");
+  copy.className = "xb-toggle-copy";
+  const title = document.createElement("span");
+  title.className = "xb-toggle-title";
+  title.textContent = "Back up blocked list to cloud";
+  const description = document.createElement("span");
+  description.className = "xb-toggle-description";
+  description.textContent = "Mirror your blocked accounts to your Convex (opt-in)";
+  copy.append(title, description);
+
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.className = "xb-switch-input";
+  toggle.checked = settings.cloudBackup;
+  toggle.addEventListener("change", () => {
+    settings.cloudBackup = toggle.checked;
+    saveSettings(settings);
+    if (toggle.checked) {
+      void runCloudSync(setStatus).catch((error: unknown) => {
+        setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    } else {
+      setStatus("Off. Your blocked list stays on this device only.");
+    }
+  });
+  toggleRow.append(copy, toggle);
+
+  const controls = document.createElement("div");
+  controls.className = "xb-whitelist-form";
+
+  const syncButton = document.createElement("button");
+  syncButton.type = "button";
+  syncButton.className = "xb-button";
+  syncButton.textContent = "Sync now";
+
+  syncButton.addEventListener("click", async () => {
+    syncButton.disabled = true;
+    try {
+      await runCloudSync(setStatus);
+    } catch (error: unknown) {
+      setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      syncButton.disabled = false;
+    }
+  });
+
+  controls.append(syncButton);
+  section.append(toggleRow, controls, status);
+}
+
 export async function renderPopup(root: HTMLElement): Promise<void> {
   ensurePopupStyles();
   const state = await getStoredState();
@@ -656,6 +750,9 @@ export async function renderPopup(root: HTMLElement): Promise<void> {
   const whitelistSection = createSection("Whitelist", `${state.whitelist.length} saved`);
   renderWhitelist(whitelistSection, state);
 
+  const cloudSection = createSection("Cloud backup");
+  renderCloudBackup(cloudSection, state.settings);
+
   const settingsSection = createSection("Behavior settings");
   renderSettings(settingsSection, state.settings);
 
@@ -671,15 +768,16 @@ export async function renderPopup(root: HTMLElement): Promise<void> {
   footerHint.textContent = "More controls";
   footer.append(footerHint, advancedButton);
 
-  popup.append(header, summarySection, whitelistSection, settingsSection, footer);
+  popup.append(header, summarySection, whitelistSection, cloudSection, settingsSection, footer);
   root.replaceChildren(popup);
 }
 
-export function mountPopupIfPresent(): void {
+export function mountPopupIfPresent(): Promise<void> {
   const appRoot = document.getElementById("app");
   if (appRoot) {
-    void renderPopup(appRoot);
+    return renderPopup(appRoot);
   }
+  return Promise.resolve();
 }
 
-mountPopupIfPresent();
+void mountPopupIfPresent();

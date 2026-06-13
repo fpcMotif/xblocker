@@ -76,12 +76,13 @@ describe("blockUserDirectly", () => {
     fetchStub = null;
   });
 
-  test("DB-07 performs exactly one POST and resolves on HTTP 200", async () => {
+  test("DB-07 performs exactly one POST and resolves with the blocked screen name", async () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
 
-    const response = await hooks.blockUserDirectly("direct_user");
+    const outcome = await hooks.blockUserDirectly("direct_user");
 
-    expect(response.status).toBe(200);
+    // The response body is empty here, so we fall back to the normalized handle.
+    expect(outcome).toEqual({ screen_name: "direct_user" });
     expect(fetchStub.calls).toHaveLength(1);
     const call = fetchStub.calls[0]!;
     expect(call.url).toBe("https://api.x.com/1.1/blocks/create.json");
@@ -140,6 +141,51 @@ describe("blockUserDirectly", () => {
       },
     );
     expect(fetchStub.calls).toHaveLength(0);
+  });
+
+  test("DB-12 captures the numeric id_str and canonical screen_name from the body", async () => {
+    const globals = globalThis as Record<string, unknown>;
+    const original = globals["fetch"];
+    globals["fetch"] = async () =>
+      new Response(JSON.stringify({ id_str: "9876543210", screen_name: "RealHandle" }), {
+        status: 200,
+      });
+    try {
+      const outcome = await hooks.blockUserDirectly("typed_handle");
+      expect(outcome).toEqual({ screen_name: "RealHandle", id_str: "9876543210" });
+    } finally {
+      globals["fetch"] = original;
+    }
+  });
+
+  test("DB-13 derives id_str from a numeric id when id_str is absent", async () => {
+    const globals = globalThis as Record<string, unknown>;
+    const original = globals["fetch"];
+    globals["fetch"] = async () => new Response(JSON.stringify({ id: 12345 }), { status: 200 });
+    try {
+      const outcome = await hooks.blockUserDirectly("num_handle");
+      expect(outcome).toEqual({ screen_name: "num_handle", id_str: "12345" });
+    } finally {
+      globals["fetch"] = original;
+    }
+  });
+
+  test("DB-14 falls back to the screen name when the body cannot be read", async () => {
+    const globals = globalThis as Record<string, unknown>;
+    const original = globals["fetch"];
+    globals["fetch"] = async () => ({
+      ok: true,
+      status: 200,
+      text: () => {
+        throw new Error("unreadable body");
+      },
+    });
+    try {
+      const outcome = await hooks.blockUserDirectly("fallback_handle");
+      expect(outcome).toEqual({ screen_name: "fallback_handle" });
+    } finally {
+      globals["fetch"] = original;
+    }
   });
 });
 
@@ -241,5 +287,22 @@ describe("blockTweet", () => {
       username: "toggled_user",
     });
     expect(storageFake.getCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("BT-08 skips an author already recorded in the local block store", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const { tweetArticle } = createTweetArticle("repeat_user");
+
+    expect(await hooks.blockTweet(tweetArticle)).toEqual({
+      status: "blocked",
+      username: "repeat_user",
+    });
+    // The second pass short-circuits on the local store — no second POST.
+    expect(await hooks.blockTweet(tweetArticle)).toEqual({
+      status: "skipped",
+      username: "repeat_user",
+      reason: "already-blocked",
+    });
+    expect(fetchStub.calls).toHaveLength(1);
   });
 });

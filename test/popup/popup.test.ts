@@ -59,14 +59,18 @@ describe("renderPopup structure", () => {
       settings: { confirmDestructiveActions: false, keyboardMode: true, protectWhitelist: false },
     });
     await renderPopup(document.body);
-    const toggles = Array.from(document.querySelectorAll<HTMLInputElement>(".xb-switch-input"));
+    const toggles = Array.from(
+      document.querySelectorAll<HTMLInputElement>(".xb-settings-list .xb-switch-input"),
+    );
     // Order matches renderSettings: protect, confirm, keyboard.
     expect(toggles.map((toggle) => toggle.checked)).toEqual([false, false, true]);
   });
 
   test("PU-06 falls back to default settings when none are stored", async () => {
     await renderPopup(document.body);
-    const toggles = Array.from(document.querySelectorAll<HTMLInputElement>(".xb-switch-input"));
+    const toggles = Array.from(
+      document.querySelectorAll<HTMLInputElement>(".xb-settings-list .xb-switch-input"),
+    );
     expect(toggles.map((toggle) => toggle.checked)).toEqual([true, true, false]);
   });
 });
@@ -156,11 +160,14 @@ describe("popup settings toggles", () => {
 
   test("PU-13 toggling a switch persists the new settings object", async () => {
     await renderPopup(document.body);
-    const protectToggle = document.querySelector<HTMLInputElement>(".xb-switch-input")!;
+    const protectToggle = document.querySelector<HTMLInputElement>(
+      ".xb-settings-list .xb-switch-input",
+    )!;
     protectToggle.checked = false;
     protectToggle.dispatchEvent(new Event("change", { bubbles: true }));
 
     expect(storageFake.data["settings"]).toEqual({
+      cloudBackup: false,
       confirmDestructiveActions: true,
       keyboardMode: false,
       protectWhitelist: false,
@@ -170,7 +177,9 @@ describe("popup settings toggles", () => {
   test("PU-14 default settings merge with a partial stored settings object", async () => {
     seedState({ settings: { keyboardMode: true } });
     await renderPopup(document.body);
-    const toggles = Array.from(document.querySelectorAll<HTMLInputElement>(".xb-switch-input"));
+    const toggles = Array.from(
+      document.querySelectorAll<HTMLInputElement>(".xb-settings-list .xb-switch-input"),
+    );
     // protect/confirm fall back to defaults (true), keyboard is the stored true.
     expect(toggles.map((toggle) => toggle.checked)).toEqual([true, true, true]);
   });
@@ -180,8 +189,7 @@ describe("popup settings toggles", () => {
     app.id = "app";
     document.body.appendChild(app);
 
-    mountPopupIfPresent();
-    await Promise.resolve();
+    await mountPopupIfPresent();
 
     expect(app.querySelector('[data-xb-surface="popup"]')).toBeTruthy();
   });

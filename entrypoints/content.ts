@@ -1,5 +1,8 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
 
+import { blockedStore } from "./lib/blocked-store";
+import type { BlockedStats } from "./lib/blocked-merge";
+
 type ToastType = "info" | "success" | "warning";
 type ThemeActionColor = "primary" | "success" | "warning" | "danger";
 type ThemeColor = ThemeActionColor | "background" | "surface" | "border" | "text" | "textSecondary";
@@ -16,9 +19,10 @@ type ReplyActionConfig = {
   action: () => Promise<void> | void;
 };
 type BlockTweetResult =
-  | { status: "blocked"; username: string }
-  | { status: "skipped"; username: string }
+  | { status: "blocked"; username: string; id?: string }
+  | { status: "skipped"; username: string; reason?: string }
   | { status: "failed"; username?: string; reason?: string; error?: unknown };
+type DirectBlockOutcome = { screen_name: string; id_str?: string };
 type DirectBlockRequest = {
   url: string;
   options: RequestInit & {
@@ -33,7 +37,7 @@ type XBlockerTestHooks = {
   addToWhitelist: (username: string) => void;
   blockFirst20CommentTweets: () => Promise<void>;
   blockTweet: (tweetArticle: Element) => Promise<BlockTweetResult>;
-  blockUserDirectly: (username: string) => Promise<Response>;
+  blockUserDirectly: (username: string) => Promise<DirectBlockOutcome>;
   checkPageAndAddButton: () => void;
   createActionIcon: (type: ActionIconType, size?: number, color?: string) => SVGSVGElement;
   createDirectBlockRequest: (username: string) => DirectBlockRequest;
@@ -80,6 +84,21 @@ const RESERVED_X_PATHS = new Set<string>([
 
 function waitFor(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function safeParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function readProp(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  return Reflect.get(value, key);
 }
 
 function getCookieValue(name: string): string {
@@ -158,13 +177,38 @@ function createDirectBlockRequest(username: string): DirectBlockRequest {
   };
 }
 
-async function blockUserDirectly(username: string): Promise<Response> {
+async function blockUserDirectly(username: string): Promise<DirectBlockOutcome> {
   const request = createDirectBlockRequest(username);
   const response = await fetch(request.url, request.options);
   if (!response.ok) {
     throw new Error(`Direct block failed with HTTP ${response.status}.`);
   }
-  return response;
+
+  // blocks/create.json returns the blocked user object, including the stable numeric
+  // id_str. Capture it so the local store keys on the id rather than the mutable
+  // screen name. Fall back to the screen name if the body is missing or unreadable.
+  let screenName = normalizeUsername(username) ?? username;
+  let idStr: string | undefined;
+  try {
+    if (typeof response.text === "function") {
+      const body = safeParseJson(await response.text());
+      const idStrValue = readProp(body, "id_str");
+      const idValue = readProp(body, "id");
+      const screenNameValue = readProp(body, "screen_name");
+      if (typeof idStrValue === "string") {
+        idStr = idStrValue;
+      } else if (typeof idValue === "number") {
+        idStr = String(idValue);
+      }
+      if (typeof screenNameValue === "string") {
+        screenName = screenNameValue;
+      }
+    }
+  } catch (error) {
+    console.warn("Could not read block response body; falling back to screen name.", error);
+  }
+
+  return { screen_name: screenName, ...(idStr ? { id_str: idStr } : {}) };
 }
 
 async function blockFirst20CommentTweets(): Promise<void> {
@@ -216,6 +260,10 @@ function getWhitelist(callback: (whitelist: string[]) => void): void {
     const whitelist = Array.isArray(result?.whitelist) ? result.whitelist : [];
     callback(whitelist);
   });
+}
+
+function getWhitelistAsync(): Promise<string[]> {
+  return new Promise((resolve) => getWhitelist(resolve));
 }
 
 function saveWhitelist(whitelist: string[]): void {
@@ -306,33 +354,42 @@ function showToast(message: string, type: ToastType = "info"): void {
   });
 }
 
-// Modify the blockTweet function to skip whitelisted users
+// Block a reply author directly, skipping whitelisted and already-blocked accounts
+// and recording the block (with the stable numeric id) in the local store.
 async function blockTweet(tweetArticle: Element): Promise<BlockTweetResult> {
   const username = extractUsernameFromTweet(tweetArticle);
 
-  return new Promise((resolve) => {
-    getWhitelist(async (whitelist) => {
-      if (username && whitelist.includes(username)) {
-        console.log(`Skipping @${username}, as they are in the whitelist.`);
-        resolve({ status: "skipped", username });
-        return;
-      }
+  const whitelist = await getWhitelistAsync();
+  if (username && whitelist.includes(username)) {
+    console.log(`Skipping @${username}, as they are in the whitelist.`);
+    return { status: "skipped", username };
+  }
 
-      if (!username) {
-        console.log("Username not found for a comment tweet.");
-        resolve({ status: "failed", reason: "missing-username" });
-        return;
-      }
+  if (!username) {
+    console.log("Username not found for a comment tweet.");
+    return { status: "failed", reason: "missing-username" };
+  }
 
-      try {
-        await blockUserDirectly(username);
-        resolve({ status: "blocked", username });
-      } catch (error) {
-        console.warn(`Direct block failed for @${username}:`, error);
-        resolve({ status: "failed", username, error });
-      }
+  // Reuse: don't re-POST blocks/create.json for someone already blocked. This is
+  // best-effort by screen name until we know the numeric id for this author.
+  if (await blockedStore.hasActiveHandle(username)) {
+    console.log(`Skipping @${username}, already blocked.`);
+    return { status: "skipped", username, reason: "already-blocked" };
+  }
+
+  try {
+    const outcome = await blockUserDirectly(username);
+    await blockedStore.record({
+      handle: outcome.screen_name,
+      kind: "block",
+      source: "reply-bar",
+      ...(outcome.id_str ? { xUserId: outcome.id_str } : {}),
     });
-  });
+    return { status: "blocked", username, ...(outcome.id_str ? { id: outcome.id_str } : {}) };
+  } catch (error) {
+    console.warn(`Direct block failed for @${username}:`, error);
+    return { status: "failed", username, error };
+  }
 }
 
 async function muteFirst50CommentTweets(): Promise<void> {
@@ -402,6 +459,10 @@ async function muteTweet(tweetArticle: Element): Promise<void> {
           ).at(-1);
           if (confirmButton) {
             confirmButton.click();
+            // The mute menu flow gives us no numeric id, so record by screen name.
+            if (username) {
+              void blockedStore.record({ handle: username, kind: "mute", source: "reply-bar" });
+            }
           }
         } else {
           console.log("Mute option not found.");
@@ -615,6 +676,8 @@ async function executeReplyAction(
   }
 }
 
+let replyBarStatusUnsubscribe: (() => void) | undefined;
+
 function addButtons(): void {
   for (const id of ["xblocker-reply-action-bar", "xblocker-dashboard", "xblocker-buttons"]) {
     document.getElementById(id)?.remove();
@@ -735,6 +798,13 @@ function addButtons(): void {
   settingsButton.addEventListener("click", () => {
     showToast("Use the XBlocker extension popup for settings.", "info");
   });
+
+  const renderBlockedCount = (stats: BlockedStats) => {
+    status.textContent = `${stats.blocked} blocked`;
+  };
+  void blockedStore.stats().then(renderBlockedCount);
+  replyBarStatusUnsubscribe?.();
+  replyBarStatusUnsubscribe = blockedStore.onChange(renderBlockedCount);
 
   actionBar.appendChild(status);
   actionBar.appendChild(actions);

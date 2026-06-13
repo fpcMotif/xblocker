@@ -3,3 +3,8 @@ scratchpad.txt
 .output/
 coverage/
 node_modules/
+
+# Local env (Convex deployment URL + OAuth client id)
+.env
+.env.local
+.env.*.local

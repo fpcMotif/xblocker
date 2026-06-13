@@ -14,6 +14,8 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy",
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware --deny-warnings .",
     "lint:fix": "oxlint --type-aware --fix .",
@@ -21,6 +23,9 @@
     "format:check": "oxfmt --check package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\"",
     "check": "bun run typecheck && bun run lint && bun run format:check && bun test && bun run build",
     "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "convex": "^1.41.0"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.43",

@@ -10,5 +10,6 @@
     "allowImportingTsExtensions": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["bun-types", "chrome"]
-  }
+  },
+  "exclude": ["node_modules", ".output", "convex", "test"]
 }
