@@ -1,23 +1,17 @@
-// Catalog: PU-CB-* (cloud backup toggle, sign-in / sync controls, runCloudSync).
+// Catalog: PU-CB-* (cloud backup toggle, sync control, runCloudSync).
 //
-// convex-sync talks to a live Convex deployment + Google OAuth (see its header) and is
-// intentionally excluded from unit tests. We mock it at the popup boundary so the
-// popup's sync wiring is exercised without pulling in the real adapter.
+// convex-sync talks to a live Convex deployment (see its header) and is intentionally
+// excluded from unit tests. We mock it at the popup boundary so the popup's sync wiring
+// is exercised without pulling in the real adapter. There is no auth in this flow.
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let configured: boolean;
-let ensureAuthResult: boolean;
-let signInResult: { email: string };
-let currentEmailValue: string | undefined;
 let pushOutboxImpl: (items: unknown[]) => Promise<string[]>;
 let pullBlockedImpl: () => Promise<unknown[]>;
 let calls: { push: number; pull: number };
 
 await mock.module("../../entrypoints/lib/convex-sync", () => ({
   isCloudConfigured: () => configured,
-  signIn: async () => signInResult,
-  ensureAuth: async () => ensureAuthResult,
-  currentEmail: () => currentEmailValue,
   pushOutbox: async (items: unknown[]) => {
     calls.push += 1;
     return pushOutboxImpl(items);
@@ -48,16 +42,13 @@ describe("popup cloud backup", () => {
   beforeEach(() => {
     resetTestEnvironment();
     configured = true;
-    ensureAuthResult = true;
-    signInResult = { email: "me@example.com" };
-    currentEmailValue = "me@example.com";
     pushOutboxImpl = async (items) =>
       (items as Array<{ action: { actionId: string } }>).map((item) => item.action.actionId);
     pullBlockedImpl = async () => [];
     calls = { push: 0, pull: 0 };
   });
 
-  test("PU-CB-01 enabling backup signs in non-interactively and drains the outbox", async () => {
+  test("PU-CB-01 enabling backup drains the outbox and pulls remote state", async () => {
     storageFake.data["blockedOutbox"] = [
       {
         accountKey: "1",
@@ -77,7 +68,7 @@ describe("popup cloud backup", () => {
     expect(calls.push).toBe(1);
     expect(calls.pull).toBe(1);
     expect(storageFake.data["blockedOutbox"]).toEqual([]);
-    expect(cloudSection().textContent).toContain("Backed up");
+    expect(cloudSection().textContent).toContain("Backed up to your Convex");
     expect((storageFake.data["settings"] as { cloudBackup: boolean }).cloudBackup).toBe(true);
   });
 
@@ -95,15 +86,17 @@ describe("popup cloud backup", () => {
     expect(cloudSection().textContent).toContain("device only");
   });
 
-  test("PU-CB-03 the Sign in button runs the interactive flow", async () => {
+  test("PU-CB-03 the Sync now button pushes and pulls", async () => {
     await renderPopup(document.body);
 
-    const signIn = cloudSection().querySelector<HTMLButtonElement>(".xb-button")!;
-    signIn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const syncButton = cloudSection().querySelector<HTMLButtonElement>(".xb-button")!;
+    syncButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
+    // Outbox is empty here, so no push, but the pull + merge still runs.
+    expect(calls.push).toBe(0);
     expect(calls.pull).toBe(1);
-    expect(cloudSection().textContent).toContain("Backed up");
+    expect(cloudSection().textContent).toContain("Backed up to your Convex");
   });
 
   test("PU-CB-04 reports when cloud backup is not configured", async () => {
@@ -119,20 +112,7 @@ describe("popup cloud backup", () => {
     expect(calls.pull).toBe(0);
   });
 
-  test("PU-CB-05 prompts to sign in when non-interactive auth fails", async () => {
-    ensureAuthResult = false;
-    await renderPopup(document.body);
-
-    const toggle = cloudSection().querySelector<HTMLInputElement>(".xb-switch-input")!;
-    toggle.checked = true;
-    toggle.dispatchEvent(new Event("change", { bubbles: true }));
-    await flush();
-
-    expect(cloudSection().textContent).toContain("Sign in to enable backup");
-    expect(calls.pull).toBe(0);
-  });
-
-  test("PU-CB-06 surfaces a sync error raised from the toggle", async () => {
+  test("PU-CB-05 surfaces a sync error raised from the toggle", async () => {
     pullBlockedImpl = async () => {
       throw new Error("network boom");
     };
@@ -146,14 +126,14 @@ describe("popup cloud backup", () => {
     expect(cloudSection().textContent).toContain("Backup error: network boom");
   });
 
-  test("PU-CB-07 surfaces a sync error raised from the Sign in button", async () => {
+  test("PU-CB-06 surfaces a sync error raised from the Sync now button", async () => {
     pullBlockedImpl = async () => {
       throw new Error("button boom");
     };
     await renderPopup(document.body);
 
-    const signIn = cloudSection().querySelector<HTMLButtonElement>(".xb-button")!;
-    signIn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const syncButton = cloudSection().querySelector<HTMLButtonElement>(".xb-button")!;
+    syncButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
     expect(cloudSection().textContent).toContain("Backup error: button boom");

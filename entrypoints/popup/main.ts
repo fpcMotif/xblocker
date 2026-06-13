@@ -619,29 +619,15 @@ function renderSettings(section: HTMLElement, settings: PopupSettings): void {
 }
 
 // Drive a one-shot cloud sync: drain the local outbox to Convex, then pull and merge
-// remote accounts. The Convex client + OAuth flow live in convex-sync, which is loaded
-// lazily so the (heavier) Convex bundle is only pulled in when backup is actually used.
-async function runCloudSync(
-  options: { interactive: boolean },
-  setStatus: (message: string) => void,
-): Promise<void> {
-  setStatus("Connecting…");
+// remote accounts. convex-sync is loaded lazily so the (heavier) Convex bundle is only
+// pulled in when backup is actually used. No sign-in — it talks to your deployment.
+async function runCloudSync(setStatus: (message: string) => void): Promise<void> {
+  setStatus("Syncing…");
   const sync = await import("../lib/convex-sync");
 
   if (!sync.isCloudConfigured()) {
-    setStatus("Not configured. Set VITE_CONVEX_URL and VITE_GOOGLE_OAUTH_CLIENT_ID, then rebuild.");
+    setStatus("Not configured. Set VITE_CONVEX_URL, then rebuild.");
     return;
-  }
-
-  if (options.interactive) {
-    const { email } = await sync.signIn();
-    setStatus(`Signed in as ${email || "Google account"}`);
-  } else {
-    const signedIn = await sync.ensureAuth();
-    if (!signedIn) {
-      setStatus("Sign in to enable backup.");
-      return;
-    }
   }
 
   const pending = await blockedStore.pending();
@@ -652,14 +638,14 @@ async function runCloudSync(
   const remote = await sync.pullBlocked();
   await blockedStore.mergeRemote(remote);
 
-  setStatus(`Backed up ${sync.currentEmail() ? `as ${sync.currentEmail()}` : ""}`.trim());
+  setStatus("Backed up to your Convex.");
 }
 
 function renderCloudBackup(section: HTMLElement, settings: PopupSettings): void {
   const status = document.createElement("p");
   status.className = "xb-toggle-description";
   status.textContent = settings.cloudBackup
-    ? "Backup enabled. Sign in to sync across devices."
+    ? "Backup on. Your blocked list mirrors to your Convex."
     : "Off. Your blocked list stays on this device only.";
 
   const setStatus = (message: string) => {
@@ -676,7 +662,7 @@ function renderCloudBackup(section: HTMLElement, settings: PopupSettings): void 
   title.textContent = "Back up blocked list to cloud";
   const description = document.createElement("span");
   description.className = "xb-toggle-description";
-  description.textContent = "Mirror your blocked accounts to Convex (opt-in)";
+  description.textContent = "Mirror your blocked accounts to your Convex (opt-in)";
   copy.append(title, description);
 
   const toggle = document.createElement("input");
@@ -687,7 +673,7 @@ function renderCloudBackup(section: HTMLElement, settings: PopupSettings): void 
     settings.cloudBackup = toggle.checked;
     saveSettings(settings);
     if (toggle.checked) {
-      void runCloudSync({ interactive: false }, setStatus).catch((error: unknown) => {
+      void runCloudSync(setStatus).catch((error: unknown) => {
         setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
       });
     } else {
@@ -699,31 +685,23 @@ function renderCloudBackup(section: HTMLElement, settings: PopupSettings): void 
   const controls = document.createElement("div");
   controls.className = "xb-whitelist-form";
 
-  const signInButton = document.createElement("button");
-  signInButton.type = "button";
-  signInButton.className = "xb-button";
-  signInButton.textContent = "Sign in";
-
   const syncButton = document.createElement("button");
   syncButton.type = "button";
-  syncButton.className = "xb-link-button";
+  syncButton.className = "xb-button";
   syncButton.textContent = "Sync now";
 
-  const withBusy = (button: HTMLButtonElement, interactive: boolean) => async () => {
-    button.disabled = true;
+  syncButton.addEventListener("click", async () => {
+    syncButton.disabled = true;
     try {
-      await runCloudSync({ interactive }, setStatus);
+      await runCloudSync(setStatus);
     } catch (error: unknown) {
       setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      button.disabled = false;
+      syncButton.disabled = false;
     }
-  };
+  });
 
-  signInButton.addEventListener("click", withBusy(signInButton, true));
-  syncButton.addEventListener("click", withBusy(syncButton, false));
-
-  controls.append(signInButton, syncButton);
+  controls.append(syncButton);
   section.append(toggleRow, controls, status);
 }
 

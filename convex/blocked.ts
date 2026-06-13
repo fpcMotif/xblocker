@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 
 const kindValidator = v.union(v.literal("block"), v.literal("mute"), v.literal("unblock"));
 const sourceValidator = v.union(
@@ -10,14 +10,9 @@ const sourceValidator = v.union(
   v.literal("background"),
 );
 
-// Every row is scoped to the authenticated user's identity subject (the Google `sub`).
-async function requireOwner(ctx: QueryCtx | MutationCtx): Promise<string> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error("Not authenticated. Sign in before syncing your blocked list.");
-  }
-  return identity.subject;
-}
+// Single-user personal backup: every row is scoped to one fixed owner. There is no
+// sign-in — the deployment is private to its owner, so we don't separate identities.
+const OWNER = "local";
 
 // Upsert keyed on (owner, xUserId): never duplicate the id, just roll the counts up and
 // append the event. This mirrors mergeBlockedAccount in entrypoints/lib/blocked-merge.ts,
@@ -34,7 +29,7 @@ export const recordAction = mutation({
     fromAccount: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const owner = await requireOwner(ctx);
+    const owner = OWNER;
 
     // Idempotency: if this exact client action was already recorded, do nothing.
     if (args.clientActionId) {
@@ -97,7 +92,7 @@ export const recordAction = mutation({
 export const listBlocked = query({
   args: {},
   handler: async (ctx) => {
-    const owner = await requireOwner(ctx);
+    const owner = OWNER;
     const accounts = await ctx.db
       .query("blockedAccounts")
       .withIndex("by_owner", (q) => q.eq("owner", owner))
@@ -120,7 +115,7 @@ export const listBlocked = query({
 export const clearOwner = mutation({
   args: {},
   handler: async (ctx) => {
-    const owner = await requireOwner(ctx);
+    const owner = OWNER;
 
     const accounts = await ctx.db
       .query("blockedAccounts")
