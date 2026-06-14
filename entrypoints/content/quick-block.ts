@@ -35,7 +35,13 @@ const CONSOLE_CLASS = "xb-console";
 // sheet that appears shortly after we observed the user trigger a block/mute, keyed off the
 // language-independent menu-item testids. Delete/unfollow sheets are never auto-confirmed
 // because they originate from different menu items.
-const AUTO_CONFIRM_WINDOW_MS = 5000;
+//
+// Safety: the armed intent is consumed on confirm and dropped the moment the user does
+// anything else (cancel, open another menu, or any click that is not the block/mute item
+// or our own confirm). Otherwise a mute that shows no sheet, or a cancelled block, could
+// leave an intent armed that then auto-confirms a later destructive sheet (delete, log
+// out). The short window is only a backstop for the rare no-intervening-click case.
+const AUTO_CONFIRM_WINDOW_MS = 2000;
 
 /** Validate an arbitrary flag value, falling back to the default mode. */
 export function normalizeQuickBlockMode(raw: unknown): QuickBlockMode {
@@ -74,6 +80,12 @@ export class QuickBlock {
       this.pendingNativeAction = { kind: "block", at: this.now() };
     } else if (target.closest('[data-testid="mute"]')) {
       this.pendingNativeAction = { kind: "mute", at: this.now() };
+    } else if (!target.closest('[data-testid="confirmationSheetConfirm"]')) {
+      // Any other click -- cancelling the sheet, opening a different menu, or a
+      // sheet-less mute followed by some unrelated action -- means the user moved on.
+      // Drop the intent so it can never auto-confirm a later, foreign sheet (delete
+      // post, log out, unfollow). Our own programmatic confirm click is excluded.
+      this.pendingNativeAction = null;
     }
   };
 

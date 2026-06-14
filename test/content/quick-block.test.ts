@@ -304,7 +304,27 @@ describe("auto-confirm fallback", () => {
     qb = new QuickBlock({ mode: "auto-confirm", now: () => clock });
     qb.mount();
     clickMenuItem("block");
-    clock = 1000 + 5001;
+    clock = 1000 + 2001;
+    const sheet = buildConfirmSheet();
+    qb.scan();
+    expect(sheet.clicks()).toBe(0);
+  });
+
+  test("QB-28 a later unrelated click disarms the intent before a foreign sheet (mute-no-sheet)", () => {
+    qb = new QuickBlock({ mode: "auto-confirm" });
+    qb.mount();
+    clickMenuItem("mute"); // X showed no sheet for the mute
+    clickMenuItem("deleteTweet"); // the user moves on to a destructive action
+    const sheet = buildConfirmSheet(); // its (delete) confirmation sheet
+    qb.scan();
+    expect(sheet.clicks()).toBe(0);
+  });
+
+  test("QB-29 cancelling a confirmation disarms the intent", () => {
+    qb = new QuickBlock({ mode: "auto-confirm" });
+    qb.mount();
+    clickMenuItem("block");
+    clickMenuItem("confirmationSheetCancel"); // the user backs out
     const sheet = buildConfirmSheet();
     qb.scan();
     expect(sheet.clicks()).toBe(0);
