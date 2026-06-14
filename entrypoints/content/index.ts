@@ -25,12 +25,6 @@ import { applyTheme, observeThemeChanges } from "./theme";
 
 const TWEET_PAGE_URL_PATTERN = new RegExp(String.raw`https?://(www\.)?x\.com/[^/]+/status/\d+`);
 const TIMELINE_URL_PATTERN = new RegExp(String.raw`https?://(www\.)?x\.com/i/timeline`);
-const PROFILE_URL_PATTERN = new RegExp(String.raw`^https?://(www\.)?x\.com/([^/]+)/?$`);
-
-function isProfileUrl(url: string): boolean {
-  // Reserved root paths such as /home or /explore are not profiles.
-  return normalizeUsername(PROFILE_URL_PATTERN.exec(url)?.[2]) !== null;
-}
 
 type XBlockerTestHooks = {
   addButtons: () => void;
@@ -119,7 +113,9 @@ function checkPageAndAddButton(): void {
     return;
   }
 
-  if (TWEET_PAGE_URL_PATTERN.test(url) || isProfileUrl(url)) {
+  // The rail only acts on replies, so it belongs solely on the reply region of
+  // a status/tweet page -- never on profiles, search, or other surfaces.
+  if (TWEET_PAGE_URL_PATTERN.test(url)) {
     addButtons();
     observeThemeChanges();
   } else {

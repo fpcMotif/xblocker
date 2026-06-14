@@ -65,11 +65,12 @@ describe("checkPageAndAddButton", () => {
     expect(railElement()).toBe(mountedRail().root);
   });
 
-  test("PL-02 mounts exactly one reply rail on a bare profile page", () => {
+  test("PL-02 does not mount on a bare profile page (replies live only on status pages)", () => {
     setWindowLocation("https://x.com/some_profile");
     hooks.checkPageAndAddButton();
-    expect(railElements()).toHaveLength(1);
+    expect(railElements()).toHaveLength(0);
     expect(legacyElements()).toHaveLength(0);
+    expect(railFromHooks()).toBeNull();
   });
 
   test("PL-03 removes a previously mounted rail on the timeline page", () => {
