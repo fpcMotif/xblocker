@@ -10,7 +10,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { isReplyArticle } from "../../entrypoints/content/actions.ts";
-import { createTweetArticle, hooks, populateTweetPage } from "../helpers/content-hooks.ts";
+import {
+  appendDiscoverMoreSection,
+  createTweetArticle,
+  hooks,
+  populateTweetPage,
+} from "../helpers/content-hooks.ts";
 import { resetTestEnvironment } from "../setup.ts";
 
 describe("isReplyArticle", () => {
@@ -55,5 +60,27 @@ describe("isReplyArticle", () => {
     const { tweetArticle } = createTweetArticle("detached_author");
 
     expect(isReplyArticle(tweetArticle)).toBe(false);
+  });
+
+  test("MC-06 a recommended post in the Discover more module is not a reply", () => {
+    populateTweetPage(["real_reply"]);
+    const [recommended] = appendDiscoverMoreSection(["recommended_one"]);
+    expect(recommended).toBeTruthy();
+    if (!recommended) {
+      return;
+    }
+
+    expect(isReplyArticle(recommended)).toBe(false);
+  });
+
+  test("MC-07 a genuine reply above the Discover more module is still a reply", () => {
+    const [reply] = populateTweetPage(["real_reply"]);
+    appendDiscoverMoreSection(["recommended_one"]);
+    expect(reply).toBeTruthy();
+    if (!reply) {
+      return;
+    }
+
+    expect(isReplyArticle(reply)).toBe(true);
   });
 });

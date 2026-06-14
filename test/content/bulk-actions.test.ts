@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { batchState } from "../../entrypoints/content/actions.ts";
 import {
+  appendDiscoverMoreSection,
   createAnonymousTweetArticle,
   hooks,
   installFetchStub,
@@ -207,6 +208,26 @@ describe("blockReplies", () => {
 
     storageFake.data["settings"] = { maxReplies: "not-a-number" };
     expect(await hooks.getMaxReplies()).toBe(50);
+  });
+
+  test("BULK-14 blocks only conversation replies, never Discover more recommendations", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const replies = populateTweetPage(["reply_one", "reply_two"]);
+    const recommended = appendDiscoverMoreSection(["recommended_one", "recommended_two"]);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
+    expect(fetchStub.calls.map(requestBodyText)).toEqual([
+      "screen_name=reply_one",
+      "screen_name=reply_two",
+    ]);
+    for (const reply of replies) {
+      expect(reply.dataset.xbBlocked).toBe("true");
+    }
+    for (const rec of recommended) {
+      expect(rec.dataset.xbBlocked).toBeUndefined();
+    }
   });
 });
 

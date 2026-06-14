@@ -55,6 +55,24 @@ export function populateTweetPage(usernames: string[]): HTMLElement[] {
   });
 }
 
+/**
+ * Append a "Discover more" heading followed by `usernames.length` recommended
+ * articles, mirroring X's recommendation module beneath the genuine replies.
+ * Returns the recommended articles (which are NOT replies to the conversation).
+ */
+export function appendDiscoverMoreSection(usernames: string[]): HTMLElement[] {
+  const heading = document.createElement("h2");
+  heading.setAttribute("role", "heading");
+  heading.textContent = "Discover more";
+  document.body.appendChild(heading);
+
+  return usernames.map((username) => {
+    const { tweetArticle } = createTweetArticle(username);
+    document.body.appendChild(tweetArticle);
+    return tweetArticle;
+  });
+}
+
 export type FetchCall = { url: string; init: RequestInit | undefined };
 
 /** Install a fetch stub; returns the recorded calls. */

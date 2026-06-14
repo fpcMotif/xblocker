@@ -1,4 +1,4 @@
-// Catalog: PU-* (renderPopup, whitelist form, settings toggles, normalizeUsername).
+// Catalog: PU-* (renderPopup, whitelist form, settings toggles, max replies input, normalizeUsername).
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { mountPopupIfPresent, renderPopup } from "../../entrypoints/popup/main.ts";
@@ -9,6 +9,7 @@ function seedState(overrides: {
   settings?: Partial<{
     confirmDestructiveActions: boolean;
     keyboardMode: boolean;
+    maxReplies: unknown;
     protectWhitelist: boolean;
   }>;
 }): void {
@@ -163,6 +164,7 @@ describe("popup settings toggles", () => {
     expect(storageFake.data["settings"]).toEqual({
       confirmDestructiveActions: true,
       keyboardMode: false,
+      maxReplies: 50,
       protectWhitelist: false,
     });
   });
@@ -184,5 +186,126 @@ describe("popup settings toggles", () => {
     await Promise.resolve();
 
     expect(app.querySelector('[data-xb-surface="popup"]')).toBeTruthy();
+  });
+});
+
+describe("popup max replies setting", () => {
+  beforeEach(() => {
+    resetTestEnvironment();
+  });
+
+  async function renderMaxRepliesInput(): Promise<HTMLInputElement> {
+    await renderPopup(document.body);
+    return document.querySelector<HTMLInputElement>(".xb-number-input")!;
+  }
+
+  test("PU-16 renders the number input with the default of 50", async () => {
+    const input = await renderMaxRepliesInput();
+    expect(input.getAttribute("aria-label")).toBe("Max replies per run");
+    expect(input.value).toBe("50");
+  });
+
+  test("PU-17 renders a stored in-range value as-is", async () => {
+    seedState({ settings: { maxReplies: 75 } });
+    const input = await renderMaxRepliesInput();
+    expect(input.value).toBe("75");
+  });
+
+  test("PU-18 clamps a stored out-of-range value on render (999 -> 200)", async () => {
+    seedState({ settings: { maxReplies: 999 } });
+    const input = await renderMaxRepliesInput();
+    expect(input.value).toBe("200");
+  });
+
+  test("PU-19 falls back to 50 when the stored value is garbage", async () => {
+    seedState({ settings: { maxReplies: "lots" } });
+    const input = await renderMaxRepliesInput();
+    expect(input.value).toBe("50");
+  });
+
+  test("PU-20 change event persists the clamped value and snaps the input (500 -> 200)", async () => {
+    const input = await renderMaxRepliesInput();
+    input.value = "500";
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(input.value).toBe("200");
+    expect(storageFake.data["settings"]).toEqual({
+      confirmDestructiveActions: true,
+      keyboardMode: false,
+      maxReplies: 200,
+      protectWhitelist: true,
+    });
+  });
+
+  test("PU-21 input event persists the normalized value without rewriting the field", async () => {
+    const input = await renderMaxRepliesInput();
+    input.value = "500";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Storage holds the normalized value, but the field keeps the user's
+    // keystrokes — only "change" is allowed to snap the displayed value.
+    expect(input.value).toBe("500");
+    expect(storageFake.data["settings"]).toEqual({
+      confirmDestructiveActions: true,
+      keyboardMode: false,
+      maxReplies: 200,
+      protectWhitelist: true,
+    });
+  });
+
+  test("PU-22 non-numeric input falls back to 50", async () => {
+    seedState({ settings: { maxReplies: 120 } });
+    const input = await renderMaxRepliesInput();
+    // A number input reports "" for non-numeric typing (badInput).
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(storageFake.data["settings"]).toEqual({
+      confirmDestructiveActions: true,
+      keyboardMode: false,
+      maxReplies: 50,
+      protectWhitelist: true,
+    });
+
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(input.value).toBe("50");
+  });
+
+  test("PU-23 parses a stored numeric string on load ('120' -> 120)", async () => {
+    seedState({ settings: { maxReplies: "120" } });
+    const input = await renderMaxRepliesInput();
+    expect(input.value).toBe("120");
+  });
+
+  test("PU-24 falls back to 50 when the stored value is neither number nor string", async () => {
+    seedState({ settings: { maxReplies: null } });
+    const input = await renderMaxRepliesInput();
+    expect(input.value).toBe("50");
+  });
+
+  test("PU-25 clamps a stored below-range value up on load (0 -> 1)", async () => {
+    seedState({ settings: { maxReplies: 0 } });
+    const input = await renderMaxRepliesInput();
+    expect(input.value).toBe("1");
+  });
+
+  test("PU-26 truncates a stored fractional value on load (75.9 -> 75)", async () => {
+    seedState({ settings: { maxReplies: 75.9 } });
+    const input = await renderMaxRepliesInput();
+    expect(input.value).toBe("75");
+  });
+
+  test("PU-27 changing the input to 999 snaps it to 200 and persists maxReplies 200", async () => {
+    const input = await renderMaxRepliesInput();
+    input.value = "999";
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(input.value).toBe("200");
+    expect(storageFake.data["settings"]).toEqual({
+      confirmDestructiveActions: true,
+      keyboardMode: false,
+      maxReplies: 200,
+      protectWhitelist: true,
+    });
   });
 });

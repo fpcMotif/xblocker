@@ -19,6 +19,7 @@ import {
   type ReplyActionResult,
 } from "./actions";
 import { computeRailY } from "./position";
+import { QuickBlock, resolveQuickBlockMode } from "./quick-block";
 import { COLLAPSE_GRACE_MS, DWELL_MS, ReplyRail } from "./rail";
 import { ensureStyles } from "./styles";
 import { applyTheme, observeThemeChanges } from "./theme";
@@ -38,6 +39,7 @@ type XBlockerTestHooks = {
   extractUsernameFromTweet: (tweetArticle: Element) => string | null;
   getCookieValue: (name: string) => string;
   getMaxReplies: () => Promise<number>;
+  getQuickBlock: () => QuickBlock | null;
   getRail: () => ReplyRail | null;
   initializeXBlocker: () => void;
   isTweetPageUrl: (url: string) => boolean;
@@ -56,6 +58,7 @@ declare global {
 }
 
 let rail: ReplyRail | null = null;
+let quickBlock: QuickBlock | null = null;
 let listenersAttached = false;
 
 function attachGlobalListeners(): void {
@@ -88,11 +91,25 @@ function addButtons(): void {
     document.getElementById(id)?.remove();
   }
   rail?.destroy();
+  quickBlock?.destroy();
 
   ensureStyles();
 
   rail = new ReplyRail();
   rail.mount();
+
+  // The Cursor Console (or scoped auto-confirm) adds one-click manual block/mute;
+  // see docs/adr/0001-one-click-manual-block.md.
+  quickBlock = new QuickBlock({
+    mode: resolveQuickBlockMode(),
+    onActed: (kind) => {
+      if (kind === "block") {
+        rail?.incrementBlocked(1);
+      }
+    },
+  });
+  quickBlock.mount();
+
   applyTheme();
   attachGlobalListeners();
 
@@ -102,6 +119,8 @@ function addButtons(): void {
 function removeSurfaces(): void {
   rail?.destroy();
   rail = null;
+  quickBlock?.destroy();
+  quickBlock = null;
 }
 
 function checkPageAndAddButton(): void {
@@ -155,6 +174,7 @@ if (typeof globalThis !== "undefined" && globalThis.__XB_TEST__) {
     extractUsernameFromTweet,
     getCookieValue,
     getMaxReplies,
+    getQuickBlock: () => quickBlock,
     getRail: () => rail,
     initializeXBlocker,
     isTweetPageUrl,

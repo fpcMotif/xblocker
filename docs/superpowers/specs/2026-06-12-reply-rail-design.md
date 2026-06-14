@@ -3,6 +3,14 @@
 Date: 2026-06-12
 Status: Design approved. Supersedes `2026-06-12-cursor-console-design.md` (the per-author
 cursor console is removed; this rail is the only in-page surface).
+
+> **Update (2026-06-14):** "only in-page surface" no longer holds. A per-reply **Cursor
+> Console** was later re-introduced as a *separate, coexisting* surface for single-account
+> block/mute — see [ADR-0001](../../adr/0001-one-click-manual-block.md). It is
+> **edge-anchored to the reply** (not cursor-following), which fixes the
+> unclickable-while-following flaw that retired the original console. The bulk Reply Rail
+> specced below is unchanged and remains the bulk surface.
+
 Motion personality: **Glide** (damped lerp, factor 0.22) — chosen by the user from the
 `prototypes/reply-rail-prototype.html` comparison (Spring and Magnetic rows rejected);
 prototype deleted after the verdict. Dwell 1000ms / jitter 4px / collapse grace 600ms

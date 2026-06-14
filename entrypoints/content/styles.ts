@@ -276,6 +276,44 @@ const SHEET = `
 .xb-rail[data-state="collapsed"] .xb-rail-body { display: none; }
 .xb-rail:not([data-state="collapsed"]) .xb-puck { display: none; }
 
+/* ---- Cursor Console (per-reply quick actions) ---- */
+.xb-console {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	z-index: 9999;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 3px;
+	border-radius: 12px;
+	background: var(--xb-surface);
+	border: 1px solid var(--xb-border);
+	box-shadow: var(--xb-shadow);
+	opacity: 0;
+	transform: translateY(-4px) scale(0.96);
+	pointer-events: none;
+	transition: opacity 160ms var(--xb-ease-out), transform 160ms var(--xb-ease-out);
+}
+article[data-testid="tweet"]:hover .xb-console,
+.xb-console:hover,
+.xb-console:focus-within {
+	opacity: 1;
+	transform: translateY(0) scale(1);
+	pointer-events: auto;
+}
+.xb-console .xb-btn {
+	width: 30px;
+	height: 30px;
+	border-radius: 9px;
+	color: var(--xb-ink-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+	.xb-console .xb-btn[data-action="block"]:hover { background: oklch(0.601 0.212 21 / 0.12); color: var(--xb-danger); }
+	.xb-console .xb-btn[data-action="mute"]:hover { background: var(--xb-track); color: var(--xb-ink); }
+	.xb-console .xb-btn[data-action="whitelist"]:hover { background: oklch(0.646 0.152 154 / 0.12); color: var(--xb-success); }
+}
+
 /* ---- Toast ---- */
 .xb-toast {
 	position: fixed;
@@ -417,7 +455,7 @@ article[data-xb-blocked="true"] {
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.01ms !important;
 	}
-	.xb-rail-body, .xb-puck, .xb-toast, .xb-modal, .xb-modal-backdrop {
+	.xb-rail-body, .xb-puck, .xb-toast, .xb-modal, .xb-modal-backdrop, .xb-console {
 		transition-property: opacity;
 		transition-duration: 120ms !important;
 		transform: none;

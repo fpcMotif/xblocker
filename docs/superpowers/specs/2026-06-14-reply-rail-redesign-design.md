@@ -9,6 +9,11 @@ persistence, batch block/mute, status-page-only mounting. This spec changes only
 *visual skin, DOM structure, and count/progress presentation*. It is not a
 re-architecture.
 
+> **Scope:** this redesign reskins the **bulk Reply Rail** only. Single-reply
+> (per-author) block/mute is a separate, **coexisting** surface — the **Cursor Console**
+> ([ADR-0001](../../adr/0001-one-click-manual-block.md)) — which this redesign does not
+> touch. See `CONTEXT.md` for the rail-vs-console (bulk-vs-single) split.
+
 ## Problem (what makes the current rail look bad)
 
 The in-page rail (see `entrypoints/content/rail.ts`, `styles.ts`) is functionally sound
@@ -150,7 +155,11 @@ Existing suites assert DOM structure and counts, so they change with the DOM:
 
 - Functional behavior changes (motion personality, dwell/grace timings, reply detection,
   status-page gating) — all preserved.
-- Per-author actions, keyboard j/k mode, hidden-post reveal/undo (already out per the
-  2026-06-12 spec).
+- Per-author single-reply actions — handled by the separate, coexisting **Cursor Console**
+  surface ([ADR-0001](../../adr/0001-one-click-manual-block.md): an edge-anchored per-reply
+  control, distinct from the deleted cursor-following console). This redesign reskins only
+  the bulk Reply Rail and leaves the Cursor Console untouched — not "removed from the
+  product".
+- Keyboard j/k mode, hidden-post reveal/undo (out per the 2026-06-12 spec).
 - Popup UI restyle (separate surface).
 - Any new colors beyond the X-native palette above.

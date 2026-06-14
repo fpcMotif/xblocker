@@ -1,3 +1,5 @@
+import { blockedStore } from "../lib/blocked-store";
+
 export type DirectActionType = "block" | "mute";
 
 export type ReplyActionResult =
@@ -139,6 +141,49 @@ async function performDirectAction(type: DirectActionType, username: string): Pr
   return response;
 }
 
+type DirectBlockOutcome = { screen_name: string; id_str?: string };
+
+function safeParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function readProp(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  return Reflect.get(value, key);
+}
+
+// blocks/create.json returns the blocked user object, including the stable numeric
+// id_str. Capture it so the local store keys on the id rather than the mutable screen
+// name. Fall back to the screen name if the body is missing or unreadable.
+async function readBlockOutcome(response: Response, username: string): Promise<DirectBlockOutcome> {
+  let screenName = normalizeUsername(username) ?? username;
+  let idStr: string | undefined;
+  try {
+    const body = safeParseJson(await response.text());
+    const idStrValue = readProp(body, "id_str");
+    const idValue = readProp(body, "id");
+    const screenNameValue = readProp(body, "screen_name");
+    if (typeof idStrValue === "string") {
+      idStr = idStrValue;
+    } else if (typeof idValue === "number") {
+      idStr = String(idValue);
+    }
+    if (typeof screenNameValue === "string") {
+      screenName = screenNameValue;
+    }
+  } catch (error) {
+    console.warn("Could not read block response body; falling back to screen name.", error);
+  }
+
+  return { screen_name: screenName, ...(idStr ? { id_str: idStr } : {}) };
+}
+
 export function blockUserDirectly(username: string): Promise<Response> {
   return performDirectAction("block", username);
 }
@@ -267,12 +312,41 @@ async function actOnTweet(
     return { status: "skipped", username };
   }
 
+  let response: Response;
   try {
-    await performDirectAction(type, username);
-    return { status: type === "block" ? "blocked" : "muted", username };
+    response = await performDirectAction(type, username);
   } catch (error) {
     console.warn(`Direct ${type} failed for @${username}:`, error);
     return { status: "failed", username, error };
+  }
+
+  // The X action already succeeded — record it as a best-effort side-effect that can
+  // never downgrade the result. The local store is the source of truth the optional
+  // Convex backup drains; blocks carry the stable numeric id when X returns it, while
+  // the mute endpoint gives us none, so mutes are recorded by screen name.
+  await recordAction(type, response, username);
+  return { status: type === "block" ? "blocked" : "muted", username };
+}
+
+async function recordAction(
+  type: DirectActionType,
+  response: Response,
+  username: string,
+): Promise<void> {
+  try {
+    if (type === "block") {
+      const outcome = await readBlockOutcome(response, username);
+      await blockedStore.record({
+        handle: outcome.screen_name,
+        kind: "block",
+        source: "reply-bar",
+        ...(outcome.id_str ? { xUserId: outcome.id_str } : {}),
+      });
+    } else {
+      await blockedStore.record({ handle: username, kind: "mute", source: "reply-bar" });
+    }
+  } catch (error) {
+    console.warn(`Recorded ${type} of @${username} to the local store failed:`, error);
   }
 }
 
@@ -284,10 +358,42 @@ export function muteTweet(tweetArticle: Element): Promise<ReplyActionResult> {
   return actOnTweet("mute", tweetArticle);
 }
 
+// X appends a "Discover more" module of recommended posts beneath the genuine
+// replies, reusing the same article markup. Those recommendations are not
+// replies to this conversation, so bulk actions and reply-region detection stop
+// at that boundary. The heading is matched by its exact (English) text: if the
+// locale or markup ever changes, detection falls back to the prior "every later
+// article is a reply" behavior, so we never silently skip a genuine reply.
+const DISCOVER_MORE_HEADING = "discover more";
+
+function findDiscoverMoreBoundary(): Element | null {
+  const headings = Array.from(document.querySelectorAll('h2, [role="heading"]'));
+  return (
+    headings.find(
+      (heading) => (heading.textContent ?? "").trim().toLowerCase() === DISCOVER_MORE_HEADING,
+    ) ?? null
+  );
+}
+
+// True when `node` precedes the Discover-more boundary in document order (or
+// when no boundary exists). Degrades to true if compareDocumentPosition is
+// unavailable, so a detection failure can never drop a reply from a batch.
+function isBeforeDiscoverMore(node: Element, boundary: Element | null): boolean {
+  if (!boundary || typeof node.compareDocumentPosition !== "function") {
+    return true;
+  }
+  return (boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
+}
+
+function getConversationReplies(): Element[] {
+  const boundary = findDiscoverMoreBoundary();
+  const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+  return articles.slice(1).filter((article) => isBeforeDiscoverMore(article, boundary));
+}
+
 async function getReplyArticles(): Promise<Element[]> {
   const maxReplies = await getMaxReplies();
-  const tweetArticles = document.querySelectorAll('article[data-testid="tweet"]');
-  return Array.from(tweetArticles).slice(1).slice(0, maxReplies);
+  return getConversationReplies().slice(0, maxReplies);
 }
 
 export function isReplyArticle(article: Element): boolean {
@@ -295,7 +401,10 @@ export function isReplyArticle(article: Element): boolean {
     return false;
   }
   const articles = document.querySelectorAll('article[data-testid="tweet"]');
-  return articles.length > 0 && articles[0] !== article;
+  if (articles.length === 0 || articles[0] === article) {
+    return false;
+  }
+  return isBeforeDiscoverMore(article, findDiscoverMoreBoundary());
 }
 
 async function runReplyBatch(

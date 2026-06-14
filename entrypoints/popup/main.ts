@@ -1,21 +1,31 @@
+import { blockedStore } from "../lib/blocked-store";
+
 type PopupSettings = {
   confirmDestructiveActions: boolean;
   keyboardMode: boolean;
+  maxReplies: number;
   protectWhitelist: boolean;
 };
+
+type BooleanSettingKey = "confirmDestructiveActions" | "keyboardMode" | "protectWhitelist";
 
 type PopupState = {
   settings: PopupSettings;
   whitelist: string[];
+  // Cloud backup opt-in lives under its own storage key, separate from the behavior
+  // settings object, so toggling it never rewrites unrelated settings.
+  cloudBackup: boolean;
 };
 
 const DEFAULT_SETTINGS: PopupSettings = {
   confirmDestructiveActions: true,
   keyboardMode: false,
+  maxReplies: 50,
   protectWhitelist: true,
 };
 
 const RESERVED_X_PATHS = new Set<string>([
+  "explore",
   "home",
   "i",
   "intent",
@@ -26,6 +36,8 @@ const RESERVED_X_PATHS = new Set<string>([
   "share",
 ]);
 
+const MAX_REPLIES_LIMIT = 200;
+
 function normalizeUsername(value: string): string | null {
   const username = value.replace(/^@/, "").trim();
   if (!username || RESERVED_X_PATHS.has(username.toLowerCase())) {
@@ -35,14 +47,30 @@ function normalizeUsername(value: string): string | null {
   return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
 }
 
+function normalizeMaxReplies(value: unknown): number {
+  const parsed =
+    typeof value === "number"
+      ? Math.trunc(value)
+      : typeof value === "string"
+        ? Number.parseInt(value, 10)
+        : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SETTINGS.maxReplies;
+  }
+
+  return Math.min(MAX_REPLIES_LIMIT, Math.max(1, parsed));
+}
+
 function getStoredState(): Promise<PopupState> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(["settings", "whitelist"], (result) => {
+    chrome.storage.local.get(["settings", "whitelist", "cloudBackup"], (result) => {
       const storedSettings =
         typeof result?.settings === "object" && result.settings ? result.settings : {};
       const settings = { ...DEFAULT_SETTINGS, ...storedSettings };
+      settings.maxReplies = normalizeMaxReplies(settings.maxReplies);
       const whitelist = Array.isArray(result?.whitelist) ? result.whitelist : [];
-      resolve({ settings, whitelist });
+      const cloudBackup = result?.cloudBackup === true;
+      resolve({ settings, whitelist, cloudBackup });
     });
   });
 }
@@ -53,6 +81,10 @@ function saveSettings(settings: PopupSettings): void {
 
 function saveWhitelist(whitelist: string[]): void {
   void chrome.storage.local.set({ whitelist });
+}
+
+function saveCloudBackup(enabled: boolean): void {
+  void chrome.storage.local.set({ cloudBackup: enabled });
 }
 
 function ensurePopupStyles(): void {
@@ -334,7 +366,8 @@ function ensurePopupStyles(): void {
 			line-height: 1.25;
 		}
 
-		.xb-switch-input {
+		.xb-switch-input,
+		.xb-cloud-switch {
 			appearance: none;
 			position: relative;
 			flex: 0 0 auto;
@@ -348,7 +381,8 @@ function ensurePopupStyles(): void {
 			transition: background 0.16s ease, border-color 0.16s ease;
 		}
 
-		.xb-switch-input::before {
+		.xb-switch-input::before,
+		.xb-cloud-switch::before {
 			content: "";
 			position: absolute;
 			top: 3px;
@@ -360,14 +394,42 @@ function ensurePopupStyles(): void {
 			transition: transform 0.16s ease, background 0.16s ease;
 		}
 
-		.xb-switch-input:checked {
+		.xb-switch-input:checked,
+		.xb-cloud-switch:checked {
 			border-color: rgba(29, 155, 240, 0.75);
 			background: #1d9bf0;
 		}
 
-		.xb-switch-input:checked::before {
+		.xb-switch-input:checked::before,
+		.xb-cloud-switch:checked::before {
 			background: white;
 			transform: translateX(18px);
+		}
+
+		.xb-cloud-controls {
+			display: flex;
+			gap: 8px;
+			margin-top: 10px;
+		}
+
+		.xb-number-input {
+			box-sizing: border-box;
+			flex: 0 0 auto;
+			width: 64px;
+			height: 30px;
+			border: 1px solid rgba(255, 255, 255, 0.12);
+			border-radius: 8px;
+			background: rgba(255, 255, 255, 0.06);
+			color: #e7e9ea;
+			padding: 0 8px;
+			font: inherit;
+			font-size: 13px;
+			text-align: right;
+			outline: none;
+		}
+
+		.xb-number-input:focus {
+			border-color: #1d9bf0;
 		}
 
 		.xb-whitelist-row {
@@ -573,7 +635,7 @@ function renderSettings(section: HTMLElement, settings: PopupSettings): void {
   const list = document.createElement("div");
   list.className = "xb-settings-list";
 
-  const rows: Array<[keyof PopupSettings, string, string]> = [
+  const rows: Array<[BooleanSettingKey, string, string]> = [
     ["protectWhitelist", "Protect whitelist", "Block and mute skip trusted handles"],
     ["confirmDestructiveActions", "Confirm destructive actions", "Ask before irreversible actions"],
     ["keyboardMode", "Keyboard mode", "Reserved for future j/k reply navigation"],
@@ -608,7 +670,132 @@ function renderSettings(section: HTMLElement, settings: PopupSettings): void {
     list.appendChild(row);
   }
 
+  const maxRepliesRow = document.createElement("label");
+  maxRepliesRow.className = "xb-toggle-row";
+
+  const maxRepliesCopy = document.createElement("span");
+  maxRepliesCopy.className = "xb-toggle-copy";
+
+  const maxRepliesTitle = document.createElement("span");
+  maxRepliesTitle.className = "xb-toggle-title";
+  maxRepliesTitle.textContent = "Max replies per run";
+
+  const maxRepliesDescription = document.createElement("span");
+  maxRepliesDescription.className = "xb-toggle-description";
+  maxRepliesDescription.textContent = `Replies Block and Mute process at once (1–${MAX_REPLIES_LIMIT})`;
+  maxRepliesCopy.append(maxRepliesTitle, maxRepliesDescription);
+
+  const maxRepliesInput = document.createElement("input");
+  maxRepliesInput.type = "number";
+  maxRepliesInput.className = "xb-number-input";
+  maxRepliesInput.min = "1";
+  maxRepliesInput.max = String(MAX_REPLIES_LIMIT);
+  maxRepliesInput.value = String(settings.maxReplies);
+  maxRepliesInput.setAttribute("aria-label", "Max replies per run");
+  // Persist while typing: the popup can close before "change" fires, which
+  // would silently drop the edit. Readers re-normalize, so saving each
+  // keystroke is safe; "change" then snaps the visible value into range.
+  maxRepliesInput.addEventListener("input", () => {
+    settings.maxReplies = normalizeMaxReplies(maxRepliesInput.value);
+    saveSettings(settings);
+  });
+  maxRepliesInput.addEventListener("change", () => {
+    const maxReplies = normalizeMaxReplies(maxRepliesInput.value);
+    maxRepliesInput.value = String(maxReplies);
+    settings.maxReplies = maxReplies;
+    saveSettings(settings);
+  });
+
+  maxRepliesRow.append(maxRepliesCopy, maxRepliesInput);
+  list.appendChild(maxRepliesRow);
+
   section.appendChild(list);
+}
+
+// Drive a one-shot cloud sync: drain the local outbox to Convex, then pull and merge
+// remote accounts. convex-sync is loaded lazily so the (heavier) Convex bundle is only
+// pulled in when backup is actually used. No sign-in — it talks to your deployment.
+async function runCloudSync(setStatus: (message: string) => void): Promise<void> {
+  setStatus("Syncing…");
+  const sync = await import("../lib/convex-sync");
+
+  if (!sync.isCloudConfigured()) {
+    setStatus("Not configured. Set VITE_CONVEX_URL, then rebuild.");
+    return;
+  }
+
+  const pending = await blockedStore.pending();
+  if (pending.length > 0) {
+    const synced = await sync.pushOutbox(pending);
+    await blockedStore.markSynced(synced);
+  }
+  const remote = await sync.pullBlocked();
+  await blockedStore.mergeRemote(remote);
+
+  setStatus("Backed up to your Convex.");
+}
+
+function renderCloudBackup(section: HTMLElement, enabled: boolean): void {
+  const status = document.createElement("p");
+  status.className = "xb-toggle-description";
+  status.textContent = enabled
+    ? "Backup on. Your blocked list mirrors to your Convex."
+    : "Off. Your blocked list stays on this device only.";
+
+  const setStatus = (message: string) => {
+    status.textContent = message;
+  };
+
+  const toggleRow = document.createElement("label");
+  toggleRow.className = "xb-toggle-row";
+
+  const copy = document.createElement("span");
+  copy.className = "xb-toggle-copy";
+  const title = document.createElement("span");
+  title.className = "xb-toggle-title";
+  title.textContent = "Back up blocked list to cloud";
+  const description = document.createElement("span");
+  description.className = "xb-toggle-description";
+  description.textContent = "Mirror your blocked accounts to your Convex (opt-in)";
+  copy.append(title, description);
+
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.className = "xb-cloud-switch";
+  toggle.checked = enabled;
+  toggle.addEventListener("change", () => {
+    saveCloudBackup(toggle.checked);
+    if (toggle.checked) {
+      void runCloudSync(setStatus).catch((error: unknown) => {
+        setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    } else {
+      setStatus("Off. Your blocked list stays on this device only.");
+    }
+  });
+  toggleRow.append(copy, toggle);
+
+  const controls = document.createElement("div");
+  controls.className = "xb-cloud-controls";
+
+  const syncButton = document.createElement("button");
+  syncButton.type = "button";
+  syncButton.className = "xb-button";
+  syncButton.textContent = "Sync now";
+
+  syncButton.addEventListener("click", async () => {
+    syncButton.disabled = true;
+    try {
+      await runCloudSync(setStatus);
+    } catch (error: unknown) {
+      setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      syncButton.disabled = false;
+    }
+  });
+
+  controls.append(syncButton);
+  section.append(toggleRow, controls, status);
 }
 
 export async function renderPopup(root: HTMLElement): Promise<void> {
@@ -659,6 +846,9 @@ export async function renderPopup(root: HTMLElement): Promise<void> {
   const settingsSection = createSection("Behavior settings");
   renderSettings(settingsSection, state.settings);
 
+  const cloudSection = createSection("Cloud backup");
+  renderCloudBackup(cloudSection, state.cloudBackup);
+
   const footer = document.createElement("footer");
   footer.className = "xb-popup-footer";
 
@@ -671,7 +861,7 @@ export async function renderPopup(root: HTMLElement): Promise<void> {
   footerHint.textContent = "More controls";
   footer.append(footerHint, advancedButton);
 
-  popup.append(header, summarySection, whitelistSection, settingsSection, footer);
+  popup.append(header, summarySection, whitelistSection, settingsSection, cloudSection, footer);
   root.replaceChildren(popup);
 }
 
