@@ -43,6 +43,34 @@ const CONSOLE_CLASS = "xb-console";
 // out). The short window is only a backstop for the rare no-intervening-click case.
 const AUTO_CONFIRM_WINDOW_MS = 2000;
 
+// X localizes its menu labels and does not put a stable testid on every menu item, so
+// detect the Block/Mute item by testid first, then fall back to the menu item's accessible
+// text in the locales we support (English + the zh-Hant/zh-Hans UIs). Matching is
+// substring + case-insensitive against aria-label and text content.
+const BLOCK_LABELS = ["block", "封鎖", "封锁", "屏蔽"];
+const MUTE_LABELS = ["mute", "靜音", "静音"];
+
+function intentFromClick(target: Element): DirectActionType | null {
+  if (target.closest('[data-testid="block"]')) {
+    return "block";
+  }
+  if (target.closest('[data-testid="mute"]')) {
+    return "mute";
+  }
+  const item = target.closest('[role="menuitem"]');
+  if (!item) {
+    return null;
+  }
+  const label = `${item.getAttribute("aria-label") ?? ""} ${item.textContent ?? ""}`.toLowerCase();
+  if (BLOCK_LABELS.some((term) => label.includes(term))) {
+    return "block";
+  }
+  if (MUTE_LABELS.some((term) => label.includes(term))) {
+    return "mute";
+  }
+  return null;
+}
+
 /** Validate an arbitrary flag value, falling back to the default mode. */
 export function normalizeQuickBlockMode(raw: unknown): QuickBlockMode {
   if (raw === "inline" || raw === "auto-confirm" || raw === "off") {
@@ -76,10 +104,9 @@ export class QuickBlock {
   private readonly nativeActionListener = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest('[data-testid="block"]')) {
-      this.pendingNativeAction = { kind: "block", at: this.now() };
-    } else if (target.closest('[data-testid="mute"]')) {
-      this.pendingNativeAction = { kind: "mute", at: this.now() };
+    const intent = intentFromClick(target);
+    if (intent) {
+      this.pendingNativeAction = { kind: intent, at: this.now() };
     } else if (!target.closest('[data-testid="confirmationSheetConfirm"]')) {
       // Any other click -- cancelling the sheet, opening a different menu, or a
       // sheet-less mute followed by some unrelated action -- means the user moved on.

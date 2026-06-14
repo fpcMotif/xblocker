@@ -69,6 +69,15 @@ function clickMenuItem(testid: string): void {
   item.click();
 }
 
+/** Simulate a localized menu item with no testid (role + visible label only). */
+function clickLocalizedMenuItem(label: string): void {
+  const item = document.createElement("div");
+  item.setAttribute("role", "menuitem");
+  item.textContent = label;
+  document.body.appendChild(item);
+  item.click();
+}
+
 beforeEach(() => {
   resetTestEnvironment();
   setDocumentCookie("ct0=csrf-token");
@@ -325,6 +334,33 @@ describe("auto-confirm fallback", () => {
     qb.mount();
     clickMenuItem("block");
     clickMenuItem("confirmationSheetCancel"); // the user backs out
+    const sheet = buildConfirmSheet();
+    qb.scan();
+    expect(sheet.clicks()).toBe(0);
+  });
+
+  test("QB-32 arms from a localized Block menu item that has no testid", () => {
+    qb = new QuickBlock({ mode: "auto-confirm" });
+    qb.mount();
+    clickLocalizedMenuItem("封鎖 @spammer"); // zh-Hant "Block"
+    const sheet = buildConfirmSheet();
+    qb.scan();
+    expect(sheet.clicks()).toBe(1);
+  });
+
+  test("QB-33 arms from a localized Mute menu item that has no testid", () => {
+    qb = new QuickBlock({ mode: "auto-confirm" });
+    qb.mount();
+    clickLocalizedMenuItem("靜音 @noisy"); // zh-Hant "Mute"
+    const sheet = buildConfirmSheet();
+    qb.scan();
+    expect(sheet.clicks()).toBe(1);
+  });
+
+  test("QB-34 ignores a menu item that is neither block nor mute", () => {
+    qb = new QuickBlock({ mode: "auto-confirm" });
+    qb.mount();
+    clickLocalizedMenuItem("檢舉 @user"); // "Report" -> no auto-confirm
     const sheet = buildConfirmSheet();
     qb.scan();
     expect(sheet.clicks()).toBe(0);
