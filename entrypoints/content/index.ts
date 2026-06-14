@@ -19,7 +19,7 @@ import {
   type ReplyActionResult,
 } from "./actions";
 import { computeRailY } from "./position";
-import { QuickBlock, resolveQuickBlockMode } from "./quick-block";
+import { QuickBlock, resolveQuickBlockMode, type QuickBlockMode } from "./quick-block";
 import { COLLAPSE_GRACE_MS, DWELL_MS, ReplyRail } from "./rail";
 import { ensureStyles } from "./styles";
 import { applyTheme, observeThemeChanges } from "./theme";
@@ -43,6 +43,7 @@ type XBlockerTestHooks = {
   getRail: () => ReplyRail | null;
   initializeXBlocker: () => void;
   isTweetPageUrl: (url: string) => boolean;
+  mountQuickBlock: (mode?: QuickBlockMode) => void;
   muteReplies: (onProgress?: (progress: BatchProgress) => void) => Promise<BatchSummary | null>;
   muteTweet: (tweetArticle: Element) => Promise<ReplyActionResult>;
   muteUserDirectly: (username: string) => Promise<Response>;
@@ -91,24 +92,11 @@ function addButtons(): void {
     document.getElementById(id)?.remove();
   }
   rail?.destroy();
-  quickBlock?.destroy();
 
   ensureStyles();
 
   rail = new ReplyRail();
   rail.mount();
-
-  // The Cursor Console (or scoped auto-confirm) adds one-click manual block/mute;
-  // see docs/adr/0001-one-click-manual-block.md.
-  quickBlock = new QuickBlock({
-    mode: resolveQuickBlockMode(),
-    onActed: (kind) => {
-      if (kind === "block") {
-        rail?.incrementBlocked(1);
-      }
-    },
-  });
-  quickBlock.mount();
 
   applyTheme();
   attachGlobalListeners();
@@ -119,8 +107,25 @@ function addButtons(): void {
 function removeSurfaces(): void {
   rail?.destroy();
   rail = null;
+}
+
+// One-click manual block/mute (docs/adr/0001-one-click-manual-block.md). Unlike the rail,
+// this is a session-long service: the default auto-confirm mode watches X's own ••• ->
+// Block/Mute flow on EVERY surface (profiles, timeline, search), so it mounts once and is
+// never torn down on navigation. `onActed` only fires in inline mode; auto-confirm leaves
+// the block to X's native flow and never reports it.
+function mountQuickBlock(mode: QuickBlockMode = resolveQuickBlockMode()): void {
   quickBlock?.destroy();
-  quickBlock = null;
+  ensureStyles();
+  quickBlock = new QuickBlock({
+    mode,
+    onActed: (kind) => {
+      if (kind === "block") {
+        rail?.incrementBlocked(1);
+      }
+    },
+  });
+  quickBlock.mount();
 }
 
 function checkPageAndAddButton(): void {
@@ -143,6 +148,9 @@ function checkPageAndAddButton(): void {
 }
 
 function initializeXBlocker(): void {
+  // Mount the global one-click manual-block service once; it lives for the whole
+  // session and is independent of the rail's per-surface mount/teardown.
+  mountQuickBlock();
   checkPageAndAddButton();
 
   let lastUrl = location.href;
@@ -178,6 +186,7 @@ if (typeof globalThis !== "undefined" && globalThis.__XB_TEST__) {
     getRail: () => rail,
     initializeXBlocker,
     isTweetPageUrl,
+    mountQuickBlock,
     muteReplies,
     muteTweet,
     muteUserDirectly,

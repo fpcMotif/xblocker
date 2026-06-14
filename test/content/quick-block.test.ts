@@ -85,11 +85,11 @@ describe("quick-block mode resolution", () => {
     expect(normalizeQuickBlockMode("bogus")).toBe(DEFAULT_QUICK_BLOCK_MODE);
     expect(normalizeQuickBlockMode(undefined)).toBe(DEFAULT_QUICK_BLOCK_MODE);
     expect(normalizeQuickBlockMode(42)).toBe(DEFAULT_QUICK_BLOCK_MODE);
-    expect(DEFAULT_QUICK_BLOCK_MODE).toBe("inline");
+    expect(DEFAULT_QUICK_BLOCK_MODE).toBe("auto-confirm");
   });
 
   test("QB-03 resolveQuickBlockMode reads the env flag (unset -> default)", () => {
-    expect(resolveQuickBlockMode()).toBe("inline");
+    expect(resolveQuickBlockMode()).toBe("auto-confirm");
   });
 });
 
@@ -330,12 +330,19 @@ describe("auto-confirm fallback", () => {
 });
 
 describe("index.ts wiring", () => {
-  test("QB-30 a single block through the console bumps the rail session count", async () => {
+  afterEach(() => {
+    // The quick-block service is now session-long; destroy it so its document
+    // click listener does not leak into later tests.
+    hooks.getQuickBlock()?.destroy();
+  });
+
+  test("QB-30 an inline single block bumps the rail session count", async () => {
     setWindowLocation("https://x.com/someone/status/123456789");
     const reply = pageWithReply("spammer");
     const stub = installFetchStub(() => ({ ok: true, status: 200 }));
 
     hooks.addButtons();
+    hooks.mountQuickBlock("inline");
     expect(hooks.getQuickBlock()).not.toBeNull();
 
     consoleButton(reply, "block").click();
@@ -346,16 +353,20 @@ describe("index.ts wiring", () => {
     expect(sessionCount?.textContent).toBe("1");
   });
 
-  test("QB-31 leaving the tweet page tears the console down", () => {
+  test("QB-31 the quick-block service persists across navigation away from a status page", () => {
     setWindowLocation("https://x.com/someone/status/123456789");
     pageWithReply("spammer");
-    hooks.addButtons();
+    hooks.mountQuickBlock();
+    hooks.checkPageAndAddButton();
     expect(hooks.getQuickBlock()).not.toBeNull();
+    expect(hooks.getRail()).not.toBeNull();
+    // The default (auto-confirm) injects no per-reply console.
+    expect(document.querySelector(".xb-console")).toBeNull();
 
     setWindowLocation("https://x.com/i/timeline");
     hooks.checkPageAndAddButton();
 
-    expect(hooks.getQuickBlock()).toBeNull();
-    expect(document.querySelector(".xb-console")).toBeNull();
+    expect(hooks.getRail()).toBeNull();
+    expect(hooks.getQuickBlock()).not.toBeNull();
   });
 });

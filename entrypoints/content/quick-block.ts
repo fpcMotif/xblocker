@@ -1,11 +1,14 @@
 // One-click manual ("quick") block/mute for a single account. Two strategies live
 // behind the VITE_QUICK_BLOCK_MODE flag (see docs/adr/0001-one-click-manual-block.md):
 //
+//   auto-confirm  -- watch for X's native confirmation sheet and auto-click confirm,
+//                    scoped to block/mute sheets only. The default: it bypasses X's
+//                    "Block @user?" dialog for the native ••• -> Block (and Mute) flow,
+//                    whether the user gets there by mouse or keyboard, on every surface.
+//                    Mounted once and never on a per-surface basis (see index.ts).
 //   inline        -- the Cursor Console: per-reply Block/Mute/Whitelist buttons that
 //                    call the direct internal API (blockTweet/muteTweet), no confirm.
-//                    The default; reuses the same endpoint as the bulk reply rail.
-//   auto-confirm  -- watch for X's native confirmation sheet and auto-click confirm,
-//                    scoped to block/mute sheets only. A fragile fallback.
+//                    More robust (no dialog dependency) but adds its own buttons.
 //   off           -- do nothing.
 import {
   addToWhitelist,
@@ -21,7 +24,7 @@ import { showToast } from "./toast";
 
 export type QuickBlockMode = "inline" | "auto-confirm" | "off";
 
-export const DEFAULT_QUICK_BLOCK_MODE: QuickBlockMode = "inline";
+export const DEFAULT_QUICK_BLOCK_MODE: QuickBlockMode = "auto-confirm";
 
 const CONSOLE_CLASS = "xb-console";
 

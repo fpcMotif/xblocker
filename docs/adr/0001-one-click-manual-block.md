@@ -62,23 +62,38 @@ keyless content-script extension that already has a logged-in session. Not imple
 
 ## Decision
 
-Implement A and B behind a build-time flag and **default to A**.
+Implement A and B behind a build-time flag and **default to B (auto-confirm)**, mounted
+site-wide.
 
-- Flag: `VITE_QUICK_BLOCK_MODE` ∈ `inline` (A, default) | `auto-confirm` (B) | `off`.
+- Flag: `VITE_QUICK_BLOCK_MODE` ∈ `auto-confirm` (B, default) | `inline` (A) | `off`.
   Read via `import.meta.env` (same convention as `VITE_CONVEX_URL`); resolved in
-  `entrypoints/content/quick-block.ts`. Set it in `.env` and rebuild to compare modes.
+  `entrypoints/content/quick-block.ts`. Set it in `.env` and rebuild to switch modes.
+- B is the scoped auto-confirm observer described above. It mounts **once for the whole
+  session** in `entrypoints/content/index.ts` (`mountQuickBlock`), independent of the reply
+  rail's per-surface lifecycle, so it bypasses the native "Block @user?" dialog on every
+  surface (profile, timeline, search, status) and for both the mouse and keyboard paths
+  into the ••• → Block / Mute menu items.
 - A is the **Cursor Console**: per-reply Block / Mute / Whitelist buttons reusing the
-  existing direct-API path; one click, no confirmation.
-- B is the scoped auto-confirm observer described above.
+  existing direct-API path; one click, no confirmation. Kept as the robust opt-in.
 - The popup's unused `confirmDestructiveActions` toggle is intentionally left untouched.
+
+### Revision (2026-06-15) — default flipped A → B
+
+Originally A (inline) was the default for robustness: it depends on no X dialog markup.
+But the product owner blocks through X's **native** flow (••• → Block, by mouse or
+keyboard) and wants only the confirmation dialog removed — across *all* surfaces, not just
+replies — rather than a new per-tweet button. B delivers exactly that, so it is now the
+default and is mounted site-wide. A remains available via the flag; B's reliance on X's
+confirmation-sheet markup is the documented trade-off (see Consequences below).
 
 ## Consequences
 
-- Individual block/mute is one click with no confirmation, consistent with bulk actions.
-- Default (A) carries no extra fragility — it reuses the same endpoint the bulk path and
-  the live web client use.
-- B exists for empirical comparison and as a fallback if X ever breaks the direct call,
-  but its reliance on X's markup is documented as a known risk.
+- Manual block/mute via X's native menu needs no confirmation click, on every surface.
+- The default (B) depends on X's confirmation-sheet and menu-item testids. They are scoped
+  defensively (self-initiated, language-independent, block/mute only), but a markup change
+  on X's side can break it. If that happens, switch the flag to A (inline), which reuses
+  the same direct endpoint as the bulk path and depends on no X dialog markup.
+- A remains the robust opt-in for one-click block without touching X's native flow.
 
 ## Hardening backlog (not done here)
 
