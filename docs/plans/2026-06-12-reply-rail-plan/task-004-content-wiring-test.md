@@ -19,16 +19,18 @@ before 004-impl (or run the pair in an isolated worktree).
 ## BDD Scenario
 
 ```gherkin
-Scenario: Tweet and profile pages mount exactly one surface
-  Given a tweet detail or profile URL
+Scenario: Tweet detail pages mount exactly one surface
+  Given a tweet detail (status) URL
   When the content script initializes
   Then exactly one element with data-xb-surface "reply-rail" exists
   And no element with data-xb-surface "cursor-console" exists
 
-Scenario: Timeline pages mount nothing
-  Given an x.com timeline URL
+Scenario: Profile and timeline pages mount nothing
+  Given a profile or x.com timeline URL
   When checkPageAndAddButton runs
   Then no rail element exists
+  # The rail only acts on replies under a tweet; profiles have no reply
+  # conversation, so the dock is scoped to status pages only.
 
 Scenario: SPA navigation tears down and re-creates the rail
   Given the rail is mounted on a tweet page
