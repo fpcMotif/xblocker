@@ -71,14 +71,26 @@ describe("detectTheme", () => {
     expect(detectTheme()).toBe("dark");
   });
 
-  test("TH-05 detects dark mode from a [data-theme=dark] element", () => {
+  test("TH-05 detects dark from [data-theme=dark] when the surface is indeterminate", () => {
+    // Weak hints only apply once the surface can't settle the theme itself, so
+    // clear the body background to make it indeterminate (see TH-05b / TD-05 for
+    // the light-surface case where the hint is correctly ignored).
+    document.body.style.backgroundColor = "";
     const node = document.createElement("div");
     node.setAttribute("data-theme", "dark");
     document.body.appendChild(node);
     expect(detectTheme()).toBe("dark");
   });
 
-  test("TH-06 detects dark mode from a black theme-color meta tag", () => {
+  test("TH-05b a [data-theme=dark] element does NOT flip a clearly light surface", () => {
+    const node = document.createElement("div");
+    node.setAttribute("data-theme", "dark");
+    document.body.appendChild(node);
+    expect(detectTheme()).toBe("light");
+  });
+
+  test("TH-06 detects dark from a black theme-color meta when the surface is indeterminate", () => {
+    document.body.style.backgroundColor = "";
     const meta = document.createElement("meta");
     meta.setAttribute("name", "theme-color");
     meta.setAttribute("content", "#000000");
@@ -102,7 +114,7 @@ describe("applyTheme", () => {
 
   test("TH-08 stamps data-xb-theme on every .xb-root node and nothing else", () => {
     const dock = document.createElement("div");
-    dock.className = "xb-root xb-dock";
+    dock.className = "xb-root xb-rail";
     const toastNode = document.createElement("div");
     toastNode.className = "xb-root xb-toast";
     const plain = document.createElement("div");
@@ -132,6 +144,8 @@ describe("applyTheme", () => {
     const root = document.createElement("div");
     root.className = "xb-root";
     document.body.appendChild(root);
+    // Indeterminate surface so the watched data-theme mutation is what decides.
+    document.body.style.backgroundColor = "";
     applyTheme();
     expect(root.dataset.xbTheme).toBe("light");
 

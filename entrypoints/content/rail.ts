@@ -6,7 +6,7 @@ import {
   muteReplies,
   type BatchProgress,
 } from "./actions";
-import { createActionButton } from "./buttons";
+import { createActionButton, createLabeledActionButton, type LabeledActionButton } from "./buttons";
 import { createIcon } from "./icons";
 import { showWhitelistModal } from "./modal";
 import {
@@ -27,7 +27,6 @@ export const COLLAPSE_GRACE_MS = 600;
 const RAIL_EDGE_OFFSET = 24;
 const FALLBACK_WIDTH = 48;
 const FALLBACK_HEIGHT = 280;
-const RING_CIRCUMFERENCE = 62.83;
 
 export type RailStateName = "collapsed" | "tracking" | "settled";
 export type RailState = { state: RailStateName; rendered: Point; cursor: Point };
@@ -72,16 +71,18 @@ export class ReplyRail {
   private rafId: number | null = null;
   private homePos: DockPosition | null = null;
   private blockedCount = 0;
-  private ringBar: SVGCircleElement;
-  private ringCount: HTMLSpanElement;
-  private handleCount: HTMLSpanElement;
-  private blockCount: HTMLSpanElement;
-  private muteCount: HTMLSpanElement;
+  private blockButton: LabeledActionButton;
+  private muteButton: LabeledActionButton;
+  private sessionIndicator: HTMLSpanElement;
+  private sessionCount: HTMLSpanElement;
+  private puck: HTMLButtonElement;
+  private puckCount: HTMLSpanElement;
+  private activeButton: LabeledActionButton | null = null;
 
   constructor() {
     this.root = document.createElement("div");
     this.root.id = "xblocker-reply-rail";
-    this.root.className = "xb-root xb-dock";
+    this.root.className = "xb-root xb-rail";
     this.root.dataset.xbSurface = "reply-rail";
     this.root.dataset.xbTheme = detectTheme();
     this.root.dataset.state = "collapsed";
@@ -90,33 +91,57 @@ export class ReplyRail {
     this.root.style.right = "16px";
     this.root.style.top = "30%";
 
+    // Collapsed surface: a single quiet puck carrying the session count.
+    const puck = document.createElement("button");
+    puck.type = "button";
+    puck.className = "xb-puck";
+    puck.dataset.action = "drag";
+    puck.appendChild(createIcon("shield", 22));
+    const puckCount = document.createElement("span");
+    puckCount.className = "xb-puck-count";
+    puck.appendChild(puckCount);
+    this.attachDrag(puck);
+
+    // Expanded surface: header + labeled bulk actions + footer.
+    const body = document.createElement("div");
+    body.className = "xb-rail-body";
+
+    const header = document.createElement("div");
+    header.className = "xb-rail-header";
+    const headerTitle = document.createElement("span");
+    headerTitle.className = "xb-rail-title";
+    headerTitle.textContent = "Replies";
     const handle = document.createElement("button");
     handle.type = "button";
-    handle.className = "xb-btn xb-dock-handle";
+    handle.className = "xb-btn xb-rail-handle";
     handle.dataset.action = "drag";
     handle.setAttribute("aria-label", "Move XBlocker rail");
     handle.title = "Move XBlocker rail";
     handle.appendChild(createIcon("drag", 16));
-    const handleCount = document.createElement("span");
-    handleCount.className = "xb-handle-count";
-    handleCount.textContent = "0";
-    handle.appendChild(handleCount);
     this.attachDrag(handle);
+    header.append(headerTitle, handle);
 
-    const blockButton = createActionButton({
+    const blockButton = createLabeledActionButton({
       action: "block",
       icon: "block",
-      label: "Block replies",
-      onClick: () => this.runBatch("block"),
+      label: "Block all replies",
+      text: "Block all",
+      variant: "hero",
+      onClick: () => this.runBatch("block", this.blockButton),
     });
-    this.blockCount = this.appendCountBadge(blockButton);
-    const muteButton = createActionButton({
+    const muteButton = createLabeledActionButton({
       action: "mute",
       icon: "mute",
-      label: "Mute replies",
-      onClick: () => this.runBatch("mute"),
+      label: "Mute all replies",
+      text: "Mute all",
+      variant: "secondary",
+      onClick: () => this.runBatch("mute", this.muteButton),
     });
-    this.muteCount = this.appendCountBadge(muteButton);
+
+    const footer = document.createElement("div");
+    footer.className = "xb-rail-footer";
+    const footerActions = document.createElement("div");
+    footerActions.className = "xb-rail-footer-actions";
     const whitelistButton = createActionButton({
       action: "whitelist",
       icon: "whitelist",
@@ -133,52 +158,28 @@ export class ReplyRail {
         showToast("Use the XBlocker extension popup for settings.", "info");
       },
     });
+    footerActions.append(whitelistButton, settingsButton);
 
-    const ring = document.createElement("div");
-    ring.className = "xb-ring";
-    ring.title = "Blocked this session";
-    const svgNs = "http://www.w3.org/2000/svg";
-    const ringSvg = document.createElementNS(svgNs, "svg");
-    ringSvg.setAttribute("width", "32");
-    ringSvg.setAttribute("height", "32");
-    ringSvg.setAttribute("viewBox", "0 0 24 24");
-    ringSvg.setAttribute("aria-hidden", "true");
-    ringSvg.style.transform = "rotate(-90deg)";
-    const ringTrack = document.createElementNS(svgNs, "circle");
-    ringTrack.setAttribute("class", "xb-ring-track");
-    const ringBar = document.createElementNS(svgNs, "circle");
-    ringBar.setAttribute("class", "xb-ring-bar");
-    for (const circle of [ringTrack, ringBar]) {
-      circle.setAttribute("cx", "12");
-      circle.setAttribute("cy", "12");
-      circle.setAttribute("r", "10");
-      circle.setAttribute("fill", "none");
-      circle.setAttribute("stroke-width", "2");
-    }
-    ringBar.setAttribute("stroke-linecap", "round");
-    ringBar.setAttribute("stroke-dasharray", String(RING_CIRCUMFERENCE));
-    ringBar.setAttribute("stroke-dashoffset", String(RING_CIRCUMFERENCE));
-    ringSvg.appendChild(ringTrack);
-    ringSvg.appendChild(ringBar);
-    ring.appendChild(ringSvg);
-    const count = document.createElement("span");
-    count.className = "xb-ring-count";
-    count.textContent = "0";
-    count.setAttribute("aria-label", "Replies blocked this session");
-    ring.appendChild(count);
+    const sessionIndicator = document.createElement("span");
+    sessionIndicator.className = "xb-session";
+    sessionIndicator.title = "Blocked this session";
+    sessionIndicator.appendChild(createIcon("shield", 14));
+    const sessionCount = document.createElement("span");
+    sessionCount.className = "xb-session-count";
+    sessionIndicator.appendChild(sessionCount);
+    footer.append(footerActions, sessionIndicator);
 
-    this.ringBar = ringBar;
-    this.ringCount = count;
-    this.handleCount = handleCount;
+    body.append(header, blockButton, muteButton, this.divider(), footer);
+    this.root.append(puck, body);
 
-    this.root.appendChild(handle);
-    this.root.appendChild(this.divider());
-    this.root.appendChild(blockButton);
-    this.root.appendChild(muteButton);
-    this.root.appendChild(whitelistButton);
-    this.root.appendChild(this.divider());
-    this.root.appendChild(ring);
-    this.root.appendChild(settingsButton);
+    this.blockButton = blockButton;
+    this.muteButton = muteButton;
+    this.sessionIndicator = sessionIndicator;
+    this.sessionCount = sessionCount;
+    this.puck = puck;
+    this.puckCount = puckCount;
+
+    this.updateSessionDisplays();
   }
 
   mount(): void {
@@ -217,17 +218,19 @@ export class ReplyRail {
 
   incrementBlocked(by = 1): void {
     this.blockedCount += by;
-    this.ringCount.textContent = String(this.blockedCount);
-    this.handleCount.textContent = String(this.blockedCount);
+    this.updateSessionDisplays();
   }
 
   setProgress(progress: BatchProgress | null): void {
-    if (!progress || progress.total === 0) {
-      this.ringBar.style.strokeDashoffset = String(RING_CIRCUMFERENCE);
+    const button = this.activeButton;
+    if (!button) {
       return;
     }
-    const fraction = progress.done / progress.total;
-    this.ringBar.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - fraction));
+    if (!progress || progress.total === 0) {
+      button.clearProgress();
+      return;
+    }
+    button.setProgress(progress.done, progress.total);
   }
 
   refreshReplyCounts(): void {
@@ -330,45 +333,53 @@ export class ReplyRail {
     this.applyTransform();
   }
 
+  private updateSessionDisplays(): void {
+    const count = this.blockedCount;
+    const text = String(count);
+    this.sessionCount.textContent = text;
+    this.puckCount.textContent = text;
+    const empty = count === 0;
+    this.sessionIndicator.hidden = empty;
+    this.puckCount.hidden = empty;
+    this.puck.setAttribute("aria-label", `XBlocker — ${text} blocked this session`);
+  }
+
   private async updateReplyCounts(): Promise<void> {
     const maxReplies = await getMaxReplies();
     const articles = document.querySelectorAll('article[data-testid="tweet"]').length;
     const count = Math.min(Math.max(0, articles - 1), maxReplies);
-    this.blockCount.textContent = String(count);
-    this.muteCount.textContent = String(count);
+    this.blockButton.setCount(count);
+    this.muteButton.setCount(count);
   }
 
-  private async runBatch(kind: "block" | "mute"): Promise<void> {
-    const run = kind === "block" ? blockReplies : muteReplies;
-    const summary = await run((progress) => {
-      this.setProgress(progress);
-    });
-    this.setProgress(null);
+  private async runBatch(kind: "block" | "mute", button: LabeledActionButton): Promise<void> {
+    this.activeButton = button;
+    try {
+      const run = kind === "block" ? blockReplies : muteReplies;
+      const summary = await run((progress) => {
+        this.setProgress(progress);
+      });
+      this.setProgress(null);
 
-    if (!summary) {
-      return;
-    }
-    if (kind === "block") {
-      this.incrementBlocked(summary.acted);
-    }
+      if (!summary) {
+        return;
+      }
+      if (kind === "block") {
+        this.incrementBlocked(summary.acted);
+      }
 
-    if (summary.acted > 0) {
-      const verb = kind === "block" ? "Blocked" : "Muted";
-      const noun = summary.acted === 1 ? "reply" : "replies";
-      const skipped = summary.skipped ? `, skipped ${summary.skipped}` : "";
-      showToast(`${verb} ${summary.acted} ${noun}${skipped}`, "success");
-    } else if (summary.failed > 0) {
-      showToast(`Direct ${kind} failed. Please stay signed in to X and retry.`, "warning");
-      throw new Error(`Batch ${kind} failed.`);
+      if (summary.acted > 0) {
+        const verb = kind === "block" ? "Blocked" : "Muted";
+        const noun = summary.acted === 1 ? "reply" : "replies";
+        const skipped = summary.skipped ? `, skipped ${summary.skipped}` : "";
+        showToast(`${verb} ${summary.acted} ${noun}${skipped}`, "success");
+      } else if (summary.failed > 0) {
+        showToast(`Direct ${kind} failed. Please stay signed in to X and retry.`, "warning");
+        throw new Error(`Batch ${kind} failed.`);
+      }
+    } finally {
+      this.activeButton = null;
     }
-  }
-
-  private appendCountBadge(button: HTMLButtonElement): HTMLSpanElement {
-    const badge = document.createElement("span");
-    badge.className = "xb-count";
-    badge.textContent = "0";
-    button.appendChild(badge);
-    return badge;
   }
 
   private divider(): HTMLSpanElement {

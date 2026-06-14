@@ -1,22 +1,24 @@
-// Catalog: RA-* (Reply Rail actions: bulk-button reply counts, session counter,
-// progress ring, batch block/mute flows, whitelist/settings buttons, drag
-// persistence, stored-position clamping, collapsed-handle session badge).
+// Catalog: RA-* (Reply Rail actions: labeled bulk-button reply counts, footer
+// session indicator, on-button batch progress, batch block/mute flows,
+// whitelist/settings buttons, drag persistence, stored-position clamping,
+// collapsed-puck session badge).
 //
-// RED against entrypoints/content/rail.ts (created by task 002-impl, extended
-// by task 003-impl). Ports the still-valid dock.test.ts assertions onto the
-// rail selectors and adds the count-badge and handle-badge scenarios.
+// Drives entrypoints/content/rail.ts. The rail's resting surface is a puck; the
+// expanded body carries the labeled "Block all" / "Mute all" buttons. Counts
+// hide at zero, and batch progress rides the triggering button (n / total + a
+// determinate fill) rather than a standalone ring.
 //
-// Contract pinned here (beyond the 002 state machine):
-// - root: HTMLDivElement with data-xb-surface="reply-rail"
+// Contract pinned here:
+// - root: HTMLDivElement with data-xb-surface="reply-rail", role="toolbar"
 // - incrementBlocked(by?: number), setProgress(BatchProgress | null),
 //   refreshReplyCounts() reading reply articles capped by settings.maxReplies
-// - bulk buttons carry an `.xb-count` badge; the collapsed handle carries an
-//   `.xb-handle-count` session badge; drag handle aria-label "Move XBlocker rail"
-// - drag release persists the APPLIED position as dockPosition (not the
-//   happy-dom zero rect the old dock saved)
+// - bulk buttons are labeled (aria-label "Block all replies" / "Mute all replies")
+//   and carry an `.xb-count` chip hidden at zero
+// - footer `.xb-session` indicator + collapsed `.xb-puck-count` badge show the
+//   session blocked count, hidden while it is zero
+// - drag release persists the APPLIED position as dockPosition
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { BatchProgress } from "../../entrypoints/content/actions.ts";
 import { ReplyRail } from "../../entrypoints/content/rail.ts";
 import {
   installFetchStub,
@@ -66,34 +68,40 @@ function getDragHandle(): HTMLButtonElement {
   return getRailButton("Move XBlocker rail");
 }
 
-/** The reply-count badge on a bulk action button. */
+/** The reply-count chip on a labeled bulk action button. */
 function getCountBadge(label: string): HTMLElement {
   const badge = getRailButton(label).querySelector(".xb-count");
   if (!(badge instanceof HTMLElement)) {
-    throw new Error(`Count badge on "${label}" is missing`);
+    throw new Error(`Count chip on "${label}" is missing`);
   }
   return badge;
 }
 
-/** The session-count badge on the collapsed handle. */
-function getHandleBadge(): HTMLElement {
-  const badge = getRailRoot().querySelector(".xb-handle-count");
+/** Visible label text of a labeled bulk action button. */
+function getButtonText(label: string): string {
+  return getRailButton(label).querySelector(".xb-btn-text")?.textContent ?? "";
+}
+
+/** The footer session indicator wrapper (hidden while the count is zero). */
+function getSessionIndicator(): HTMLElement {
+  const indicator = getRailRoot().querySelector(".xb-session");
+  if (!(indicator instanceof HTMLElement)) {
+    throw new Error("Session indicator is missing");
+  }
+  return indicator;
+}
+
+function getSessionCount(): string {
+  return getRailRoot().querySelector(".xb-session-count")?.textContent ?? "";
+}
+
+/** The collapsed puck's session-count badge. */
+function getPuckCount(): HTMLElement {
+  const badge = getRailRoot().querySelector(".xb-puck-count");
   if (!(badge instanceof HTMLElement)) {
-    throw new Error("Collapsed handle session badge is missing");
+    throw new Error("Puck session badge is missing");
   }
   return badge;
-}
-
-function getRingBar(): SVGCircleElement {
-  const bar = getRailRoot().querySelector(".xb-ring-bar");
-  if (!(bar instanceof SVGCircleElement)) {
-    throw new Error("Rail ring bar is missing");
-  }
-  return bar;
-}
-
-function getRingCountText(): string {
-  return getRailRoot().querySelector(".xb-ring-count")?.textContent ?? "";
 }
 
 function queryToast(): HTMLElement | null {
@@ -119,33 +127,43 @@ describe("rail anatomy", () => {
     resetTestEnvironment();
   });
 
-  test("RA-01 mounts the rail surface with bulk controls, badges, ring, and handle", async () => {
+  test("RA-01 mounts the rail with labeled actions, footer, session indicator, and puck", async () => {
     const mounted = await mountRail();
     const root = getRailRoot();
 
     expect(root).toBe(mounted.root);
     expect(root.tagName).toBe("DIV");
     expect(root.dataset["xbSurface"]).toBe("reply-rail");
+    expect(root.getAttribute("role")).toBe("toolbar");
+    expect(root.getAttribute("aria-label")).toBe("XBlocker reply actions");
     expect(root.style.right).toBe("16px");
 
     for (const label of [
       "Move XBlocker rail",
-      "Block replies",
-      "Mute replies",
+      "Block all replies",
+      "Mute all replies",
       "Whitelist",
       "Open XBlocker settings",
     ]) {
       expect(getRailButton(label)).toBeInstanceOf(HTMLButtonElement);
     }
 
-    expect(getCountBadge("Block replies")).toBeTruthy();
-    expect(getCountBadge("Mute replies")).toBeTruthy();
-    expect(getHandleBadge().textContent).toBe("0");
+    expect(getButtonText("Block all replies")).toBe("Block all");
+    expect(getButtonText("Mute all replies")).toBe("Mute all");
+    expect(getRailButton("Block all replies").dataset["variant"]).toBe("hero");
+    expect(getRailButton("Mute all replies").dataset["variant"]).toBe("secondary");
 
-    const ringBar = getRingBar();
-    expect(ringBar.getAttribute("stroke-dasharray")).toBe("62.83");
-    expect(ringBar.getAttribute("stroke-dashoffset")).toBe("62.83");
-    expect(getRingCountText()).toBe("0");
+    // Counts and the session indicator are hidden at zero; the old ring and
+    // handle badge are gone.
+    expect(getCountBadge("Block all replies").hidden).toBe(true);
+    expect(getCountBadge("Mute all replies").hidden).toBe(true);
+    expect(getSessionIndicator().hidden).toBe(true);
+    expect(root.querySelector(".xb-handle-count")).toBeNull();
+    expect(root.querySelector(".xb-ring")).toBeNull();
+    expect(root.querySelector(".xb-ring-bar")).toBeNull();
+
+    // The collapsed puck is the resting surface.
+    expect(root.querySelector(".xb-puck")).not.toBeNull();
   });
 });
 
@@ -168,8 +186,9 @@ describe("bulk button reply counts", () => {
     mounted.refreshReplyCounts();
     await settleMicrotasks();
 
-    expect(getCountBadge("Block replies").textContent).toBe("5");
-    expect(getCountBadge("Mute replies").textContent).toBe("5");
+    expect(getCountBadge("Block all replies").textContent).toBe("5");
+    expect(getCountBadge("Block all replies").hidden).toBe(false);
+    expect(getCountBadge("Mute all replies").textContent).toBe("5");
   });
 
   test("RA-03 caps the displayed counts at the stored maxReplies", async () => {
@@ -186,50 +205,38 @@ describe("bulk button reply counts", () => {
     mounted.refreshReplyCounts();
     await settleMicrotasks();
 
-    expect(getCountBadge("Block replies").textContent).toBe("3");
-    expect(getCountBadge("Mute replies").textContent).toBe("3");
+    expect(getCountBadge("Block all replies").textContent).toBe("3");
+    expect(getCountBadge("Mute all replies").textContent).toBe("3");
   });
 });
 
-describe("session counter and progress ring", () => {
+describe("session counter and on-button progress", () => {
   beforeEach(async () => {
     resetTestEnvironment();
     await mountRail();
   });
 
-  test("RA-04 incrementBlocked updates the session count, defaulting to one", () => {
+  test("RA-04 incrementBlocked reveals and updates the session indicator, defaulting to one", () => {
     const mounted = rail!;
+    expect(getSessionIndicator().hidden).toBe(true);
 
     mounted.incrementBlocked();
-    expect(getRingCountText()).toBe("1");
+    expect(getSessionCount()).toBe("1");
+    expect(getSessionIndicator().hidden).toBe(false);
 
     mounted.incrementBlocked(4);
-    expect(getRingCountText()).toBe("5");
+    expect(getSessionCount()).toBe("5");
   });
 
-  test("RA-05 setProgress maps done/total onto the ring stroke offset", () => {
+  test("RA-05 setProgress is a no-op while no batch owns a button", () => {
     const mounted = rail!;
-    const ringBar = getRingBar();
+    const block = getRailButton("Block all replies");
 
-    const quarter: BatchProgress = { done: 1, total: 4 };
-    mounted.setProgress(quarter);
-    expect(Number.parseFloat(ringBar.style.strokeDashoffset)).toBeCloseTo(47.1225, 4);
-
-    mounted.setProgress({ done: 4, total: 4 });
-    expect(Number.parseFloat(ringBar.style.strokeDashoffset)).toBe(0);
-  });
-
-  test("RA-06 setProgress resets to the full circumference on null or empty totals", () => {
-    const mounted = rail!;
-    const ringBar = getRingBar();
-
-    mounted.setProgress({ done: 1, total: 2 });
+    mounted.setProgress({ done: 1, total: 4 });
     mounted.setProgress(null);
-    expect(ringBar.style.strokeDashoffset).toBe("62.83");
 
-    mounted.setProgress({ done: 1, total: 2 });
-    mounted.setProgress({ done: 0, total: 0 });
-    expect(ringBar.style.strokeDashoffset).toBe("62.83");
+    expect(block.hasAttribute("data-progress")).toBe(false);
+    expect(getButtonText("Block all replies")).toBe("Block all");
   });
 });
 
@@ -254,25 +261,32 @@ describe("rail batch actions", () => {
     manual = null;
   });
 
-  test("RA-07 bulk block advances the ring per tick, counts, and toasts the summary", async () => {
+  test("RA-07 bulk block shows on-button progress, counts the session, and toasts", async () => {
     const replies = populateTweetPage(["alice", "bob", "carol"]);
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    const blockButton = getRailButton("Block replies");
+    const blockButton = getRailButton("Block all replies");
 
     blockButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settleMicrotasks(30);
-    // After the first reply (1 of 3) a third of the ring is drained.
-    expect(Number.parseFloat(getRingBar().style.strokeDashoffset)).toBeCloseTo(41.8867, 4);
+    // After the first reply (1 of 3) the button shows a live readout + fill.
+    expect(getButtonText("Block all replies")).toBe("1 / 3");
+    expect(blockButton.dataset["progress"]).toBe("true");
+    expect(Number.parseFloat(blockButton.style.getPropertyValue("--xb-progress"))).toBeCloseTo(
+      1 / 3,
+      4,
+    );
 
     manual!.flushUpTo(250);
     await settleMicrotasks(30);
-    // Second tick (2 of 3) drains another third.
-    expect(Number.parseFloat(getRingBar().style.strokeDashoffset)).toBeCloseTo(20.9433, 4);
+    expect(getButtonText("Block all replies")).toBe("2 / 3");
 
     await driveBatch(manual!);
 
-    expect(getRingCountText()).toBe("3");
-    expect(getRingBar().style.strokeDashoffset).toBe("62.83");
+    // Completion: session counted + revealed, label restored, fill cleared.
+    expect(getSessionCount()).toBe("3");
+    expect(getSessionIndicator().hidden).toBe(false);
+    expect(getButtonText("Block all replies")).toBe("Block all");
+    expect(blockButton.hasAttribute("data-progress")).toBe(false);
     const toast = queryToast();
     expect(toast?.textContent).toContain("Blocked 3 replies");
     expect(toast?.textContent).not.toContain("skipped");
@@ -291,10 +305,10 @@ describe("rail batch actions", () => {
     populateTweetPage(["alice", "bob"]);
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
 
-    getRailButton("Block replies").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    getRailButton("Block all replies").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await driveBatch(manual!);
 
-    expect(getRingCountText()).toBe("1");
+    expect(getSessionCount()).toBe("1");
     expect(queryToast()?.textContent).toContain("Blocked 1 reply, skipped 1");
     expect(fetchStub.calls).toHaveLength(1);
   });
@@ -304,31 +318,45 @@ describe("rail batch actions", () => {
     populateTweetPage(["alice"]);
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
 
-    getRailButton("Block replies").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    getRailButton("Block all replies").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await driveBatch(manual!);
 
     expect(fetchStub.calls).toHaveLength(0);
-    expect(getRingCountText()).toBe("0");
+    expect(getSessionCount()).toBe("0");
     expect(queryToast()).toBeNull();
   });
 
   test("RA-09 bulk mute failure warns about staying signed in and rejects the batch", async () => {
     populateTweetPage(["dave", "erin"]);
     fetchStub = installRejectingFetch();
-    const muteButton = getRailButton("Mute replies");
+    const muteButton = getRailButton("Mute all replies");
 
     muteButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await driveBatch(manual!);
 
-    expect(getRingCountText()).toBe("0");
+    expect(getSessionCount()).toBe("0");
     const toast = queryToast();
     expect(toast?.textContent).toContain(
       "Direct mute failed. Please stay signed in to X and retry.",
     );
     expect(toast?.dataset["type"]).toBe("warning");
     // The batch promise rejects; the action button observes the rejection and
-    // flips to its error state — the same semantics dock.test.ts pinned.
+    // flips to its error state.
     expect(muteButton.dataset["state"]).toBe("error");
+  });
+
+  test("RA-16 a successful bulk mute never increments the session indicator", async () => {
+    populateTweetPage(["alice", "bob"]);
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const muteButton = getRailButton("Mute all replies");
+
+    muteButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await driveBatch(manual!);
+
+    expect(getSessionCount()).toBe("0");
+    expect(getSessionIndicator().hidden).toBe(true);
+    expect(queryToast()?.textContent).toContain("Muted 2 replies");
+    expect(muteButton.dataset["state"]).toBe("success");
   });
 });
 
@@ -386,8 +414,6 @@ describe("drag persistence and stored positions", () => {
     expect(root.style.right).toBe("auto");
 
     handle.dispatchEvent(pointerEvent("pointerup", 40, 100));
-    // The rail saves the applied (clamped) position, so the stored value is
-    // the dragged-to point — not the zero rect happy-dom reports.
     expect(storageFake.data["dockPosition"]).toEqual({ x: 40, y: 100 });
     expect(storageFake.setCalls).toHaveLength(1);
   });
@@ -398,9 +424,7 @@ describe("drag persistence and stored positions", () => {
 
     const root = getRailRoot();
     expect(root.style.right).toBe("auto");
-    // y: -50 clamps up to the 8px margin regardless of rail size.
     expect(root.style.top).toBe("8px");
-    // x: 5000 clamps back inside the 1024px happy-dom viewport margins.
     const left = Number.parseFloat(root.style.left);
     expect(Number.isFinite(left)).toBe(true);
     expect(left).toBeGreaterThanOrEqual(8);
@@ -413,18 +437,19 @@ describe("session count survives collapse", () => {
     resetTestEnvironment();
   });
 
-  test("RA-14 the collapsed handle badge shows the session blocked count after Escape", async () => {
+  test("RA-14 the collapsed puck badge shows the session blocked count after Escape", async () => {
     const mounted = await mountRail();
 
     mounted.incrementBlocked();
     mounted.incrementBlocked();
     mounted.incrementBlocked();
     mounted.incrementBlocked();
-    expect(getRingCountText()).toBe("4");
+    expect(getSessionCount()).toBe("4");
 
     mounted.handleKeydown(new KeyboardEvent("keydown", { key: "Escape" }));
 
     expect(getRailRoot().dataset["state"]).toBe("collapsed");
-    expect(getHandleBadge().textContent).toBe("4");
+    expect(getPuckCount().textContent).toBe("4");
+    expect(getPuckCount().hidden).toBe(false);
   });
 });

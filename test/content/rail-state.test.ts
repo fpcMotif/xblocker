@@ -199,7 +199,7 @@ describe("ReplyRail state machine", () => {
     }
   });
 
-  test("RS-01 a mounted rail starts collapsed with the session-count handle", () => {
+  test("RS-01 a mounted rail starts collapsed showing the session puck", () => {
     const instance = setupRail();
 
     expect(instance.root.dataset["xbSurface"]).toBe("reply-rail");
@@ -207,10 +207,39 @@ describe("ReplyRail state machine", () => {
     expect(instance.getState().state).toBe("collapsed");
     expect(instance.root.dataset["state"]).toBe("collapsed");
 
-    // The collapsed handle is the drag handle, badged with the session count.
-    // (Hiding the expanded stack is CSS keyed off [data-state="collapsed"].)
+    // The collapsed surface is a single puck carrying the session count; both
+    // the drag affordance and the expanded body remain in the DOM (which
+    // surface shows is CSS keyed off [data-state="collapsed"]).
+    const puck = instance.root.querySelector<HTMLElement>(".xb-puck");
+    expect(puck).not.toBeNull();
+    expect(puck?.getAttribute("aria-label")).toBe("XBlocker — 0 blocked this session");
+    expect(instance.root.querySelector<HTMLElement>(".xb-puck-count")?.hidden).toBe(true);
     expect(instance.root.querySelector('[data-action="drag"]')).not.toBeNull();
-    expect(instance.root.querySelector(".xb-ring-count")?.textContent).toBe("0");
+  });
+
+  test("RS-22 the puck badge reveals the session count and updates its aria-label", () => {
+    const instance = setupRail();
+    const puck = instance.root.querySelector<HTMLElement>(".xb-puck");
+    const badge = instance.root.querySelector<HTMLElement>(".xb-puck-count");
+    expect(badge?.hidden).toBe(true);
+
+    instance.incrementBlocked(3);
+
+    expect(badge?.hidden).toBe(false);
+    expect(badge?.textContent).toBe("3");
+    expect(puck?.getAttribute("aria-label")).toBe("XBlocker — 3 blocked this session");
+  });
+
+  test("RS-23 entering the reply region flips the rail off the collapsed surface", () => {
+    const instance = setupRail();
+    const reply = mountReply("alice");
+    expect(instance.root.dataset["state"]).toBe("collapsed");
+
+    moveOver(instance, reply, 300, 400);
+
+    expect(instance.getState().state).toBe("tracking");
+    expect(instance.root.dataset["state"]).toBe("tracking");
+    expect(instance.root.querySelector(".xb-rail-body")).not.toBeNull();
   });
 
   test("RS-02 destroy() removes the rail root from the document", () => {
