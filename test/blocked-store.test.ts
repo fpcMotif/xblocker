@@ -15,6 +15,8 @@ import {
   type RecordActionArgs,
   type RemoteAccount,
 } from "../entrypoints/lib/blocked-store.ts";
+import { settleMicrotasks } from "./helpers/timers.ts";
+import { storageFake } from "./setup.ts";
 
 let counter = 0;
 const fixedId = () => `action-${++counter}`;
@@ -635,5 +637,142 @@ describe("cloud round-trip parity", () => {
     expect(list[0]!.idUnknown).toBe(false);
     expect(list[0]!.blockCount).toBe(1);
     expect(list[0]!.muteCount).toBe(1);
+  });
+});
+
+describe("BlockedStore serialized mutations (XB-BUG-08 family)", () => {
+  test("BS-33 serializes concurrent record() calls so no account or outbox entry is lost", async () => {
+    // Mutations run through a single promise chain: the second record does not
+    // read until the first write lands, so last-write-wins clobbering is gone.
+    const store = createBlockedStore();
+    // reset() gives a clean call log + sync baseline; the trailing reset() restores
+    // sync dispatch so the manual mode does not leak into the next test.
+    storageFake.reset();
+    storageFake.useManualDispatch();
+    try {
+      const first = store.record({
+        handle: "first",
+        kind: "block",
+        source: "reply-bar",
+        xUserId: "1",
+      });
+      const second = store.record({
+        handle: "second",
+        kind: "block",
+        source: "reply-bar",
+        xUserId: "2",
+      });
+      await settleMicrotasks();
+
+      // Only the first mutation's read is in flight; the second is queued.
+      expect(storageFake.getCalls).toHaveLength(1);
+
+      for (let round = 0; round < 6; round++) {
+        storageFake.flush();
+        await settleMicrotasks();
+      }
+
+      expect((await first).key).toBe("1");
+      expect((await second).key).toBe("2");
+
+      // Both accounts persisted, and both actions landed in the outbox. list()/pending()
+      // are read-only reads that still queue under manual dispatch, so settle them too.
+      const listPromise = store.list();
+      const pendingPromise = store.pending();
+      for (let round = 0; round < 4; round++) {
+        storageFake.flush();
+        await settleMicrotasks();
+      }
+      expect((await listPromise).map((account) => account.key).toSorted()).toEqual(["1", "2"]);
+      expect((await pendingPromise).map((item) => item.accountKey).toSorted()).toEqual(["1", "2"]);
+    } finally {
+      storageFake.reset();
+    }
+  });
+
+  test("BS-34 a failed mutation does not wedge the chain for later mutations", async () => {
+    // Both mutations are enqueued before either settles, so the recovering one
+    // only runs if the chain advances PAST the rejected one. This pins the
+    // `mutationChain = run.catch(...)` recovery: with a plain `mutationChain = run`
+    // the second mutation chains off a rejected promise, its body is skipped, and
+    // "ok" is never written — so the assertions below would fail.
+    const store = createBlockedStore();
+    storageFake.failNextGet = true;
+
+    const failing = store.record({
+      handle: "boom",
+      kind: "block",
+      source: "reply-bar",
+      xUserId: "1",
+    });
+    const recovering = store.record({
+      handle: "ok",
+      kind: "block",
+      source: "reply-bar",
+      xUserId: "2",
+    });
+
+    let failingRejected = false;
+    await failing.catch(() => {
+      failingRejected = true;
+    });
+    expect(failingRejected).toBe(true);
+
+    const account = await recovering;
+    expect(account.key).toBe("2");
+    expect(await store.has("2")).toBe(true);
+    // The failed mutation wrote nothing; only the recovering account persists.
+    expect(await store.has("1")).toBe(false);
+  });
+
+  test("BS-35 serializes a record() against a concurrent mergeRemote() with no lost update", async () => {
+    // The real production race is cross-method: the content script's record() and
+    // the popup sync's mergeRemote() both read-modify-write blockedAccounts. If
+    // either wrapper is dropped they read the same empty map and the second write
+    // clobbers the first; serialized, the second reads after the first lands.
+    const store = createBlockedStore();
+    storageFake.reset();
+    storageFake.useManualDispatch();
+    try {
+      const recorded = store.record({
+        handle: "local",
+        kind: "block",
+        source: "reply-bar",
+        xUserId: "1",
+      });
+      const merged = store.mergeRemote([
+        {
+          xUserId: "2",
+          handle: "remote",
+          idUnknown: false,
+          firstActionAt: 1,
+          lastActionAt: 2,
+          blockCount: 1,
+          muteCount: 0,
+          status: "active",
+        },
+      ]);
+      await settleMicrotasks();
+
+      // Only the first mutation's read is in flight; the second waits its turn.
+      expect(storageFake.getCalls).toHaveLength(1);
+
+      for (let round = 0; round < 6; round++) {
+        storageFake.flush();
+        await settleMicrotasks();
+      }
+      await recorded;
+      await merged;
+
+      const listPromise = store.list();
+      for (let round = 0; round < 4; round++) {
+        storageFake.flush();
+        await settleMicrotasks();
+      }
+      // Both the recorded and the merged account survive — neither write was lost.
+      expect((await listPromise).map((account) => account.key).toSorted()).toEqual(["1", "2"]);
+    } finally {
+      storageFake.reset();
+    }
   });
 });

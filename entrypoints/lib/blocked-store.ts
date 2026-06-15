@@ -136,6 +136,18 @@ function isAccountMap(value: unknown): value is AccountMap {
 }
 
 export function createBlockedStore(): BlockedStore {
+  // chrome.storage has no transactions, so read-modify-write mutations are
+  // serialized through this chain; concurrent record/markSynced/mergeRemote
+  // calls queue instead of racing (XB-BUG-08 family). The chain is advanced by
+  // a settled (never-rejecting) promise so one failed mutation cannot wedge it.
+  let mutationChain: Promise<unknown> = Promise.resolve();
+
+  function enqueueMutation<T>(mutate: () => Promise<T>): Promise<T> {
+    const run = mutationChain.then(mutate);
+    mutationChain = run.catch(() => undefined);
+    return run;
+  }
+
   async function loadMap(): Promise<AccountMap> {
     return (await readKey<AccountMap>(ACCOUNTS_KEY)) ?? {};
   }
@@ -175,28 +187,30 @@ export function createBlockedStore(): BlockedStore {
       );
     },
 
-    async record(input) {
-      const map = await loadMap();
-      const existingKey = findExistingKey(map, input);
-      const existing = existingKey ? map[existingKey] : undefined;
-      const merged = mergeBlockedAccount(existing, input, Date.now(), genId);
-      const storeKey = existingKey ?? merged.key;
-      map[storeKey] = merged;
+    record(input) {
+      return enqueueMutation(async () => {
+        const map = await loadMap();
+        const existingKey = findExistingKey(map, input);
+        const existing = existingKey ? map[existingKey] : undefined;
+        const merged = mergeBlockedAccount(existing, input, Date.now(), genId);
+        const storeKey = existingKey ?? merged.key;
+        map[storeKey] = merged;
 
-      const lastAction = merged.actions[merged.actions.length - 1];
-      const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
-      if (lastAction) {
-        outbox.push({
-          accountKey: storeKey,
-          ...(merged.xUserId ? { xUserId: merged.xUserId } : {}),
-          handle: merged.handle,
-          idUnknown: merged.idUnknown,
-          action: lastAction,
-        });
-      }
+        const lastAction = merged.actions[merged.actions.length - 1];
+        const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
+        if (lastAction) {
+          outbox.push({
+            accountKey: storeKey,
+            ...(merged.xUserId ? { xUserId: merged.xUserId } : {}),
+            handle: merged.handle,
+            idUnknown: merged.idUnknown,
+            action: lastAction,
+          });
+        }
 
-      await writeKeys({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
-      return merged;
+        await writeKeys({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
+        return merged;
+      });
     },
 
     async list() {
@@ -213,83 +227,87 @@ export function createBlockedStore(): BlockedStore {
       return (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
     },
 
-    async markSynced(actionIds) {
-      if (actionIds.length === 0) return;
-      const done = new Set(actionIds);
-      const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
-      const remaining = outbox.filter((item) => !done.has(item.action.actionId));
-      await writeKeys({ [OUTBOX_KEY]: remaining });
+    markSynced(actionIds) {
+      if (actionIds.length === 0) return Promise.resolve();
+      return enqueueMutation(async () => {
+        const done = new Set(actionIds);
+        const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
+        const remaining = outbox.filter((item) => !done.has(item.action.actionId));
+        await writeKeys({ [OUTBOX_KEY]: remaining });
+      });
     },
 
-    async mergeRemote(remote) {
-      if (remote.length === 0) return;
-      const map = await loadMap();
-      let changed = false;
+    mergeRemote(remote) {
+      if (remote.length === 0) return Promise.resolve();
+      return enqueueMutation(async () => {
+        const map = await loadMap();
+        let changed = false;
 
-      for (const row of remote) {
-        const key = accountKeyFor({ xUserId: row.xUserId, handle: row.handle });
-        let localKey = key in map ? key : undefined;
-        if (!localKey) {
-          for (const [candidate, account] of Object.entries(map)) {
-            if (account.xUserId === row.xUserId) {
-              localKey = candidate;
-              break;
+        for (const row of remote) {
+          const key = accountKeyFor({ xUserId: row.xUserId, handle: row.handle });
+          let localKey = key in map ? key : undefined;
+          if (!localKey) {
+            for (const [candidate, account] of Object.entries(map)) {
+              if (account.xUserId === row.xUserId) {
+                localKey = candidate;
+                break;
+              }
             }
           }
-        }
-        // Correlate a still-handle-keyed local record (id unknown) with a remote row that
-        // now carries the id, by screen name — so an id learned on another device folds in
-        // here instead of creating a duplicate account.
-        if (!localKey && !row.idUnknown) {
-          const needle = normalizeHandle(row.handle);
-          for (const [candidate, account] of Object.entries(map)) {
-            if (account.idUnknown && normalizeHandle(account.handle) === needle) {
-              localKey = candidate;
-              break;
+          // Correlate a still-handle-keyed local record (id unknown) with a remote row that
+          // now carries the id, by screen name — so an id learned on another device folds in
+          // here instead of creating a duplicate account.
+          if (!localKey && !row.idUnknown) {
+            const needle = normalizeHandle(row.handle);
+            for (const [candidate, account] of Object.entries(map)) {
+              if (account.idUnknown && normalizeHandle(account.handle) === needle) {
+                localKey = candidate;
+                break;
+              }
             }
           }
-        }
 
-        if (!localKey) {
-          map[key] = {
-            key,
-            handle: row.handle,
-            idUnknown: row.idUnknown,
-            // A handle-keyed cloud row stores "@handle" in xUserId as its key; locally
-            // that is not a real id, so only keep xUserId when the id is actually known.
-            ...(!row.idUnknown && row.xUserId ? { xUserId: row.xUserId } : {}),
-            firstActionAt: row.firstActionAt,
-            lastActionAt: row.lastActionAt,
-            blockCount: row.blockCount,
-            muteCount: row.muteCount,
-            status: row.status,
-            actions: [],
+          if (!localKey) {
+            map[key] = {
+              key,
+              handle: row.handle,
+              idUnknown: row.idUnknown,
+              // A handle-keyed cloud row stores "@handle" in xUserId as its key; locally
+              // that is not a real id, so only keep xUserId when the id is actually known.
+              ...(!row.idUnknown && row.xUserId ? { xUserId: row.xUserId } : {}),
+              firstActionAt: row.firstActionAt,
+              lastActionAt: row.lastActionAt,
+              blockCount: row.blockCount,
+              muteCount: row.muteCount,
+              status: row.status,
+              actions: [],
+            };
+            changed = true;
+            continue;
+          }
+
+          const local = map[localKey];
+          if (!local) continue;
+          const remoteNewer = row.lastActionAt > local.lastActionAt;
+          // Adopt a numeric id learned remotely, and stop treating the account as
+          // id-unknown once either side knows the id (mirrors the cloud's AND rule).
+          const learnedId = local.xUserId ?? (row.idUnknown ? undefined : row.xUserId);
+          map[localKey] = {
+            ...local,
+            handle: remoteNewer ? row.handle : local.handle,
+            idUnknown: local.idUnknown && row.idUnknown,
+            ...(learnedId ? { xUserId: learnedId } : {}),
+            firstActionAt: Math.min(local.firstActionAt, row.firstActionAt),
+            lastActionAt: Math.max(local.lastActionAt, row.lastActionAt),
+            blockCount: Math.max(local.blockCount, row.blockCount),
+            muteCount: Math.max(local.muteCount, row.muteCount),
+            status: remoteNewer ? row.status : local.status,
           };
           changed = true;
-          continue;
         }
 
-        const local = map[localKey];
-        if (!local) continue;
-        const remoteNewer = row.lastActionAt > local.lastActionAt;
-        // Adopt a numeric id learned remotely, and stop treating the account as
-        // id-unknown once either side knows the id (mirrors the cloud's AND rule).
-        const learnedId = local.xUserId ?? (row.idUnknown ? undefined : row.xUserId);
-        map[localKey] = {
-          ...local,
-          handle: remoteNewer ? row.handle : local.handle,
-          idUnknown: local.idUnknown && row.idUnknown,
-          ...(learnedId ? { xUserId: learnedId } : {}),
-          firstActionAt: Math.min(local.firstActionAt, row.firstActionAt),
-          lastActionAt: Math.max(local.lastActionAt, row.lastActionAt),
-          blockCount: Math.max(local.blockCount, row.blockCount),
-          muteCount: Math.max(local.muteCount, row.muteCount),
-          status: remoteNewer ? row.status : local.status,
-        };
-        changed = true;
-      }
-
-      if (changed) await writeKeys({ [ACCOUNTS_KEY]: map });
+        if (changed) await writeKeys({ [ACCOUNTS_KEY]: map });
+      });
     },
 
     onChange(callback) {
