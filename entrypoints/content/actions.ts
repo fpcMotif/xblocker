@@ -76,8 +76,35 @@ export function normalizeUsername(value: string | null | undefined): string | nu
   return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
 }
 
-export function extractUsernameFromTweet(tweetArticle: Element): string | null {
-  const links = tweetArticle.querySelectorAll('a[href^="/"][role="link"]');
+// One reply <article> holds several handle-shaped links, so the old "first
+// /handle link wins" scan mis-attributes the author: a "<x> reposted"
+// social-context link, a "Replying to @x" link, an @mention in the body, and a
+// quoted tweet's own author link can all sit before or beside the real author.
+// Acting on the wrong handle silently blocks the wrong person (the bulk reply
+// rail and the per-reply Cursor Console both act with no confirmation), so the
+// author is resolved from the outer User-Name byline and, only when that is
+// absent, from the article's links with the body text and any quoted tweet
+// excluded.
+//
+// Selectors confirmed against a live (zh-Hant) x.com DOM: the author byline is
+// `[data-testid="User-Name"]` (its anchors point at `/handle` and
+// `/handle/status/...`), the body is `[data-testid="tweetText"]`, and a quoted
+// tweet is a clickable `div[role="link"][tabindex]`. The outer byline always
+// precedes a quoted tweet's nested byline in document order, so the first one
+// names the author.
+const TWEET_TEXT_SELECTOR = '[data-testid="tweetText"]';
+const QUOTE_CONTAINER_SELECTOR = 'div[role="link"][tabindex]';
+const NESTED_REGION_SELECTOR = `${TWEET_TEXT_SELECTOR}, ${QUOTE_CONTAINER_SELECTOR}`;
+
+// True when `element` belongs to the body text or a nested quoted tweet of
+// `article`. The `article.contains` guard stops a role="link" wrapper *around*
+// the whole article (some embed surfaces) from excluding a genuine author link.
+function isInsideNestedRegion(element: Element, article: Element): boolean {
+  const region = element.closest(NESTED_REGION_SELECTOR);
+  return region !== null && article.contains(region);
+}
+
+function firstAuthorHandle(links: Iterable<Element>): string | null {
   for (const link of links) {
     const href = link.getAttribute("href") || "";
     const firstPathPart = href.split("?")[0]?.split("/").find(Boolean) || "";
@@ -86,8 +113,26 @@ export function extractUsernameFromTweet(tweetArticle: Element): string | null {
       return username;
     }
   }
-
   return null;
+}
+
+export function extractUsernameFromTweet(tweetArticle: Element): string | null {
+  // The author's byline — but never a quoted tweet's nested byline.
+  const byline = tweetArticle.querySelector('[data-testid="User-Name"]');
+  if (byline && !isInsideNestedRegion(byline, tweetArticle)) {
+    const author = firstAuthorHandle(byline.querySelectorAll('a[href^="/"]'));
+    if (author) {
+      return author;
+    }
+  }
+
+  // No usable byline (older markup or a locale variant): scan the article's
+  // links, skipping @mentions in the body and the quoted tweet's author so a
+  // stray earlier link cannot hijack the result.
+  const links = tweetArticle.querySelectorAll('a[href^="/"][role="link"]');
+  return firstAuthorHandle(
+    Array.from(links).filter((link) => !isInsideNestedRegion(link, tweetArticle)),
+  );
 }
 
 function getXApiBaseUrl(): string {

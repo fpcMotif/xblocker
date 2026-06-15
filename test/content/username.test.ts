@@ -2,6 +2,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { extractUsernameFromTweet, normalizeUsername } from "../../entrypoints/content/actions.ts";
+import {
+  createQuoteTweetArticle,
+  createReplyArticle,
+  createRepostArticle,
+} from "../helpers/content-hooks.ts";
 import { resetTestEnvironment } from "../setup.ts";
 
 describe("normalizeUsername", () => {
@@ -167,5 +172,107 @@ describe("extractUsernameFromTweet", () => {
   test("EX-10 first matching link wins over later links", () => {
     const article = articleWithLinks(["/first_user/status/1", "/second_user/status/2"]);
     expect(extractUsernameFromTweet(article)).toBe("first_user");
+  });
+
+  // EX-11..EX-18 cover realistic X markup where a non-author handle link precedes
+  // or sits beside the real author. A wrong result here silently blocks the wrong
+  // person, so these pin the OUTER author against repost/quote/reply layouts.
+
+  function tweetArticle(): HTMLElement {
+    const article = document.createElement("article");
+    article.setAttribute("data-testid", "tweet");
+    return article;
+  }
+
+  function addRoleLink(parent: Element, href: string): void {
+    const link = document.createElement("a");
+    link.setAttribute("href", href);
+    link.setAttribute("role", "link");
+    parent.appendChild(link);
+  }
+
+  function addRegion(
+    parent: Element,
+    attrs: Record<string, string>,
+    linkHref: string,
+  ): HTMLElement {
+    const region = document.createElement("div");
+    for (const [name, value] of Object.entries(attrs)) {
+      region.setAttribute(name, value);
+    }
+    addRoleLink(region, linkHref);
+    parent.appendChild(region);
+    return region;
+  }
+
+  test("EX-11 resolves the original author of a repost, never the reposter", () => {
+    // The "<reposter> reposted" social-context link precedes the byline in DOM
+    // order, so the old first-link-wins scan returned the reposter.
+    const article = createRepostArticle({ reposter: "reposter_acct", author: "real_author" });
+    expect(extractUsernameFromTweet(article)).toBe("real_author");
+  });
+
+  test("EX-12 resolves the outer author of a quote tweet, not the quoted account or a mention", () => {
+    const article = createQuoteTweetArticle({
+      author: "outer_author",
+      quoted: "quoted_author",
+      mention: "mentioned_acct",
+    });
+    expect(extractUsernameFromTweet(article)).toBe("outer_author");
+  });
+
+  test("EX-13 resolves the reply author, not the 'Replying to' target placed first", () => {
+    const article = createReplyArticle({ repliedTo: "replied_to", author: "reply_author" });
+    expect(extractUsernameFromTweet(article)).toBe("reply_author");
+  });
+
+  test("EX-14 (no byline) skips a body @mention and resolves a later author link", () => {
+    const article = tweetArticle();
+    addRegion(article, { "data-testid": "tweetText" }, "/mentioned_acct");
+    addRoleLink(article, "/real_author/status/1");
+    expect(extractUsernameFromTweet(article)).toBe("real_author");
+  });
+
+  test("EX-15 (no byline) skips a quoted tweet's author and resolves a later author link", () => {
+    const article = tweetArticle();
+    addRegion(article, { role: "link", tabindex: "0" }, "/quoted_author");
+    addRoleLink(article, "/real_author/status/1");
+    expect(extractUsernameFromTweet(article)).toBe("real_author");
+  });
+
+  test("EX-16 falls back to article links when the byline has no resolvable handle", () => {
+    const article = tweetArticle();
+    // A byline whose only link is a reserved path resolves nothing on its own.
+    addRegion(article, { "data-testid": "User-Name" }, "/home");
+    addRoleLink(article, "/fallback_author/status/1");
+    expect(extractUsernameFromTweet(article)).toBe("fallback_author");
+  });
+
+  test("EX-17 keeps the author link when the whole article is wrapped in a role=link surface", () => {
+    // Some embed surfaces wrap the article in a clickable div[role=link]; the
+    // article.contains guard must not treat that ancestor as a nested region.
+    const wrapper = document.createElement("div");
+    wrapper.setAttribute("role", "link");
+    wrapper.setAttribute("tabindex", "0");
+    const article = tweetArticle();
+    addRoleLink(article, "/wrapped_author/status/1");
+    wrapper.appendChild(article);
+    expect(extractUsernameFromTweet(article)).toBe("wrapped_author");
+  });
+
+  test("EX-18 returns null rather than blocking the quoted account when only its byline exists", () => {
+    // Defensive: an article whose only User-Name block sits inside a quoted tweet
+    // (the outer tweet's byline is missing) must resolve nobody, not the quoted
+    // account.
+    const article = tweetArticle();
+    const quote = document.createElement("div");
+    quote.setAttribute("role", "link");
+    quote.setAttribute("tabindex", "0");
+    const byline = document.createElement("div");
+    byline.setAttribute("data-testid", "User-Name");
+    addRoleLink(byline, "/quoted_author");
+    quote.appendChild(byline);
+    article.appendChild(quote);
+    expect(extractUsernameFromTweet(article)).toBeNull();
   });
 });
