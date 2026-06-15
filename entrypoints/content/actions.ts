@@ -94,13 +94,25 @@ export function normalizeUsername(value: string | null | undefined): string | nu
 // names the author.
 const TWEET_TEXT_SELECTOR = '[data-testid="tweetText"]';
 const QUOTE_CONTAINER_SELECTOR = 'div[role="link"][tabindex]';
+const SOCIAL_CONTEXT_SELECTOR = '[data-testid="socialContext"]';
 const NESTED_REGION_SELECTOR = `${TWEET_TEXT_SELECTOR}, ${QUOTE_CONTAINER_SELECTOR}`;
+// The byline always wins when present, so the social-context handle is only a
+// hazard in the no-byline fallback scan: exclude it there on top of the nested
+// regions so a "<x> reposted" link cannot be mistaken for the author.
+const FALLBACK_EXCLUDED_REGION_SELECTOR = `${NESTED_REGION_SELECTOR}, ${SOCIAL_CONTEXT_SELECTOR}`;
 
 // True when `element` belongs to the body text or a nested quoted tweet of
 // `article`. The `article.contains` guard stops a role="link" wrapper *around*
 // the whole article (some embed surfaces) from excluding a genuine author link.
 function isInsideNestedRegion(element: Element, article: Element): boolean {
   const region = element.closest(NESTED_REGION_SELECTOR);
+  return region !== null && article.contains(region);
+}
+
+// Fallback-only variant: also treats the repost social-context region as nested
+// so its reposter handle is skipped when no byline names the author.
+function isInsideFallbackExcludedRegion(element: Element, article: Element): boolean {
+  const region = element.closest(FALLBACK_EXCLUDED_REGION_SELECTOR);
   return region !== null && article.contains(region);
 }
 
@@ -116,6 +128,15 @@ function firstAuthorHandle(links: Iterable<Element>): string | null {
   return null;
 }
 
+// The author's own timestamp permalink (/handle/status/...). A "Replying to @x"
+// reply-target link is a bare /handle profile link X renders in a plain <div>
+// we cannot region-exclude, so in the no-byline fallback a permalink is the one
+// shape we can trust over a leading context handle.
+function isStatusPermalink(link: Element): boolean {
+  const path = (link.getAttribute("href") || "").split("?")[0] ?? "";
+  return /^\/[^/]+\/status\//.test(path);
+}
+
 export function extractUsernameFromTweet(tweetArticle: Element): string | null {
   // The author's byline — but never a quoted tweet's nested byline.
   const byline = tweetArticle.querySelector('[data-testid="User-Name"]');
@@ -127,12 +148,15 @@ export function extractUsernameFromTweet(tweetArticle: Element): string | null {
   }
 
   // No usable byline (older markup or a locale variant): scan the article's
-  // links, skipping @mentions in the body and the quoted tweet's author so a
-  // stray earlier link cannot hijack the result.
-  const links = tweetArticle.querySelectorAll('a[href^="/"][role="link"]');
-  return firstAuthorHandle(
-    Array.from(links).filter((link) => !isInsideNestedRegion(link, tweetArticle)),
+  // links with the body text, quoted tweet, and repost social-context excluded.
+  // A "Replying to @x" link is a plain <div> we cannot region-exclude, so prefer
+  // the author's own status permalink and only fall back to the first bare handle
+  // (a profile or media link) when no permalink is present.
+  const candidates = Array.from(tweetArticle.querySelectorAll('a[href^="/"][role="link"]')).filter(
+    (link) => !isInsideFallbackExcludedRegion(link, tweetArticle),
   );
+
+  return firstAuthorHandle(candidates.filter(isStatusPermalink)) ?? firstAuthorHandle(candidates);
 }
 
 function getXApiBaseUrl(): string {
@@ -436,6 +460,12 @@ function getConversationReplies(): Element[] {
   return articles.slice(1).filter((article) => isBeforeDiscoverMore(article, boundary));
 }
 
+// The rail badge counts the same genuine replies the batch acts on, so it must
+// honor the Discover-more boundary rather than counting every tweet article.
+export function countConversationReplies(): number {
+  return getConversationReplies().length;
+}
+
 async function getReplyArticles(): Promise<Element[]> {
   const maxReplies = await getMaxReplies();
   return getConversationReplies().slice(0, maxReplies);
@@ -461,11 +491,19 @@ async function runReplyBatch(
     return null;
   }
 
-  const replies = await getReplyArticles();
-  const summary: BatchSummary = { acted: 0, skipped: 0, failed: 0 };
+  // A batch already in flight owns the page; a second concurrent invocation
+  // (Block then Mute clicked quickly, or a double-fire) must not double-act.
+  if (batchState.running) {
+    console.log("A batch is already running.");
+    return null;
+  }
 
+  // Claim the run synchronously, before the first await, so the re-entry window
+  // is closed against a concurrent caller.
   batchState.running = true;
   try {
+    const replies = await getReplyArticles();
+    const summary: BatchSummary = { acted: 0, skipped: 0, failed: 0 };
     for (const [index, article] of replies.entries()) {
       const result = await actOnTweet(type, article);
       if (result.status === "blocked" || result.status === "muted") {
@@ -481,14 +519,13 @@ async function runReplyBatch(
       onProgress?.({ done: index + 1, total: replies.length });
       await waitFor(DIRECT_ACTION_DELAY_MS);
     }
+    console.log(
+      `Finished direct ${type}. acted=${summary.acted}, skipped=${summary.skipped}, failed=${summary.failed}`,
+    );
+    return summary;
   } finally {
     batchState.running = false;
   }
-
-  console.log(
-    `Finished direct ${type}. acted=${summary.acted}, skipped=${summary.skipped}, failed=${summary.failed}`,
-  );
-  return summary;
 }
 
 export function blockReplies(

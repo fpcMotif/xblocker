@@ -16,7 +16,7 @@ import {
   installFetchStub,
   populateTweetPage,
 } from "../helpers/content-hooks.ts";
-import { installImmediateTimers } from "../helpers/timers.ts";
+import { installImmediateTimers, settleMicrotasks } from "../helpers/timers.ts";
 import {
   resetTestEnvironment,
   setDocumentCookie,
@@ -49,6 +49,9 @@ describe("blockReplies", () => {
     fetchStub = null;
     timers?.uninstall();
     timers = null;
+    // batchState is a module singleton; a test that parks a batch (BULK-15/16)
+    // must not leak running=true into siblings, where the guard would bail them.
+    batchState.running = false;
   });
 
   test("BULK-01 returns null without any network traffic when not on a tweet page", async () => {
@@ -158,6 +161,75 @@ describe("blockReplies", () => {
     expect(batchState.running).toBe(false);
   });
 
+  test("BULK-15 a second batch started while one is in flight returns null and acts on nothing", async () => {
+    // The first fetch hangs until released, so the first batch is parked mid-run
+    // with batchState.running already true. A concurrent invocation must bail.
+    let releaseFirst: (() => void) | null = null;
+    const original = globalThis.fetch;
+    const globals = globalThis as Record<string, unknown>;
+    const seen: string[] = [];
+    globals["fetch"] = async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? init.body : "";
+      seen.push(body);
+      if (releaseFirst === null) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return new Response(null, { status: 200 });
+    };
+    populateTweetPage(["reply_one", "reply_two"]);
+
+    try {
+      const first = hooks.blockReplies();
+      // Let the first batch reach (and park on) its first fetch.
+      await settleMicrotasks();
+      expect(batchState.running).toBe(true);
+      expect(seen).toHaveLength(1);
+
+      const second = await hooks.blockReplies();
+      expect(second).toBeNull();
+      // The guard returned before any await, so the second call hit no network.
+      expect(seen).toHaveLength(1);
+
+      releaseFirst!();
+      const summary = await first;
+      expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
+      expect(batchState.running).toBe(false);
+    } finally {
+      globals["fetch"] = original;
+    }
+  });
+
+  test("BULK-16 clears batchState.running when the run throws, so a later batch still proceeds", async () => {
+    // Force the batch's first storage read (getMaxReplies) to throw after
+    // batchState.running was raised. The finally must reset it — otherwise the
+    // re-entry guard would permanently reject every future batch (latent deadlock).
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["reply_one", "reply_two"]);
+
+    const realGet = storageFake.get.bind(storageFake);
+    storageFake.get = () => {
+      throw new Error("storage exploded");
+    };
+
+    let threw = false;
+    try {
+      await hooks.blockReplies();
+    } catch {
+      threw = true;
+    } finally {
+      storageFake.get = realGet;
+    }
+
+    expect(threw).toBe(true);
+    expect(batchState.running).toBe(false);
+
+    // The guard released cleanly: a fresh batch runs and acts on the replies.
+    const summary = await hooks.blockReplies();
+    expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
+  });
+
   test("BULK-07 returns an all-zero summary and never reports progress with zero replies", async () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage([]);
@@ -247,6 +319,9 @@ describe("muteReplies", () => {
     fetchStub = null;
     timers?.uninstall();
     timers = null;
+    // batchState is a module singleton; a test that parks a batch (BULK-15/16)
+    // must not leak running=true into siblings, where the guard would bail them.
+    batchState.running = false;
   });
 
   test("BULK-11 returns null without any network traffic when not on a tweet page", async () => {

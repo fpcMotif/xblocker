@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { ReplyRail } from "../../entrypoints/content/rail.ts";
 import {
+  appendDiscoverMoreSection,
   installFetchStub,
   installRejectingFetch,
   populateTweetPage,
@@ -207,6 +208,21 @@ describe("bulk button reply counts", () => {
 
     expect(getCountBadge("Block all replies").textContent).toBe("3");
     expect(getCountBadge("Mute all replies").textContent).toBe("3");
+  });
+
+  test("RA-17 excludes Discover more recommendations from the badge count", async () => {
+    storageFake.data["settings"] = { maxReplies: 100 };
+    populateTweetPage(["reply_user_1", "reply_user_2"]);
+    // A recommended post after the "Discover more" heading is not a reply, so it
+    // must not inflate the badge the way a raw article count would.
+    appendDiscoverMoreSection(["recommended_one"]);
+    const mounted = await mountRail();
+
+    mounted.refreshReplyCounts();
+    await settleMicrotasks();
+
+    expect(getCountBadge("Block all replies").textContent).toBe("2");
+    expect(getCountBadge("Mute all replies").textContent).toBe("2");
   });
 });
 

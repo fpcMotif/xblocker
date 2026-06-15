@@ -275,4 +275,33 @@ describe("extractUsernameFromTweet", () => {
     article.appendChild(quote);
     expect(extractUsernameFromTweet(article)).toBeNull();
   });
+
+  test("EX-19 (no byline) skips a repost social-context handle and resolves the real author", () => {
+    // With no byline to win, a "<x> reposted" social-context link placed before
+    // the real author link must not be mistaken for the author.
+    const article = tweetArticle();
+    addRegion(article, { "data-testid": "socialContext" }, "/reposter_acct");
+    addRoleLink(article, "/real_author/status/1");
+    expect(extractUsernameFromTweet(article)).toBe("real_author");
+  });
+
+  test("EX-20 (no byline) skips a plain-div 'Replying to' target and resolves the author permalink", () => {
+    // X renders the reply-context row as a plain <div> (no testid, not a quote
+    // container), so it cannot be region-excluded; the author's status permalink
+    // is preferred over the bare reply-target handle that precedes it. Without
+    // the permalink preference the first-link scan returns "replied_to" and the
+    // no-confirmation bulk/Console paths block the wrong person.
+    const article = tweetArticle();
+    addRegion(article, {}, "/replied_to");
+    addRoleLink(article, "/reply_author/status/1");
+    expect(extractUsernameFromTweet(article)).toBe("reply_author");
+  });
+
+  test("EX-21 (no byline) returns null rather than the reposter when no author link exists", () => {
+    // A repost whose only handle is the social-context reposter must resolve
+    // nobody — failing closed is correct; blocking the reposter is not.
+    const article = tweetArticle();
+    addRegion(article, { "data-testid": "socialContext" }, "/reposter_acct");
+    expect(extractUsernameFromTweet(article)).toBeNull();
+  });
 });

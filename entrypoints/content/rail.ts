@@ -1,6 +1,7 @@
 import {
   batchState,
   blockReplies,
+  countConversationReplies,
   getMaxReplies,
   isReplyArticle,
   muteReplies,
@@ -346,8 +347,7 @@ export class ReplyRail {
 
   private async updateReplyCounts(): Promise<void> {
     const maxReplies = await getMaxReplies();
-    const articles = document.querySelectorAll('article[data-testid="tweet"]').length;
-    const count = Math.min(Math.max(0, articles - 1), maxReplies);
+    const count = Math.min(countConversationReplies(), maxReplies);
     this.blockButton.setCount(count);
     this.muteButton.setCount(count);
   }
