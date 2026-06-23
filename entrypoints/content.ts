@@ -337,7 +337,6 @@ async function blockTweet(tweetArticle: Element): Promise<BlockTweetResult> {
 
 async function muteFirst50CommentTweets(): Promise<void> {
   if (!isTweetPageUrl(window.location.href)) {
-    console.log("Not on a tweet page. Exiting.");
     return;
   }
 
