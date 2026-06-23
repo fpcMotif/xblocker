@@ -301,6 +301,33 @@ describe("blockReplies", () => {
       expect(rec.dataset.xbBlocked).toBeUndefined();
     }
   });
+
+  test("BULK-19 honors the Discover more boundary on a localized (zh-Hant) UI", async () => {
+    // Regression: the boundary was matched against the exact English heading, so on
+    // the zh-Hant UI this extension supports it was never found and "Block all" acted
+    // on the recommended-post authors who never replied. The localized heading must
+    // bound the batch exactly as the English one does.
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const replies = populateTweetPage(["reply_one", "reply_two"]);
+    const recommended = appendDiscoverMoreSection(
+      ["recommended_one", "recommended_two"],
+      "探索更多",
+    );
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
+    expect(fetchStub.calls.map(requestBodyText)).toEqual([
+      "screen_name=reply_one",
+      "screen_name=reply_two",
+    ]);
+    for (const reply of replies) {
+      expect(reply.dataset.xbBlocked).toBe("true");
+    }
+    for (const rec of recommended) {
+      expect(rec.dataset.xbBlocked).toBeUndefined();
+    }
+  });
 });
 
 describe("muteReplies", () => {

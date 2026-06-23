@@ -133,6 +133,48 @@ export function mergeBlockedAccount(
   };
 }
 
+/** A rolled-up account snapshot from the cloud — the shape `listBlocked` returns and
+ *  `mergeRemote` folds back in. (Re-exported as `RemoteAccount` from blocked-store.) */
+export type RemoteAccountSnapshot = {
+  xUserId: string;
+  handle: string;
+  idUnknown: boolean;
+  firstActionAt: number;
+  lastActionAt: number;
+  blockCount: number;
+  muteCount: number;
+  status: BlockedStatus;
+};
+
+/**
+ * Fold a remote account snapshot into the matching local record, reconciling two views
+ * of the SAME account's already-rolled-up history. This is distinct from
+ * `mergeBlockedAccount` (which appends one action, +1) and the cloud's alias fold (which
+ * SUMs two distinct rows): both sides here should converge to the same totals, so counts
+ * take the max (healing a transiently-behind side without ever double-counting). The
+ * id-unknown flag clears once either side knows the id, a real numeric id learned remotely
+ * is adopted (but never the "@handle" pseudo-id of a still-handle-keyed remote row), and
+ * the side with the newer lastActionAt wins the display handle and status.
+ */
+export function foldAccountSnapshot(
+  local: BlockedAccount,
+  row: RemoteAccountSnapshot,
+): BlockedAccount {
+  const remoteNewer = row.lastActionAt > local.lastActionAt;
+  const learnedId = local.xUserId ?? (row.idUnknown ? undefined : row.xUserId);
+  return {
+    ...local,
+    handle: remoteNewer ? row.handle : local.handle,
+    idUnknown: local.idUnknown && row.idUnknown,
+    ...(learnedId ? { xUserId: learnedId } : {}),
+    firstActionAt: Math.min(local.firstActionAt, row.firstActionAt),
+    lastActionAt: Math.max(local.lastActionAt, row.lastActionAt),
+    blockCount: Math.max(local.blockCount, row.blockCount),
+    muteCount: Math.max(local.muteCount, row.muteCount),
+    status: remoteNewer ? row.status : local.status,
+  };
+}
+
 /** Roll a list of accounts up into the counters shown in the UI. */
 export function summarizeAccounts(accounts: BlockedAccount[]): BlockedStats {
   let blocked = 0;

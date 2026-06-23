@@ -13,10 +13,6 @@ import {
   muteTweet,
   muteUserDirectly,
   normalizeUsername,
-  type BatchProgress,
-  type BatchSummary,
-  type DirectActionRequest,
-  type ReplyActionResult,
 } from "./actions";
 import { computeRailY } from "./position";
 import { QuickBlock, resolveQuickBlockMode, type QuickBlockMode } from "./quick-block";
@@ -27,30 +23,33 @@ import { applyTheme, observeThemeChanges } from "./theme";
 const TWEET_PAGE_URL_PATTERN = new RegExp(String.raw`https?://(www\.)?x\.com/[^/]+/status/\d+`);
 const TIMELINE_URL_PATTERN = new RegExp(String.raw`https?://(www\.)?x\.com/i/timeline`);
 
+// The contract derives from the implementations via `typeof` so a changed signature can
+// never silently desync the hooks type. Only the two closures (getQuickBlock/getRail,
+// which read module-private state) and the railTimings literal are spelled out by hand.
 type XBlockerTestHooks = {
-  addButtons: () => void;
-  blockReplies: (onProgress?: (progress: BatchProgress) => void) => Promise<BatchSummary | null>;
-  blockTweet: (tweetArticle: Element) => Promise<ReplyActionResult>;
-  blockUserDirectly: (username: string) => Promise<Response>;
-  checkPageAndAddButton: () => void;
+  addButtons: typeof addButtons;
+  blockReplies: typeof blockReplies;
+  blockTweet: typeof blockTweet;
+  blockUserDirectly: typeof blockUserDirectly;
+  checkPageAndAddButton: typeof checkPageAndAddButton;
   computeRailY: typeof computeRailY;
-  createDirectBlockRequest: (username: string) => DirectActionRequest;
-  createDirectMuteRequest: (username: string) => DirectActionRequest;
-  extractUsernameFromTweet: (tweetArticle: Element) => string | null;
-  getCookieValue: (name: string) => string;
-  getMaxReplies: () => Promise<number>;
+  createDirectBlockRequest: typeof createDirectBlockRequest;
+  createDirectMuteRequest: typeof createDirectMuteRequest;
+  extractUsernameFromTweet: typeof extractUsernameFromTweet;
+  getCookieValue: typeof getCookieValue;
+  getMaxReplies: typeof getMaxReplies;
   getQuickBlock: () => QuickBlock | null;
   getRail: () => ReplyRail | null;
-  initializeXBlocker: () => void;
-  isTweetPageUrl: (url: string) => boolean;
-  mountQuickBlock: (mode?: QuickBlockMode) => void;
-  muteReplies: (onProgress?: (progress: BatchProgress) => void) => Promise<BatchSummary | null>;
-  muteTweet: (tweetArticle: Element) => Promise<ReplyActionResult>;
-  muteUserDirectly: (username: string) => Promise<Response>;
-  normalizeUsername: (value: string | null | undefined) => string | null;
-  observeThemeChanges: () => MutationObserver;
+  initializeXBlocker: typeof initializeXBlocker;
+  isTweetPageUrl: typeof isTweetPageUrl;
+  mountQuickBlock: typeof mountQuickBlock;
+  muteReplies: typeof muteReplies;
+  muteTweet: typeof muteTweet;
+  muteUserDirectly: typeof muteUserDirectly;
+  normalizeUsername: typeof normalizeUsername;
+  observeThemeChanges: typeof observeThemeChanges;
   railTimings: { dwellMs: number; collapseGraceMs: number };
-  runContentScript: () => void;
+  runContentScript: typeof runContentScript;
 };
 
 declare global {

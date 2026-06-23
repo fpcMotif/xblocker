@@ -1,4 +1,14 @@
 import { blockedStore } from "../lib/blocked-store";
+import {
+  clampMaxReplies,
+  normalizeUsername,
+  DEFAULT_MAX_REPLIES,
+  MAX_REPLIES_LIMIT,
+} from "../lib/settings";
+
+// Re-exported so existing importers (modal.ts, index.ts hooks, tests) keep their
+// `from "./actions"` path while the single definition lives in ../lib/settings.
+export { normalizeUsername, DEFAULT_MAX_REPLIES, MAX_REPLIES_LIMIT };
 
 export type DirectActionType = "block" | "mute";
 
@@ -22,25 +32,12 @@ export type BatchSummary = { acted: number; skipped: number; failed: number };
 const X_AUTH_BEARER_TOKEN =
   "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 const DIRECT_ACTION_DELAY_MS = 250;
-export const DEFAULT_MAX_REPLIES = 50;
-export const MAX_REPLIES_LIMIT = 200;
 const DIRECT_ACTION_ENDPOINTS: Record<DirectActionType, string> = {
   block: "/1.1/blocks/create.json",
   mute: "/1.1/mutes/users/create.json",
 };
 const TWEET_PAGE_URL_PATTERN = new RegExp(String.raw`https?://(www\.)?x\.com/[^/]+/status/\d+`);
 const LOCAL_TEST_PAGE_PATTERN = new RegExp(String.raw`^https?://(localhost|127\.0\.0\.1)`);
-const RESERVED_X_PATHS = new Set<string>([
-  "explore",
-  "home",
-  "i",
-  "intent",
-  "messages",
-  "notifications",
-  "search",
-  "settings",
-  "share",
-]);
 
 export const batchState = { running: false };
 
@@ -65,15 +62,6 @@ export function isTweetPageUrl(url: string): boolean {
     LOCAL_TEST_PAGE_PATTERN.test(url);
 
   return TWEET_PAGE_URL_PATTERN.test(url) || !!isLocalTestPage;
-}
-
-export function normalizeUsername(value: string | null | undefined): string | null {
-  const username = value?.replace(/^@/, "").trim();
-  if (!username || RESERVED_X_PATHS.has(username.toLowerCase())) {
-    return null;
-  }
-
-  return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
 }
 
 // One reply <article> holds several handle-shaped links, so the old "first
@@ -349,18 +337,7 @@ function readMaxRepliesSetting(settings: unknown): unknown {
 export function getMaxReplies(): Promise<number> {
   return new Promise((resolve) => {
     chrome.storage.local.get("settings", (result) => {
-      const raw = readMaxRepliesSetting(result?.settings);
-      const parsed =
-        typeof raw === "number"
-          ? Math.trunc(raw)
-          : typeof raw === "string"
-            ? Number.parseInt(raw, 10)
-            : Number.NaN;
-      if (!Number.isFinite(parsed)) {
-        resolve(DEFAULT_MAX_REPLIES);
-        return;
-      }
-      resolve(Math.min(MAX_REPLIES_LIMIT, Math.max(1, parsed)));
+      resolve(clampMaxReplies(readMaxRepliesSetting(result?.settings)));
     });
   });
 }
@@ -430,16 +407,22 @@ export function muteTweet(tweetArticle: Element): Promise<ReplyActionResult> {
 // X appends a "Discover more" module of recommended posts beneath the genuine
 // replies, reusing the same article markup. Those recommendations are not
 // replies to this conversation, so bulk actions and reply-region detection stop
-// at that boundary. The heading is matched by its exact (English) text: if the
-// locale or markup ever changes, detection falls back to the prior "every later
-// article is a reply" behavior, so we never silently skip a genuine reply.
-const DISCOVER_MORE_HEADING = "discover more";
+// at that boundary. The heading carries no stable testid, so it is matched by
+// text against the locales this extension supports — English and the zh-Hant /
+// zh-Hans UI the user actually runs (X renders "探索更多" in both Chinese scripts).
+// An English-only match silently failed on a localized UI: the boundary was never
+// found, so every recommended post counted as a reply and "Block all replies"
+// blocked up to maxReplies strangers who never replied. On an unrecognized locale
+// not in this set the boundary is still not found and detection falls back to the
+// prior "every later article is a reply" behavior, so a genuine reply is never
+// silently skipped (recommendations are over-included rather than a reply dropped).
+const DISCOVER_MORE_HEADINGS = new Set<string>(["discover more", "探索更多"]);
 
 function findDiscoverMoreBoundary(): Element | null {
   const headings = Array.from(document.querySelectorAll('h2, [role="heading"]'));
   return (
-    headings.find(
-      (heading) => (heading.textContent ?? "").trim().toLowerCase() === DISCOVER_MORE_HEADING,
+    headings.find((heading) =>
+      DISCOVER_MORE_HEADINGS.has((heading.textContent ?? "").trim().toLowerCase()),
     ) ?? null
   );
 }

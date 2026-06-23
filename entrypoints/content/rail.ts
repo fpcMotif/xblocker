@@ -353,6 +353,14 @@ export class ReplyRail {
   }
 
   private async runBatch(kind: "block" | "mute", button: LabeledActionButton): Promise<void> {
+    // Block-all and Mute-all act on the same reply set, so a second bulk click while one
+    // batch is in flight would hit the actions-layer batchState guard, return null, and
+    // (1) paint a false success check on the second button and (2) null activeButton, freezing
+    // the running batch's progress. Disable the sibling synchronously here — before the first
+    // await closes the re-entry window — and restore it in the finally so the early-return and
+    // thrown-failure paths both re-enable it (never leaving it stuck disabled).
+    const sibling = button === this.blockButton ? this.muteButton : this.blockButton;
+    sibling.disabled = true;
     this.activeButton = button;
     try {
       const run = kind === "block" ? blockReplies : muteReplies;
@@ -378,6 +386,7 @@ export class ReplyRail {
         throw new Error(`Batch ${kind} failed.`);
       }
     } finally {
+      sibling.disabled = false;
       this.activeButton = null;
     }
   }

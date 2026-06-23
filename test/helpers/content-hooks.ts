@@ -137,12 +137,17 @@ export function populateTweetPage(usernames: string[]): HTMLElement[] {
 /**
  * Append a "Discover more" heading followed by `usernames.length` recommended
  * articles, mirroring X's recommendation module beneath the genuine replies.
+ * `headingText` defaults to the English heading; pass a localized string (e.g.
+ * the zh-Hant "探索更多") to exercise the boundary on a non-English UI.
  * Returns the recommended articles (which are NOT replies to the conversation).
  */
-export function appendDiscoverMoreSection(usernames: string[]): HTMLElement[] {
+export function appendDiscoverMoreSection(
+  usernames: string[],
+  headingText = "Discover more",
+): HTMLElement[] {
   const heading = document.createElement("h2");
   heading.setAttribute("role", "heading");
-  heading.textContent = "Discover more";
+  heading.textContent = headingText;
   document.body.appendChild(heading);
 
   return usernames.map((username) => {

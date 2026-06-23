@@ -10,15 +10,16 @@
 
 import {
   accountKeyFor,
+  foldAccountSnapshot,
   mergeBlockedAccount,
   summarizeAccounts,
   type BlockAction,
   type BlockActionKind,
   type BlockedAccount,
   type BlockedStats,
-  type BlockedStatus,
   type BlockSource,
   type RecordInput,
+  type RemoteAccountSnapshot,
 } from "./blocked-merge";
 
 const ACCOUNTS_KEY = "blockedAccounts";
@@ -74,17 +75,9 @@ export function outboxItemToRecordArgs(item: OutboxItem): RecordActionArgs {
   };
 }
 
-/** Shape returned by the Convex `listBlocked` query, merged back in on pull. */
-export type RemoteAccount = {
-  xUserId: string;
-  handle: string;
-  idUnknown: boolean;
-  firstActionAt: number;
-  lastActionAt: number;
-  blockCount: number;
-  muteCount: number;
-  status: BlockedStatus;
-};
+/** Shape returned by the Convex `listBlocked` query, merged back in on pull. The single
+ *  definition lives in blocked-merge alongside the fold that consumes it. */
+export type RemoteAccount = RemoteAccountSnapshot;
 
 export interface BlockedStore {
   has(key: string): Promise<boolean>;
@@ -140,6 +133,18 @@ export function createBlockedStore(): BlockedStore {
   // serialized through this chain; concurrent record/markSynced/mergeRemote
   // calls queue instead of racing (XB-BUG-08 family). The chain is advanced by
   // a settled (never-rejecting) promise so one failed mutation cannot wedge it.
+  //
+  // SCOPE: this serializes only WITHIN one JS context. `blockedStore` is a
+  // per-context singleton, and the popup (which runs mergeRemote on a cloud pull)
+  // and the content script (which runs record) are separate contexts whose
+  // singletons can still lose-update each other on ACCOUNTS_KEY. That is harmless
+  // today because (a) the sync path never writes OUTBOX_KEY, so a queued action is
+  // never clobbered cross-context (the block itself is already done before record
+  // runs, and the outbox re-syncs idempotently), and (b) no live app code reads the
+  // account map, so any momentarily-stale stats self-heal on the next pull. A real
+  // fix (re-read-and-revalidate ACCOUNTS_KEY inside writeKeys) becomes necessary only
+  // if stats/list/hasActiveHandle/onChange get wired into the popup UI, or if the
+  // sync path ever also writes OUTBOX_KEY — at which point this turns into a bug.
   let mutationChain: Promise<unknown> = Promise.resolve();
 
   function enqueueMutation<T>(mutate: () => Promise<T>): Promise<T> {
@@ -288,21 +293,8 @@ export function createBlockedStore(): BlockedStore {
 
           const local = map[localKey];
           if (!local) continue;
-          const remoteNewer = row.lastActionAt > local.lastActionAt;
-          // Adopt a numeric id learned remotely, and stop treating the account as
-          // id-unknown once either side knows the id (mirrors the cloud's AND rule).
-          const learnedId = local.xUserId ?? (row.idUnknown ? undefined : row.xUserId);
-          map[localKey] = {
-            ...local,
-            handle: remoteNewer ? row.handle : local.handle,
-            idUnknown: local.idUnknown && row.idUnknown,
-            ...(learnedId ? { xUserId: learnedId } : {}),
-            firstActionAt: Math.min(local.firstActionAt, row.firstActionAt),
-            lastActionAt: Math.max(local.lastActionAt, row.lastActionAt),
-            blockCount: Math.max(local.blockCount, row.blockCount),
-            muteCount: Math.max(local.muteCount, row.muteCount),
-            status: remoteNewer ? row.status : local.status,
-          };
+          // Reconcile the local record with the remote snapshot (pure, unit-tested fold).
+          map[localKey] = foldAccountSnapshot(local, row);
           changed = true;
         }
 

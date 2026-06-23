@@ -15,20 +15,16 @@
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
-import type { BlockedStatus } from "./blocked-merge";
-import { outboxItemToRecordArgs, type OutboxItem, type RecordActionArgs } from "./blocked-store";
+import {
+  outboxItemToRecordArgs,
+  type OutboxItem,
+  type RecordActionArgs,
+  type RemoteAccount,
+} from "./blocked-store";
 
-/** Shape returned by the Convex `listBlocked` query. */
-export type RemoteAccount = {
-  xUserId: string;
-  handle: string;
-  idUnknown: boolean;
-  firstActionAt: number;
-  lastActionAt: number;
-  blockCount: number;
-  muteCount: number;
-  status: BlockedStatus;
-};
+// The Convex `listBlocked` query returns exactly the shape the local store's mergeRemote
+// consumes, so re-export the single definition rather than maintaining a twin here.
+export type { RemoteAccount };
 
 // Reference Convex functions by name so this bundle does not depend on the generated
 // `convex/_generated/api`, which only exists after `npx convex dev`.

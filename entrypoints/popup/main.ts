@@ -1,4 +1,10 @@
 import { blockedStore } from "../lib/blocked-store";
+import {
+  clampMaxReplies,
+  normalizeUsername,
+  DEFAULT_MAX_REPLIES,
+  MAX_REPLIES_LIMIT,
+} from "../lib/settings";
 
 type PopupSettings = {
   confirmDestructiveActions: boolean;
@@ -20,46 +26,9 @@ type PopupState = {
 const DEFAULT_SETTINGS: PopupSettings = {
   confirmDestructiveActions: true,
   keyboardMode: false,
-  maxReplies: 50,
+  maxReplies: DEFAULT_MAX_REPLIES,
   protectWhitelist: true,
 };
-
-const RESERVED_X_PATHS = new Set<string>([
-  "explore",
-  "home",
-  "i",
-  "intent",
-  "messages",
-  "notifications",
-  "search",
-  "settings",
-  "share",
-]);
-
-const MAX_REPLIES_LIMIT = 200;
-
-function normalizeUsername(value: string): string | null {
-  const username = value.replace(/^@/, "").trim();
-  if (!username || RESERVED_X_PATHS.has(username.toLowerCase())) {
-    return null;
-  }
-
-  return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
-}
-
-function normalizeMaxReplies(value: unknown): number {
-  const parsed =
-    typeof value === "number"
-      ? Math.trunc(value)
-      : typeof value === "string"
-        ? Number.parseInt(value, 10)
-        : Number.NaN;
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_SETTINGS.maxReplies;
-  }
-
-  return Math.min(MAX_REPLIES_LIMIT, Math.max(1, parsed));
-}
 
 function getStoredState(): Promise<PopupState> {
   return new Promise((resolve) => {
@@ -67,7 +36,7 @@ function getStoredState(): Promise<PopupState> {
       const storedSettings =
         typeof result?.settings === "object" && result.settings ? result.settings : {};
       const settings = { ...DEFAULT_SETTINGS, ...storedSettings };
-      settings.maxReplies = normalizeMaxReplies(settings.maxReplies);
+      settings.maxReplies = clampMaxReplies(settings.maxReplies);
       const whitelist = Array.isArray(result?.whitelist) ? result.whitelist : [];
       const cloudBackup = result?.cloudBackup === true;
       resolve({ settings, whitelist, cloudBackup });
@@ -696,11 +665,11 @@ function renderSettings(section: HTMLElement, settings: PopupSettings): void {
   // would silently drop the edit. Readers re-normalize, so saving each
   // keystroke is safe; "change" then snaps the visible value into range.
   maxRepliesInput.addEventListener("input", () => {
-    settings.maxReplies = normalizeMaxReplies(maxRepliesInput.value);
+    settings.maxReplies = clampMaxReplies(maxRepliesInput.value);
     saveSettings(settings);
   });
   maxRepliesInput.addEventListener("change", () => {
-    const maxReplies = normalizeMaxReplies(maxRepliesInput.value);
+    const maxReplies = clampMaxReplies(maxRepliesInput.value);
     maxRepliesInput.value = String(maxReplies);
     settings.maxReplies = maxReplies;
     saveSettings(settings);

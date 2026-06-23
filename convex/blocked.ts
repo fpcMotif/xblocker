@@ -31,6 +31,11 @@ const OWNER = "local";
 // Upsert keyed on (owner, xUserId): never duplicate the id, just roll the counts up and
 // append the event. This mirrors mergeBlockedAccount in entrypoints/lib/blocked-merge.ts,
 // whose mapping is pinned by test/blocked-store.test.ts (outboxItemToRecordArgs).
+//
+// This handler runs in the Convex runtime and is not executed by the unit suite, so its
+// arithmetic is mirrored by makeFakeCloud in test/blocked-store.test.ts and pinned by
+// BS-33/34/35. Keep the two in lockstep: a same-id upsert adds +1, an aliasKey migration
+// SUMs the legacy handle row into the numeric one, and idUnknown clears via AND.
 export const recordAction = mutation({
   args: {
     xUserId: v.string(),

@@ -374,6 +374,41 @@ describe("rail batch actions", () => {
     expect(queryToast()?.textContent).toContain("Muted 2 replies");
     expect(muteButton.dataset["state"]).toBe("success");
   });
+
+  test("RA-18 a running bulk batch disables the sibling button so it cannot false-succeed", async () => {
+    populateTweetPage(["alice", "bob", "carol"]);
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const blockButton = getRailButton("Block all replies");
+    const muteButton = getRailButton("Mute all replies");
+
+    blockButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settleMicrotasks(30);
+    // The block batch owns the page: the sibling mute button is disabled.
+    expect(getButtonText("Block all replies")).toBe("1 / 3");
+    expect(muteButton.disabled).toBe(true);
+
+    // A concurrent mute click (the bug's trigger) must do nothing: no busy/success
+    // paint on mute, and the running block batch keeps advancing its own progress.
+    muteButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settleMicrotasks(30);
+    expect(muteButton.dataset["state"]).toBe("idle");
+    expect(muteButton.hasAttribute("data-progress")).toBe(false);
+
+    manual!.flushUpTo(250);
+    await settleMicrotasks(30);
+    expect(getButtonText("Block all replies")).toBe("2 / 3");
+
+    await driveBatch(manual!);
+
+    // The block batch completes correctly and the mute button is re-enabled, never
+    // having muted anyone — only block endpoints were called.
+    expect(getSessionCount()).toBe("3");
+    expect(blockButton.dataset["state"]).toBe("success");
+    expect(muteButton.disabled).toBe(false);
+    expect(muteButton.dataset["state"]).toBe("idle");
+    expect(fetchStub.calls).toHaveLength(3);
+    expect(fetchStub.calls.every((call) => call.url.includes("/blocks/create.json"))).toBe(true);
+  });
 });
 
 describe("whitelist and settings buttons", () => {

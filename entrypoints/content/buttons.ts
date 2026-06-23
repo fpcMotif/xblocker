@@ -115,7 +115,10 @@ async function runButtonAction(
   status: HTMLSpanElement,
   config: ActionButtonConfig,
 ): Promise<void> {
-  if (button.dataset.state !== "idle") {
+  // A disabled action button ignores clicks — including synthetic/programmatic ones a real
+  // user could never fire on a disabled control — so a sibling bulk button disabled for the
+  // duration of a running batch can never enter busy/success while it acts on nothing.
+  if (button.disabled || button.dataset.state !== "idle") {
     return;
   }
 

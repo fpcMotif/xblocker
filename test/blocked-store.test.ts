@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   accountKeyFor,
+  foldAccountSnapshot,
   mergeBlockedAccount,
   summarizeAccounts,
   type BlockedAccount,
   type BlockedStats,
+  type RemoteAccountSnapshot,
 } from "../entrypoints/lib/blocked-merge.ts";
 import {
   createBlockedStore,
@@ -36,10 +38,131 @@ function mkAccount(
   };
 }
 
+/** Build a remote account snapshot for foldAccountSnapshot tests. */
+function mkSnapshot(
+  partial: Partial<RemoteAccountSnapshot> &
+    Pick<RemoteAccountSnapshot, "blockCount" | "muteCount" | "status">,
+): RemoteAccountSnapshot {
+  return {
+    xUserId: "111",
+    handle: "h",
+    idUnknown: false,
+    firstActionAt: 0,
+    lastActionAt: 0,
+    ...partial,
+  };
+}
+
 beforeEach(async () => {
   counter = 0;
   // Reset the shared in-memory storage area between tests.
   await chrome.storage.local.clear();
+});
+
+describe("foldAccountSnapshot (pure remote reconcile)", () => {
+  test("BS-FOLD-01 heals a behind-side with max counts and min/max timestamps", () => {
+    const local = mkAccount({
+      key: "111",
+      xUserId: "111",
+      blockCount: 1,
+      muteCount: 0,
+      status: "active",
+      firstActionAt: 500,
+      lastActionAt: 1000,
+    });
+    const merged = foldAccountSnapshot(
+      local,
+      mkSnapshot({
+        blockCount: 3,
+        muteCount: 2,
+        status: "active",
+        firstActionAt: 200,
+        lastActionAt: 900,
+      }),
+    );
+
+    // Counts take the max (never the sum) and the window spans both sides.
+    expect(merged.blockCount).toBe(3);
+    expect(merged.muteCount).toBe(2);
+    expect(merged.firstActionAt).toBe(200);
+    expect(merged.lastActionAt).toBe(1000);
+  });
+
+  test("BS-FOLD-02 the newer lastActionAt side wins handle and status", () => {
+    const local = mkAccount({
+      key: "111",
+      xUserId: "111",
+      handle: "old",
+      blockCount: 1,
+      muteCount: 0,
+      status: "active",
+      lastActionAt: 1000,
+    });
+    const remoteNewer = foldAccountSnapshot(
+      local,
+      mkSnapshot({
+        handle: "new",
+        status: "unblocked",
+        blockCount: 1,
+        muteCount: 0,
+        lastActionAt: 2000,
+      }),
+    );
+    expect(remoteNewer.handle).toBe("new");
+    expect(remoteNewer.status).toBe("unblocked");
+
+    const remoteOlder = foldAccountSnapshot(
+      local,
+      mkSnapshot({
+        handle: "stale",
+        status: "unblocked",
+        blockCount: 1,
+        muteCount: 0,
+        lastActionAt: 500,
+      }),
+    );
+    expect(remoteOlder.handle).toBe("old");
+    expect(remoteOlder.status).toBe("active");
+  });
+
+  test("BS-FOLD-03 adopts a real remote id but never a handle-keyed pseudo-id", () => {
+    const handleLocal = mkAccount({
+      key: "@spam",
+      handle: "spam",
+      idUnknown: true,
+      blockCount: 1,
+      muteCount: 0,
+      status: "active",
+    });
+
+    const learned = foldAccountSnapshot(
+      handleLocal,
+      mkSnapshot({
+        xUserId: "999",
+        idUnknown: false,
+        blockCount: 1,
+        muteCount: 0,
+        status: "active",
+      }),
+    );
+    expect(learned.xUserId).toBe("999");
+    expect(learned.idUnknown).toBe(false);
+
+    // A still-handle-keyed remote row stores "@handle" in xUserId; that pseudo-id must
+    // not be adopted as a real id, and idUnknown stays true while both sides lack one.
+    const stillUnknown = foldAccountSnapshot(
+      handleLocal,
+      mkSnapshot({
+        xUserId: "@spam",
+        idUnknown: true,
+        blockCount: 1,
+        muteCount: 0,
+        status: "active",
+      }),
+    );
+    expect(stillUnknown.xUserId).toBeUndefined();
+    expect(stillUnknown.idUnknown).toBe(true);
+  });
 });
 
 describe("mergeBlockedAccount (pure dedup logic)", () => {
@@ -637,6 +760,98 @@ describe("cloud round-trip parity", () => {
     expect(list[0]!.idUnknown).toBe(false);
     expect(list[0]!.blockCount).toBe(1);
     expect(list[0]!.muteCount).toBe(1);
+  });
+
+  // Contract guard for the cloud handler in convex/blocked.ts (which runs in the Convex
+  // runtime and cannot be executed here): makeFakeCloud mirrors recordAction's arithmetic,
+  // and these pin the three operators that legitimately DIFFER and must not be conflated —
+  // a same-account upsert adds +1, an aliasKey fold SUMs two distinct rows, and (separately,
+  // on the pull side) foldAccountSnapshot takes the max. If convex/blocked.ts changes, update
+  // makeFakeCloud in lockstep; these tests force the new invariant to be made explicit.
+  test("BS-33 recordAction is idempotent on clientActionId", () => {
+    const cloud = makeFakeCloud();
+    const args: RecordActionArgs = {
+      xUserId: "1",
+      handle: "x",
+      idUnknown: false,
+      kind: "block",
+      at: 1,
+      source: "reply-bar",
+      clientActionId: "dup",
+    };
+    cloud.recordAction(args);
+    cloud.recordAction(args);
+
+    const rows = cloud.listBlocked();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.blockCount).toBe(1);
+  });
+
+  test("BS-34 a same-account upsert increments by +1 (never max)", () => {
+    const cloud = makeFakeCloud();
+    cloud.recordAction({
+      xUserId: "1",
+      handle: "x",
+      idUnknown: false,
+      kind: "block",
+      at: 1,
+      source: "reply-bar",
+      clientActionId: "a1",
+    });
+    cloud.recordAction({
+      xUserId: "1",
+      handle: "x",
+      idUnknown: false,
+      kind: "block",
+      at: 2,
+      source: "reply-bar",
+      clientActionId: "a2",
+    });
+
+    // Two blocks of the same id roll up to 2 — a max(1, 1) fold would wrongly read 1.
+    expect(cloud.listBlocked()[0]!.blockCount).toBe(2);
+  });
+
+  test("BS-35 an aliasKey fold SUMs the legacy handle row into the numeric row", () => {
+    const cloud = makeFakeCloud();
+    const handleRow = (clientActionId: string, at: number): RecordActionArgs => ({
+      xUserId: "@ghost",
+      handle: "ghost",
+      idUnknown: true,
+      kind: "block",
+      at,
+      source: "reply-bar",
+      clientActionId,
+    });
+    // Two blocks accrue under the handle-keyed row, one under the numeric row...
+    cloud.recordAction(handleRow("h1", 1));
+    cloud.recordAction(handleRow("h2", 2));
+    cloud.recordAction({
+      xUserId: "1",
+      handle: "ghost",
+      idUnknown: false,
+      kind: "block",
+      at: 3,
+      source: "reply-bar",
+      clientActionId: "i1",
+    });
+    // ...then an action carrying the alias folds the handle row in and adds its own +1.
+    cloud.recordAction({
+      xUserId: "1",
+      handle: "ghost",
+      idUnknown: false,
+      kind: "block",
+      at: 4,
+      source: "reply-bar",
+      clientActionId: "i2",
+      aliasKey: "@ghost",
+    });
+
+    const rows = cloud.listBlocked();
+    expect(rows).toHaveLength(1); // the @ghost row is consumed, not left as a duplicate
+    // 1 (numeric) + 2 (summed alias) + 1 (this action) = 4 — a max fold would read 2.
+    expect(rows[0]!.blockCount).toBe(4);
+    expect(rows[0]!.idUnknown).toBe(false);
   });
 });
 

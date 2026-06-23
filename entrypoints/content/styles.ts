@@ -62,6 +62,7 @@ const SHEET = `
 }
 .xb-btn:active { transform: scale(0.96); }
 .xb-btn:disabled { cursor: default; }
+.xb-btn-labeled:disabled { opacity: 0.45; }
 .xb-btn:focus-visible {
 	outline: 2px solid var(--xb-primary);
 	outline-offset: 1px;
