@@ -510,6 +510,7 @@ function renderWhitelist(section: HTMLElement, state: PopupState): void {
   input.className = "xb-whitelist-input";
   input.placeholder = "Add username";
   input.autocomplete = "off";
+  input.setAttribute("aria-label", "Username to add to whitelist");
 
   const addButton = document.createElement("button");
   addButton.className = "xb-button";
@@ -543,6 +544,7 @@ function renderWhitelist(section: HTMLElement, state: PopupState): void {
       removeButton.className = "xb-remove-button";
       removeButton.type = "button";
       removeButton.textContent = "Remove";
+      removeButton.setAttribute("aria-label", `Remove @${username} from whitelist`);
       removeButton.addEventListener("click", () => {
         state.whitelist = state.whitelist.filter((item) => item !== username);
         saveWhitelist(state.whitelist);
