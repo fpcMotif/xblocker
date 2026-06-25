@@ -239,6 +239,8 @@ function addToWhitelist(username: string): void {
 function showToast(message: string, type: ToastType = "info"): void {
   const theme = detectTheme();
   const toast = document.createElement("div");
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
 
   const toastColor =
     type === "success"
@@ -801,8 +803,8 @@ function showWhitelistModal(): void {
 
   modalContent.innerHTML = `
 		<h3 style="margin: 0 0 16px 0; font-size: 18px; font-weight: 600; color: ${theme.colors.text};">Add User to Whitelist</h3>
-		<p style="margin: 0 0 16px 0; color: ${theme.colors.textSecondary}; font-size: 14px;">Enter a username to prevent them from being blocked or muted</p>
-		<input type="text" id="username-input" placeholder="Enter username (without @)" 
+		<p id="whitelist-modal-desc" style="margin: 0 0 16px 0; color: ${theme.colors.textSecondary}; font-size: 14px;">Enter a username to prevent them from being blocked or muted</p>
+		<input type="text" id="username-input" placeholder="Enter username (without @)" aria-label="Username to whitelist" aria-describedby="whitelist-modal-desc"
 			style="width: 100%; padding: 12px; border: 1px solid ${theme.colors.border}; 
 			border-radius: 8px; background: ${theme.colors.surface}; color: ${theme.colors.text}; 
 			font-size: 14px; margin-bottom: 16px; box-sizing: border-box;
