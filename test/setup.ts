@@ -29,7 +29,10 @@ Object.assign(g, {
   Event: happyWindow.Event,
   KeyboardEvent: happyWindow.KeyboardEvent,
   MouseEvent: happyWindow.MouseEvent,
+  SVGCircleElement: happyWindow.SVGCircleElement,
   location: happyWindow.location,
+  requestAnimationFrame: happyWindow.requestAnimationFrame.bind(happyWindow),
+  cancelAnimationFrame: happyWindow.cancelAnimationFrame.bind(happyWindow),
 });
 
 const activeObservers = new Set<MutationObserver>();
@@ -87,6 +90,15 @@ export class FakeChromeStorageArea {
         return;
       }
       Object.assign(this.data, structuredClone(items));
+      callback?.();
+    });
+  }
+
+  /** Drop every stored key. Used by the blocked-store suite to start each test
+   *  from an empty area; mirrors chrome.storage.local.clear(). */
+  clear(callback?: () => void): void {
+    this.dispatch(() => {
+      this.data = {};
       callback?.();
     });
   }
@@ -150,6 +162,7 @@ g.chrome = {
     local: {
       get: (keys: StorageGetKeys, callback: StorageGetCallback) => storageFake.get(keys, callback),
       set: (items: StorageItems, callback?: () => void) => storageFake.set(items, callback),
+      clear: (callback?: () => void) => storageFake.clear(callback),
     },
   },
 };

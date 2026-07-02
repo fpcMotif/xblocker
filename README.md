@@ -84,13 +84,10 @@ bun test --coverage
 
 #### Test Structure
 
-- `test/setup.js` - Test environment configuration and mocks
-- `test/reply-action-bar.test.js` - In-page Reply Action Bar behavior tests
-- `test/popup.test.js` - Extension popup behavior tests
-- `test/whitelist.test.js` - Whitelist functionality tests
-- `test/ui.test.js` - UI components and interactions tests
-- `test/blocking.test.js` - Blocking and muting logic tests
-- `test/integration.test.js` - End-to-end workflow tests
+- `test/setup.ts` - Test environment configuration and the stateful `chrome.storage` fake
+- `test/helpers/` - Content-script hooks, tweet fixtures, and deterministic timers
+- `test/content/` - Content script suites (blocking, muting, batches, UI surfaces)
+- `test/popup/` - Extension popup behavior tests
 
 #### Mocking
 
@@ -107,9 +104,19 @@ The test environment includes mocks for:
 2. The Reply Action Bar appears in the bottom-right corner
 3. Use the visible actions directly:
    - **Block replies**: Block reply authors directly through X's session-authenticated API
-   - **Mute replies**: Mute reply authors through X's menu flow
+   - **Mute replies**: Mute reply authors directly through X's session-authenticated API
    - **Whitelist**: Add trusted users to the protection list
-4. Open the Chrome extension popup to manage whitelist entries and behavior settings
+4. Open the Chrome extension popup to manage whitelist entries and behavior settings, including "Max replies per run" (how many replies Block/Mute process at once, default 50)
+
+### One-click manual block (Cursor Console)
+
+Hovering a single reply reveals the **Cursor Console** — Block / Mute / Whitelist buttons that act on just that reply's author in one click, with no confirmation, through the same session-authenticated API the bulk actions use.
+
+The strategy is selectable at build time via the `VITE_QUICK_BLOCK_MODE` environment variable (set it in `.env` and rebuild). See [docs/adr/0001-one-click-manual-block.md](docs/adr/0001-one-click-manual-block.md):
+
+- `inline` (default) — the per-reply Cursor Console described above.
+- `auto-confirm` — instead of injecting buttons, auto-confirms X's native confirmation sheet, but only one that appears right after you click a Block/Mute menu item (matched by the locale-independent `data-testid`, never the sheet text; delete/unfollow sheets are never touched). A fragile fallback.
+- `off` — disable one-click manual block entirely.
 
 ### Whitelist Management
 
@@ -122,7 +129,7 @@ The test environment includes mocks for:
 
 ### Core Components
 
-- `entrypoints/content.ts` - WXT TypeScript content script with all extension behavior
+- `entrypoints/content/` - WXT TypeScript content script modules (actions, dock, console, modal, theme)
 - `entrypoints/popup/` - Chrome extension popup for settings and whitelist management
 - `wxt.config.ts` - Manifest V3 metadata, permissions, and host permissions
 - `bts.jsonc` - Better-T-Stack stack record for the WXT vanilla TypeScript addon
@@ -132,8 +139,7 @@ The test environment includes mocks for:
 ### Key Functions
 
 - `addButtons()` - Creates the in-page Reply Action Bar
-- `blockFirst20CommentTweets()` - Handles comment blocking workflow
-- `muteFirst50CommentTweets()` - Handles comment muting workflow
+- `blockCommentTweets()` / `muteCommentTweets()` - Direct block/mute workflows for replies, capped by the "Max replies per run" setting
 - `addToWhitelist()` - Manages whitelist operations
 - `showToast()` - Displays user notifications
 - `showWhitelistModal()` - Handles whitelist input modal
@@ -177,7 +183,7 @@ Uses Chrome's `chrome.storage.local` API to persist:
 
 ## Security
 
-- Minimal permissions required for the X.com content script and direct X block API request
+- Minimal permissions required for the X.com content script and direct X block/mute API requests
 - Local data storage only
 - Content script isolation
 - No sensitive data collection
