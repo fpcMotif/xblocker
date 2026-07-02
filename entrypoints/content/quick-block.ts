@@ -14,7 +14,7 @@ import {
   addToWhitelist,
   blockTweet,
   extractUsernameFromTweet,
-  isReplyArticle,
+  getConversationReplies,
   muteTweet,
   type DirectActionType,
 } from "./actions";
@@ -97,6 +97,7 @@ export class QuickBlock {
   private readonly onActed: (kind: DirectActionType) => void;
   private readonly now: () => number;
   private observer: MutationObserver | null = null;
+  private sheetWatchTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingNativeAction: { kind: DirectActionType; at: number } | null = null;
 
   // Capture-phase so we record the intent before X tears the menu down. Keyed off the
@@ -107,12 +108,14 @@ export class QuickBlock {
     const intent = intentFromClick(target);
     if (intent) {
       this.pendingNativeAction = { kind: intent, at: this.now() };
+      this.startSheetWatch();
     } else if (!target.closest('[data-testid="confirmationSheetConfirm"]')) {
       // Any other click -- cancelling the sheet, opening a different menu, or a
       // sheet-less mute followed by some unrelated action -- means the user moved on.
       // Drop the intent so it can never auto-confirm a later, foreign sheet (delete
       // post, log out, unfollow). Our own programmatic confirm click is excluded.
       this.pendingNativeAction = null;
+      this.stopSheetWatch();
     }
   };
 
@@ -126,22 +129,62 @@ export class QuickBlock {
     if (this.mode === "off") {
       return;
     }
-    this.observer = new MutationObserver(() => {
+    if (this.mode === "inline") {
+      // Inline consoles must follow replies as X streams them in, so the observer
+      // lives as long as the surface.
+      this.observer = new MutationObserver(() => {
+        this.scan();
+      });
+      this.observer.observe(document.body, { childList: true, subtree: true });
       this.scan();
-    });
-    this.observer.observe(document.body, { childList: true, subtree: true });
-    if (this.mode === "auto-confirm") {
-      document.addEventListener("click", this.nativeActionListener, true);
+      return;
     }
-    this.scan();
+    // auto-confirm: a confirmation sheet can only follow a block/mute menu click, yet a
+    // session-long body observer paid a full-document query on EVERY mutation batch of a
+    // page that mutates constantly (timeline virtualization). Observe only while an
+    // armed intent's confirm window is open (see startSheetWatch), which drops the
+    // steady-state cost of this mode to a single click listener.
+    document.addEventListener("click", this.nativeActionListener, true);
   }
 
   destroy(): void {
+    this.stopSheetWatch();
     this.observer?.disconnect();
     this.observer = null;
     document.removeEventListener("click", this.nativeActionListener, true);
     for (const node of document.querySelectorAll(`.${CONSOLE_CLASS}`)) {
       node.remove();
+    }
+  }
+
+  /** Begin (or extend) the short mutation watch that auto-confirms the coming sheet. */
+  private startSheetWatch(): void {
+    if (!this.observer) {
+      this.observer = new MutationObserver(() => {
+        this.scan();
+      });
+      this.observer.observe(document.body, { childList: true, subtree: true });
+    }
+    if (this.sheetWatchTimer !== null) {
+      clearTimeout(this.sheetWatchTimer);
+    }
+    this.sheetWatchTimer = setTimeout(() => {
+      this.sheetWatchTimer = null;
+      this.stopSheetWatch();
+    }, AUTO_CONFIRM_WINDOW_MS);
+    // The sheet may already be in the DOM by the time the click reaches us.
+    this.scan();
+  }
+
+  /** Tear down the armed-intent watch; in auto-confirm mode the observer goes with it. */
+  private stopSheetWatch(): void {
+    if (this.sheetWatchTimer !== null) {
+      clearTimeout(this.sheetWatchTimer);
+      this.sheetWatchTimer = null;
+    }
+    if (this.mode === "auto-confirm") {
+      this.observer?.disconnect();
+      this.observer = null;
     }
   }
 
@@ -155,8 +198,10 @@ export class QuickBlock {
   }
 
   private injectConsoles(): void {
-    for (const article of document.querySelectorAll('article[data-testid="tweet"]')) {
-      if (!isReplyArticle(article) || article.querySelector(`.${CONSOLE_CLASS}`)) {
+    // One reply-region computation per scan; testing each article individually
+    // re-scanned the whole document per article (O(N^2) on long threads).
+    for (const article of getConversationReplies()) {
+      if (article.querySelector(`.${CONSOLE_CLASS}`)) {
         continue;
       }
       const username = extractUsernameFromTweet(article);
@@ -255,5 +300,6 @@ export class QuickBlock {
     this.pendingNativeAction = null;
     confirm.dataset.xbAutoConfirmed = "true";
     confirm.click();
+    this.stopSheetWatch();
   }
 }

@@ -25,6 +25,10 @@ import {
 const ACCOUNTS_KEY = "blockedAccounts";
 const OUTBOX_KEY = "blockedOutbox";
 
+/** Storage key of the outbox, exported so the background worker can watch it for
+ *  changes (a queued action is the signal that a cloud sync is worth scheduling). */
+export const OUTBOX_STORAGE_KEY = OUTBOX_KEY;
+
 type AccountMap = Record<string, BlockedAccount>;
 
 /** One queued action awaiting a push to the cloud backup. */
@@ -78,6 +82,36 @@ export function outboxItemToRecordArgs(item: OutboxItem): RecordActionArgs {
 /** Shape returned by the Convex `listBlocked` query, merged back in on pull. The single
  *  definition lives in blocked-merge alongside the fold that consumes it. */
 export type RemoteAccount = RemoteAccountSnapshot;
+
+/** One chunk of outbox items ready for the cloud's batched `recordActions` mutation:
+ *  the mapped mutation args plus the action ids to mark synced once accepted, and the
+ *  original items so a caller can fall back to per-item pushes. */
+export type RecordBatch = {
+  args: RecordActionArgs[];
+  actionIds: string[];
+  items: OutboxItem[];
+};
+
+/**
+ * Split the outbox into chunks of at most `size` items, each mapped to the batched
+ * `recordActions` args. One chunk = one HTTP round-trip and one Convex transaction;
+ * pushing item-by-item made sync latency scale linearly with the outbox length
+ * (~300ms per queued action). Kept here rather than in convex-sync.ts so the mapping
+ * is unit-tested; convex-sync stays a thin I/O wrapper.
+ */
+export function outboxToRecordBatches(items: OutboxItem[], size: number): RecordBatch[] {
+  const chunkSize = Math.max(1, Math.trunc(size));
+  const batches: RecordBatch[] = [];
+  for (let start = 0; start < items.length; start += chunkSize) {
+    const chunk = items.slice(start, start + chunkSize);
+    batches.push({
+      args: chunk.map(outboxItemToRecordArgs),
+      actionIds: chunk.map((item) => item.action.actionId),
+      items: chunk,
+    });
+  }
+  return batches;
+}
 
 export interface BlockedStore {
   has(key: string): Promise<boolean>;

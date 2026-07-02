@@ -13,6 +13,7 @@ import {
 import {
   createBlockedStore,
   outboxItemToRecordArgs,
+  outboxToRecordBatches,
   type OutboxItem,
   type RecordActionArgs,
   type RemoteAccount,
@@ -729,6 +730,12 @@ describe("cloud round-trip parity", () => {
         row.muteCount += args.kind === "mute" ? 1 : 0;
         row.status = status;
       },
+      // Mirrors convex/blocked.ts recordActions: a batch is exactly the singles in order.
+      recordActions(batch: RecordActionArgs[]): void {
+        for (const args of batch) {
+          this.recordAction(args);
+        }
+      },
       listBlocked(): RemoteAccount[] {
         return structuredClone(Array.from(rows.values()));
       },
@@ -852,6 +859,65 @@ describe("cloud round-trip parity", () => {
     // 1 (numeric) + 2 (summed alias) + 1 (this action) = 4 — a max fold would read 2.
     expect(rows[0]!.blockCount).toBe(4);
     expect(rows[0]!.idUnknown).toBe(false);
+  });
+
+  test("BS-36 a batched push lands exactly like the same singles, and a retried batch is idempotent", () => {
+    const args = (clientActionId: string, at: number): RecordActionArgs => ({
+      xUserId: "1",
+      handle: "spammer",
+      idUnknown: false,
+      kind: "block",
+      at,
+      source: "reply-bar",
+      clientActionId,
+    });
+    const batch = [args("a1", 1), args("a2", 2)];
+
+    const single = makeFakeCloud();
+    for (const item of batch) single.recordAction(item);
+
+    const batched = makeFakeCloud();
+    batched.recordActions(batch);
+    expect(batched.listBlocked()).toEqual(single.listBlocked());
+
+    // A network retry of the whole chunk re-sends every item; clientActionId dedups.
+    batched.recordActions(batch);
+    expect(batched.listBlocked()).toEqual(single.listBlocked());
+  });
+});
+
+describe("outboxToRecordBatches (batched cloud push mapping)", () => {
+  const item = (actionId: string): OutboxItem => ({
+    accountKey: actionId,
+    xUserId: actionId,
+    handle: `user_${actionId}`,
+    idUnknown: false,
+    action: { actionId, kind: "block", at: 1, source: "reply-bar" },
+  });
+
+  test("BS-37 splits the outbox into chunks of at most `size`, preserving order", () => {
+    const items = [item("a"), item("b"), item("c"), item("d"), item("e")];
+    const batches = outboxToRecordBatches(items, 2);
+
+    expect(batches.map((batch) => batch.items.length)).toEqual([2, 2, 1]);
+    expect(batches.map((batch) => batch.actionIds)).toEqual([["a", "b"], ["c", "d"], ["e"]]);
+    // Each chunk's args are exactly the per-item mapping, in order.
+    expect(batches[0]!.args).toEqual([
+      outboxItemToRecordArgs(items[0]!),
+      outboxItemToRecordArgs(items[1]!),
+    ]);
+    expect(batches.flatMap((batch) => batch.items)).toEqual(items);
+  });
+
+  test("BS-38 an empty outbox maps to no batches", () => {
+    expect(outboxToRecordBatches([], 50)).toEqual([]);
+  });
+
+  test("BS-39 a degenerate chunk size clamps to 1 instead of looping forever", () => {
+    const items = [item("a"), item("b")];
+    expect(outboxToRecordBatches(items, 0).map((batch) => batch.actionIds)).toEqual([["a"], ["b"]]);
+    expect(outboxToRecordBatches(items, -3)).toHaveLength(2);
+    expect(outboxToRecordBatches(items, 1.9)).toHaveLength(2); // fraction truncates to 1
   });
 });
 

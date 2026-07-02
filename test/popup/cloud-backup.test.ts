@@ -81,7 +81,12 @@ describe("popup cloud backup", () => {
 
   test("PU-CB-02 disabling backup reports off and runs no sync", async () => {
     storageFake.data["cloudBackup"] = true;
+    // A fresh sync stamp and an empty outbox: opening the popup rests on the idle
+    // status instead of auto-syncing (that path is pinned by PU-CB-07/08).
+    storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
     await renderPopup(document.body);
+    await flush();
+    expect(cloudSection().textContent).toContain("synced just now");
 
     const toggle = cloudSection().querySelector<HTMLInputElement>(".xb-cloud-switch")!;
     toggle.checked = false;
@@ -145,5 +150,51 @@ describe("popup cloud backup", () => {
     await flush();
 
     expect(cloudSection().textContent).toContain("Backup error: button boom");
+  });
+
+  test("PU-CB-07 opening the popup with backup on and a queued outbox syncs immediately", async () => {
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() }; // fresh, yet pending wins
+    storageFake.data["blockedOutbox"] = [
+      {
+        accountKey: "1",
+        xUserId: "1",
+        handle: "spammer",
+        idUnknown: false,
+        action: { actionId: "a1", kind: "block", at: 1, source: "reply-bar" },
+      },
+    ];
+
+    await renderPopup(document.body);
+    await flush();
+
+    expect(calls.push).toBe(1);
+    expect(calls.pull).toBe(1);
+    expect(storageFake.data["blockedOutbox"]).toEqual([]);
+    expect(cloudSection().textContent).toContain("Backed up to your Convex. Pushed 1.");
+  });
+
+  test("PU-CB-08 opening the popup with a stale last sync pulls even with nothing queued", async () => {
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() - 16 * 60_000 };
+
+    await renderPopup(document.body);
+    await flush();
+
+    expect(calls.push).toBe(0); // nothing queued -> no push round-trip
+    expect(calls.pull).toBe(1);
+    expect(cloudSection().textContent).toContain("Backed up to your Convex.");
+  });
+
+  test("PU-CB-09 an auto-sync failure on open surfaces as a backup error", async () => {
+    storageFake.data["cloudBackup"] = true;
+    pullBlockedImpl = async () => {
+      throw new Error("open boom");
+    };
+
+    await renderPopup(document.body);
+    await flush();
+
+    expect(cloudSection().textContent).toContain("Backup error: open boom");
   });
 });

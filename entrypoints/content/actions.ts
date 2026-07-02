@@ -345,6 +345,10 @@ export function getMaxReplies(): Promise<number> {
 async function actOnTweet(
   type: DirectActionType,
   tweetArticle: Element,
+  // A batch pre-reads the whitelist once and passes it down (lower-cased); without it,
+  // every reply in a bulk run cost its own chrome.storage round-trip. Single actions
+  // omit it and read fresh.
+  whitelist?: ReadonlySet<string>,
 ): Promise<ReplyActionResult> {
   const username = extractUsernameFromTweet(tweetArticle);
 
@@ -353,7 +357,8 @@ async function actOnTweet(
     return { status: "failed", reason: "missing-username" };
   }
 
-  if (await isWhitelisted(username)) {
+  const skip = whitelist ? whitelist.has(username.toLowerCase()) : await isWhitelisted(username);
+  if (skip) {
     console.log(`Skipping @${username}, as they are in the whitelist.`);
     return { status: "skipped", username };
   }
@@ -437,7 +442,10 @@ function isBeforeDiscoverMore(node: Element, boundary: Element | null): boolean 
   return (boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
 }
 
-function getConversationReplies(): Element[] {
+/** The genuine reply articles of the conversation (main tweet and Discover-more
+ *  recommendations excluded). Exported so per-scan consumers (Cursor Console
+ *  injection) compute the set once instead of re-scanning per article. */
+export function getConversationReplies(): Element[] {
   const boundary = findDiscoverMoreBoundary();
   const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
   return articles.slice(1).filter((article) => isBeforeDiscoverMore(article, boundary));
@@ -486,9 +494,10 @@ async function runReplyBatch(
   batchState.running = true;
   try {
     const replies = await getReplyArticles();
+    const whitelist = new Set((await getWhitelist()).map((entry) => entry.toLowerCase()));
     const summary: BatchSummary = { acted: 0, skipped: 0, failed: 0 };
     for (const [index, article] of replies.entries()) {
-      const result = await actOnTweet(type, article);
+      const result = await actOnTweet(type, article, whitelist);
       if (result.status === "blocked" || result.status === "muted") {
         summary.acted++;
         if (article instanceof HTMLElement) {
@@ -500,7 +509,11 @@ async function runReplyBatch(
         summary.failed++;
       }
       onProgress?.({ done: index + 1, total: replies.length });
-      await waitFor(DIRECT_ACTION_DELAY_MS);
+      // Pace the direct API calls, but not after the last one — a trailing sleep
+      // only delays the summary toast.
+      if (index < replies.length - 1) {
+        await waitFor(DIRECT_ACTION_DELAY_MS);
+      }
     }
     console.log(
       `Finished direct ${type}. acted=${summary.acted}, skipped=${summary.skipped}, failed=${summary.failed}`,

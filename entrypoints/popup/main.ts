@@ -1,3 +1,4 @@
+import type { BlockedStats } from "../lib/blocked-merge";
 import { blockedStore } from "../lib/blocked-store";
 import {
   clampMaxReplies,
@@ -5,6 +6,7 @@ import {
   DEFAULT_MAX_REPLIES,
   MAX_REPLIES_LIMIT,
 } from "../lib/settings";
+import { getSyncMeta, runCloudSync, shouldAutoSync, type SyncMeta } from "../lib/sync-engine";
 
 type PopupSettings = {
   confirmDestructiveActions: boolean;
@@ -494,16 +496,26 @@ function createSection(title: string, note?: string): HTMLElement {
   return section;
 }
 
-function renderActionSummary(section: HTMLElement, state: PopupState): void {
+type SummaryHandles = {
+  updateStats(stats: BlockedStats): void;
+  updateWhitelist(count: number): void;
+};
+
+function renderActionSummary(
+  section: HTMLElement,
+  state: PopupState,
+  stats: BlockedStats,
+): SummaryHandles {
   const list = document.createElement("div");
   list.className = "xb-action-summary";
 
   const summaryRows: Array<[string, string, string, string]> = [
-    ["Block replies", "0", "Blocked", "danger"],
-    ["Mute replies", "0", "Muted", "warning"],
+    ["Block replies", String(stats.blocked), "Blocked", "danger"],
+    ["Mute replies", String(stats.muted), "Muted", "warning"],
     ["Whitelist", String(state.whitelist.length), "Whitelisted", "success"],
   ];
 
+  const valueNodes: HTMLSpanElement[] = [];
   for (const [label, value, caption, tone] of summaryRows) {
     const card = document.createElement("div");
     card.className = "xb-summary-card";
@@ -517,6 +529,7 @@ function renderActionSummary(section: HTMLElement, state: PopupState): void {
     const valueNode = document.createElement("span");
     valueNode.className = "xb-card-value";
     valueNode.textContent = value;
+    valueNodes.push(valueNode);
 
     const labelNode = document.createElement("span");
     labelNode.className = "xb-card-label";
@@ -531,9 +544,23 @@ function renderActionSummary(section: HTMLElement, state: PopupState): void {
   }
 
   section.appendChild(list);
+  const [blockedNode, mutedNode, whitelistNode] = valueNodes;
+  return {
+    updateStats(next) {
+      if (blockedNode) blockedNode.textContent = String(next.blocked);
+      if (mutedNode) mutedNode.textContent = String(next.muted);
+    },
+    updateWhitelist(count) {
+      if (whitelistNode) whitelistNode.textContent = String(count);
+    },
+  };
 }
 
-function renderWhitelist(section: HTMLElement, state: PopupState): void {
+function renderWhitelist(
+  section: HTMLElement,
+  state: PopupState,
+  onCountChange: (count: number) => void,
+): void {
   const form = document.createElement("form");
   form.className = "xb-whitelist-form";
 
@@ -578,6 +605,7 @@ function renderWhitelist(section: HTMLElement, state: PopupState): void {
         state.whitelist = state.whitelist.filter((item) => item !== username);
         saveWhitelist(state.whitelist);
         drawList();
+        onCountChange(state.whitelist.length);
       });
 
       row.append(handle, removeButton);
@@ -594,6 +622,7 @@ function renderWhitelist(section: HTMLElement, state: PopupState): void {
     saveWhitelist(state.whitelist);
     input.value = "";
     drawList();
+    onCountChange(state.whitelist.length);
   });
 
   drawList();
@@ -681,35 +710,50 @@ function renderSettings(section: HTMLElement, settings: PopupSettings): void {
   section.appendChild(list);
 }
 
-// Drive a one-shot cloud sync: drain the local outbox to Convex, then pull and merge
-// remote accounts. convex-sync is loaded lazily so the (heavier) Convex bundle is only
-// pulled in when backup is actually used. No sign-in — it talks to your deployment.
-async function runCloudSync(setStatus: (message: string) => void): Promise<void> {
-  setStatus("Syncing…");
-  const sync = await import("../lib/convex-sync");
+/** Human "how long ago" for the cloud status line; coarse on purpose. */
+export function formatLastSync(meta: SyncMeta, now: number): string {
+  const at = meta.lastSyncAt;
+  if (typeof at !== "number") return "never synced";
+  const mins = Math.max(0, Math.round((now - at) / 60_000));
+  if (mins < 1) return "synced just now";
+  if (mins < 60) return `synced ${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `synced ${hours}h ago`;
+  return `synced ${Math.round(hours / 24)}d ago`;
+}
 
-  if (!sync.isCloudConfigured()) {
+/** The cloud section's resting status: opt-in state and last sync age. (Anything
+ *  pending triggers an auto-sync on open instead of resting here.) */
+async function composeIdleStatus(enabled: boolean): Promise<string> {
+  if (!enabled) {
+    return "Off. Your blocked list stays on this device only.";
+  }
+  const meta = await getSyncMeta();
+  return `Backup on · ${formatLastSync(meta, Date.now())}.`;
+}
+
+// Drive a one-shot cloud sync via the shared engine (lib/sync-engine): drain the local
+// outbox in batched round-trips, then pull and merge remote accounts. The Convex bundle
+// stays lazy — the engine imports it only when a sync actually runs.
+async function syncCloud(setStatus: (message: string) => void): Promise<void> {
+  setStatus("Syncing…");
+  const outcome = await runCloudSync();
+  if (outcome.status === "unconfigured") {
     setStatus("Not configured. Set VITE_CONVEX_URL, then rebuild.");
     return;
   }
-
-  const pending = await blockedStore.pending();
-  if (pending.length > 0) {
-    const synced = await sync.pushOutbox(pending);
-    await blockedStore.markSynced(synced);
-  }
-  const remote = await sync.pullBlocked();
-  await blockedStore.mergeRemote(remote);
-
-  setStatus("Backed up to your Convex.");
+  setStatus(`Backed up to your Convex.${outcome.pushed > 0 ? ` Pushed ${outcome.pushed}.` : ""}`);
 }
 
-function renderCloudBackup(section: HTMLElement, enabled: boolean): void {
+type CloudSectionHandles = {
+  setStatus: (message: string) => void;
+  refreshIdleStatus: () => Promise<void>;
+};
+
+function renderCloudBackup(section: HTMLElement, enabled: boolean): CloudSectionHandles {
   const status = document.createElement("p");
   status.className = "xb-toggle-description";
-  status.textContent = enabled
-    ? "Backup on. Your blocked list mirrors to your Convex."
-    : "Off. Your blocked list stays on this device only.";
+  status.textContent = enabled ? "Backup on." : "Off. Your blocked list stays on this device only.";
 
   const setStatus = (message: string) => {
     status.textContent = message;
@@ -732,14 +776,17 @@ function renderCloudBackup(section: HTMLElement, enabled: boolean): void {
   toggle.type = "checkbox";
   toggle.className = "xb-cloud-switch";
   toggle.checked = enabled;
+  const refreshIdleStatus = async () => {
+    setStatus(await composeIdleStatus(toggle.checked));
+  };
   toggle.addEventListener("change", () => {
     saveCloudBackup(toggle.checked);
     if (toggle.checked) {
-      void runCloudSync(setStatus).catch((error: unknown) => {
+      void syncCloud(setStatus).catch((error: unknown) => {
         setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
       });
     } else {
-      setStatus("Off. Your blocked list stays on this device only.");
+      void refreshIdleStatus();
     }
   });
   toggleRow.append(copy, toggle);
@@ -755,7 +802,7 @@ function renderCloudBackup(section: HTMLElement, enabled: boolean): void {
   syncButton.addEventListener("click", async () => {
     syncButton.disabled = true;
     try {
-      await runCloudSync(setStatus);
+      await syncCloud(setStatus);
     } catch (error: unknown) {
       setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -765,11 +812,13 @@ function renderCloudBackup(section: HTMLElement, enabled: boolean): void {
 
   controls.append(syncButton);
   section.append(toggleRow, controls, status);
+
+  return { setStatus, refreshIdleStatus };
 }
 
 export async function renderPopup(root: HTMLElement): Promise<void> {
   ensurePopupStyles();
-  const state = await getStoredState();
+  const [state, stats] = await Promise.all([getStoredState(), blockedStore.stats()]);
 
   const popup = document.createElement("main");
   popup.className = "xb-popup";
@@ -807,16 +856,25 @@ export async function renderPopup(root: HTMLElement): Promise<void> {
   header.append(brand, headerSettings);
 
   const summarySection = createSection("Quick actions");
-  renderActionSummary(summarySection, state);
+  const summary = renderActionSummary(summarySection, state, stats);
+  // Live counters: a block recorded by the content script while the popup is open
+  // shows up here without a reopen.
+  blockedStore.onChange((next) => {
+    summary.updateStats(next);
+  });
 
   const whitelistSection = createSection("Whitelist", `${state.whitelist.length} saved`);
-  renderWhitelist(whitelistSection, state);
+  const whitelistNote = whitelistSection.querySelector(".xb-section-note");
+  renderWhitelist(whitelistSection, state, (count) => {
+    summary.updateWhitelist(count);
+    if (whitelistNote) whitelistNote.textContent = `${count} saved`;
+  });
 
   const settingsSection = createSection("Behavior settings");
   renderSettings(settingsSection, state.settings);
 
   const cloudSection = createSection("Cloud backup");
-  renderCloudBackup(cloudSection, state.cloudBackup);
+  const cloud = renderCloudBackup(cloudSection, state.cloudBackup);
 
   const footer = document.createElement("footer");
   footer.className = "xb-popup-footer";
@@ -832,6 +890,22 @@ export async function renderPopup(root: HTMLElement): Promise<void> {
 
   popup.append(header, summarySection, whitelistSection, settingsSection, cloudSection, footer);
   root.replaceChildren(popup);
+
+  // Freshness on open: when backup is on and there is queued work (or the last pull is
+  // stale), sync right away so the status/state the user sees is current — otherwise
+  // just show the resting status (pending count + last sync age).
+  if (state.cloudBackup) {
+    void (async () => {
+      const [pending, meta] = await Promise.all([blockedStore.pending(), getSyncMeta()]);
+      if (shouldAutoSync(true, pending.length, meta, Date.now())) {
+        await syncCloud(cloud.setStatus);
+      } else {
+        await cloud.refreshIdleStatus();
+      }
+    })().catch((error: unknown) => {
+      cloud.setStatus(`Backup error: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
 }
 
 export function mountPopupIfPresent(): void {

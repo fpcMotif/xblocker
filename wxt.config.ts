@@ -5,7 +5,7 @@ export default defineConfig({
     name: "X Blocker",
     description: "Analyzes and filters content on X.com based on configured topics",
     version: "1.0.0",
-    permissions: ["storage"],
+    permissions: ["storage", "alarms"],
     host_permissions: [
       "https://x.com/*",
       "https://api.x.com/*",

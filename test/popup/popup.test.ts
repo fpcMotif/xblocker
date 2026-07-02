@@ -1,8 +1,29 @@
 // Catalog: PU-* (renderPopup, whitelist form, settings toggles, max replies input, normalizeUsername).
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { mountPopupIfPresent, renderPopup } from "../../entrypoints/popup/main.ts";
+import { formatLastSync, mountPopupIfPresent, renderPopup } from "../../entrypoints/popup/main.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
+
+/** A minimal active BlockedAccount map entry for summary-card tests. */
+function seedAccount(key: string, counts: { blockCount: number; muteCount: number }): unknown {
+  return {
+    key,
+    handle: `user_${key}`,
+    idUnknown: false,
+    xUserId: key,
+    firstActionAt: 1,
+    lastActionAt: 1,
+    status: "active",
+    actions: [],
+    ...counts,
+  };
+}
+
+function cardValues(): string[] {
+  return Array.from(document.querySelectorAll(".xb-card-value")).map(
+    (node) => node.textContent ?? "",
+  );
+}
 
 function seedState(overrides: {
   whitelist?: string[];
@@ -69,6 +90,75 @@ describe("renderPopup structure", () => {
     await renderPopup(document.body);
     const toggles = Array.from(document.querySelectorAll<HTMLInputElement>(".xb-switch-input"));
     expect(toggles.map((toggle) => toggle.checked)).toEqual([true, true, false]);
+  });
+
+  test("PU-17 the summary cards show the real blocked/muted/whitelisted counts", async () => {
+    storageFake.data["blockedAccounts"] = {
+      "1": seedAccount("1", { blockCount: 2, muteCount: 0 }),
+      "2": seedAccount("2", { blockCount: 0, muteCount: 1 }),
+      "3": seedAccount("3", { blockCount: 1, muteCount: 1 }),
+    };
+    seedState({ whitelist: ["trusted_user"] });
+
+    await renderPopup(document.body);
+
+    // blocked: accounts 1+3, muted: accounts 2+3, whitelist: 1 entry.
+    expect(cardValues()).toEqual(["2", "2", "1"]);
+  });
+
+  test("PU-18 a block recorded while the popup is open updates the cards live", async () => {
+    type ChangeListener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
+    const listeners: ChangeListener[] = [];
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- install a runtime onChanged fake the static chrome typings don't model.
+    const chromeStorage = chrome.storage as unknown as Record<string, unknown>;
+    const originalOnChanged = chromeStorage["onChanged"];
+    chromeStorage["onChanged"] = {
+      addListener: (fn: ChangeListener) => listeners.push(fn),
+      removeListener: () => {},
+    };
+    try {
+      await renderPopup(document.body);
+      expect(cardValues()).toEqual(["0", "0", "0"]);
+
+      const map = { "9": seedAccount("9", { blockCount: 1, muteCount: 0 }) };
+      for (const listener of listeners) listener({ blockedAccounts: { newValue: map } }, "local");
+
+      expect(cardValues()).toEqual(["1", "0", "0"]);
+    } finally {
+      chromeStorage["onChanged"] = originalOnChanged;
+    }
+  });
+
+  test("PU-19 adding and removing a whitelist handle updates the card and the saved note", async () => {
+    seedState({ whitelist: ["first_user"] });
+    await renderPopup(document.body);
+    const popup = document.querySelector('[data-xb-surface="popup"]')!;
+
+    const input = popup.querySelector<HTMLInputElement>(".xb-whitelist-input")!;
+    input.value = "second_user";
+    popup
+      .querySelector("form.xb-whitelist-form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(popup.textContent).toContain("2 saved");
+    expect(cardValues()[2]).toBe("2");
+
+    popup
+      .querySelector<HTMLButtonElement>(".xb-remove-button")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(popup.textContent).toContain("1 saved");
+    expect(cardValues()[2]).toBe("1");
+  });
+});
+
+describe("formatLastSync", () => {
+  test("PU-20 formats never/just-now/minutes/hours/days", () => {
+    const now = 10 * 24 * 60 * 60_000;
+    expect(formatLastSync({}, now)).toBe("never synced");
+    expect(formatLastSync({ lastSyncAt: now - 10_000 }, now)).toBe("synced just now");
+    expect(formatLastSync({ lastSyncAt: now - 5 * 60_000 }, now)).toBe("synced 5m ago");
+    expect(formatLastSync({ lastSyncAt: now - 3 * 60 * 60_000 }, now)).toBe("synced 3h ago");
+    expect(formatLastSync({ lastSyncAt: now - 2 * 24 * 60 * 60_000 }, now)).toBe("synced 2d ago");
   });
 });
 
@@ -183,7 +273,7 @@ describe("popup settings toggles", () => {
     document.body.appendChild(app);
 
     mountPopupIfPresent();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(app.querySelector('[data-xb-surface="popup"]')).toBeTruthy();
   });

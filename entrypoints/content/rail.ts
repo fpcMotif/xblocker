@@ -72,6 +72,13 @@ export class ReplyRail {
   private rafId: number | null = null;
   private homePos: DockPosition | null = null;
   private blockedCount = 0;
+  // isReplyArticle re-queries every tweet article and heading in the document; at
+  // mousemove frequency over a long thread that is the rail's dominant cost. Verdicts
+  // only change when the reply region does, so cache per hovered article and recompute
+  // on article crossings.
+  private lastArticle: Element | null = null;
+  private lastArticleIsReply = false;
+  private scrollRafId: number | null = null;
   private blockButton: LabeledActionButton;
   private muteButton: LabeledActionButton;
   private sessionIndicator: HTMLSpanElement;
@@ -206,6 +213,10 @@ export class ReplyRail {
   destroy(): void {
     this.cancelCollapse();
     this.stopFollowLoop();
+    if (this.scrollRafId !== null && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(this.scrollRafId);
+      this.scrollRafId = null;
+    }
     this.root.remove();
   }
 
@@ -254,6 +265,8 @@ export class ReplyRail {
       return;
     }
 
+    // Ancestor-only walk: cheap enough for every mousemove. The document-wide
+    // modal check is deferred to the reply-hover branch below.
     if (isSuppressedTarget(target)) {
       this.collapseNow();
       return;
@@ -268,13 +281,23 @@ export class ReplyRail {
     }
 
     const article = target.closest('article[data-testid="tweet"]');
-    if (article && isReplyArticle(article)) {
+    if (article && this.isReplyArticleCached(article)) {
+      // A page-level modal the cursor is not inside still owns the page: never
+      // expand beneath it. This is the only per-move document-wide query left,
+      // and it runs solely on reply hovers.
+      if (hasOpenModalDialog()) {
+        this.collapseNow();
+        return;
+      }
       this.cancelCollapse();
       if (this.state === "collapsed") {
         this.anchorPoint = { ...this.cursor };
         this.needAnchor = true;
         this.setState("tracking");
         this.startFollowLoop();
+        // The reply set grows as X streams more in; refresh the badge on each
+        // expansion so "Block all (n)" reflects what a batch would act on now.
+        this.refreshReplyCounts();
       } else if (exceedsJitter(this.anchorPoint, this.cursor)) {
         this.anchorPoint = { ...this.cursor };
         this.needAnchor = true;
@@ -302,10 +325,37 @@ export class ReplyRail {
     if (this.state === "collapsed") {
       return;
     }
+    // Coalesce to one clamp per frame: measure() forces a reflow, and scroll events
+    // fire far more often than the screen paints.
+    if (typeof window.requestAnimationFrame !== "function") {
+      this.clampToViewport();
+      return;
+    }
+    if (this.scrollRafId !== null) {
+      return;
+    }
+    this.scrollRafId = window.requestAnimationFrame(() => {
+      this.scrollRafId = null;
+      this.clampToViewport();
+    });
+  }
+
+  private clampToViewport(): void {
+    if (this.state === "collapsed") {
+      return;
+    }
     const viewport = this.viewport();
     const { height } = this.measure();
     this.rendered.y = clampY(this.rendered.y, height, viewport);
     this.applyTransform();
+  }
+
+  private isReplyArticleCached(article: Element): boolean {
+    if (article !== this.lastArticle) {
+      this.lastArticle = article;
+      this.lastArticleIsReply = isReplyArticle(article);
+    }
+    return this.lastArticleIsReply;
   }
 
   /** Advances motion and dwell by one frame. Deterministic for tests. */
@@ -388,6 +438,8 @@ export class ReplyRail {
     } finally {
       sibling.disabled = false;
       this.activeButton = null;
+      // The batch changed what remains actionable; update the "(n)" badges.
+      this.refreshReplyCounts();
     }
   }
 
@@ -541,12 +593,18 @@ function clampY(y: number, height: number, viewport: Size): number {
   return Math.min(Math.max(y, VIEWPORT_MARGIN), max);
 }
 
+// Ancestor-only checks (an editor, or the inside of a modal): safe to run on every
+// mousemove. The "a modal is open ANYWHERE" question needs a document-wide query, so
+// it lives in hasOpenModalDialog and is asked only before expanding over a reply.
 function isSuppressedTarget(target: Element): boolean {
-  if (
-    target.closest('input, textarea, [contenteditable="true"], [contenteditable="plaintext-only"]')
-  ) {
-    return true;
-  }
+  return (
+    target.closest(
+      'input, textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [role="dialog"][aria-modal="true"]',
+    ) !== null
+  );
+}
+
+function hasOpenModalDialog(): boolean {
   return document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
 }
 

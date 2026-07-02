@@ -581,6 +581,76 @@ describe("ReplyRail state machine", () => {
     }
   });
 
+  test("RS-22 scroll clamps synchronously when requestAnimationFrame is unavailable", () => {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- unset window.requestAnimationFrame at runtime, which the DOM typings don't allow.
+    const globals = window as unknown as Record<string, unknown>;
+    const originalRaf = window.requestAnimationFrame;
+    globals["requestAnimationFrame"] = undefined;
+    try {
+      const instance = setupRail();
+      const reply = mountReply("alice");
+      settleByDwell(instance, reply, 300, 700);
+
+      setViewportHeight(300);
+      const maxY = 300 - RAIL_HEIGHT - VIEWPORT_MARGIN;
+      instance.handleScroll();
+
+      expect(instance.getState().rendered.y).toBeGreaterThanOrEqual(VIEWPORT_MARGIN);
+      expect(instance.getState().rendered.y).toBeLessThanOrEqual(maxY);
+    } finally {
+      globals["requestAnimationFrame"] = originalRaf;
+    }
+  });
+
+  test("RS-23 scroll coalesces to one clamp per frame; a frame landing after collapse is inert", () => {
+    const callbacks: FrameRequestCallback[] = [];
+    const cancelled: number[] = [];
+    const originalRaf = window.requestAnimationFrame;
+    const originalCancel = window.cancelAnimationFrame;
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    };
+    window.cancelAnimationFrame = (id: number) => {
+      cancelled.push(id);
+    };
+    try {
+      const instance = setupRail();
+      const reply = mountReply("alice");
+      settleByDwell(instance, reply, 300, 700);
+
+      setViewportHeight(300);
+      const maxY = 300 - RAIL_HEIGHT - VIEWPORT_MARGIN;
+      const before = callbacks.length;
+      instance.handleScroll();
+      instance.handleScroll(); // storms coalesce: still just one scheduled frame
+      expect(callbacks.length).toBe(before + 1);
+
+      callbacks[before]?.(16);
+      expect(instance.getState().rendered.y).toBeGreaterThanOrEqual(VIEWPORT_MARGIN);
+      expect(instance.getState().rendered.y).toBeLessThanOrEqual(maxY);
+
+      // A frame scheduled while settled but delivered after a collapse does nothing.
+      instance.handleScroll();
+      const clampedY = instance.getState().rendered.y;
+      pressKey(instance, "Escape");
+      callbacks[before + 1]?.(32);
+      expect(instance.getState().state).toBe("collapsed");
+      expect(instance.getState().rendered.y).toBe(clampedY);
+
+      // destroy() cancels a still-pending scroll frame.
+      instance.handleScroll(); // collapsed -> no schedule
+      settleByDwell(instance, reply, 310, 700);
+      instance.handleScroll();
+      const pendingId = callbacks.length;
+      instance.destroy();
+      expect(cancelled).toContain(pendingId);
+    } finally {
+      window.requestAnimationFrame = originalRaf;
+      window.cancelAnimationFrame = originalCancel;
+    }
+  });
+
   test("RS-20 a running batch pins the rail settled until the batch ends", () => {
     const instance = setupRail();
     const reply = mountReply("alice");

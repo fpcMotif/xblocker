@@ -11,6 +11,13 @@ This directory is the optional cloud backup for XBlocker's blocked-account list.
   the counts up; once an id is learned, the handle-keyed row is folded into the numeric one.
 - One row per action (`blockActions`), so "blocked/muted the same person several times,
   from several of your own accounts" is recorded as history, not as duplicate accounts.
+- Queued actions are pushed in **batches** (`recordActions`, 50 per round-trip, one
+  transaction each) instead of one mutation per action, so draining a bulk run's outbox
+  costs ~0.5s rather than ~15s. Every action carries a client-generated idempotency id
+  (`clientActionId`), so a retried chunk never double-records.
+- Sync runs automatically: the background worker drains the outbox shortly after it grows
+  (debounced) and on a 30-minute alarm, and the popup syncs on open when backup is on and
+  something is queued or the last pull is stale.
 
 ## No sign-in (single-owner)
 
