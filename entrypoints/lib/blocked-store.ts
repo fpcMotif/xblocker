@@ -5,8 +5,12 @@
 // (`convex-sync.ts`) is a thin layer on top that drains the outbox this store keeps.
 //
 // Storage layout (all under chrome.storage.local):
-//   - `blockedAccounts`: Record<key, BlockedAccount>   (object map, O(1) lookup)
-//   - `blockedOutbox`:   OutboxItem[]                  (actions waiting to sync to cloud)
+//   - `blockedAccounts`:          Record<key, BlockedAccount>  (object map, O(1) lookup)
+//   - `blockedOutbox:<actionId>`: OutboxItem                   (one key per action waiting
+//     to sync to cloud; per-item keys keep the outbox cross-context safe — see the
+//     mutation-chain note in createBlockedStore)
+//   - `blockedOutbox`:            OutboxItem[]                 (legacy array from older
+//     builds; folded into per-item keys the first time pending() reads it)
 
 import {
   accountKeyFor,
@@ -23,7 +27,17 @@ import {
 } from "./blocked-merge";
 
 const ACCOUNTS_KEY = "blockedAccounts";
-const OUTBOX_KEY = "blockedOutbox";
+// One storage key per queued outbox action ("blockedOutbox:<actionId>"). Inserting a
+// new item and removing a synced one therefore touch DIFFERENT keys and commute across
+// JS contexts, which is what makes markSynced safe against a concurrent record().
+const OUTBOX_PREFIX = "blockedOutbox:";
+// Pre-per-item builds stored the whole outbox as one array under this key; pending()
+// migrates it forward and nothing writes it anymore.
+const LEGACY_OUTBOX_KEY = "blockedOutbox";
+
+function outboxKeyFor(actionId: string): string {
+  return OUTBOX_PREFIX + actionId;
+}
 
 type AccountMap = Record<string, BlockedAccount>;
 
@@ -34,7 +48,19 @@ export type OutboxItem = {
   handle: string;
   idUnknown: boolean;
   action: BlockAction;
+  /** Enqueue tiebreaker for same-millisecond actions: a per-context counter (contexts
+   *  restart at 0, so `action.at` stays the primary sort key). */
+  seq?: number;
 };
+
+// Per-context enqueue counter behind OutboxItem.seq.
+let outboxSeq = 0;
+
+/** FIFO-restoring order for per-item outbox keys: by action time, then by the enqueue
+ *  counter. Array sorts are stable, so cross-context ties keep their snapshot order. */
+function compareOutboxItems(a: OutboxItem, b: OutboxItem): number {
+  return a.action.at - b.action.at || (a.seq ?? 0) - (b.seq ?? 0);
+}
 
 /** Arguments for the Convex `recordAction` mutation. Built by `outboxItemToRecordArgs`
  *  (kept here, not in convex-sync.ts, so the pure mapping is unit-tested). */
@@ -114,9 +140,26 @@ function readKey<T>(key: string): Promise<T | undefined> {
   });
 }
 
+/** Read the whole storage area. Same annotation trick as readKey: the result is
+ *  inherently untyped, and callers must only trust values under keys they own
+ *  (pending() filters by the outbox prefix). A failed read degrades to empty. */
+function readAll<T>(): Promise<Record<string, T>> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(null, (result: Record<string, T> | undefined) => {
+      resolve(result ?? {});
+    });
+  });
+}
+
 function writeKeys(items: Record<string, unknown>): Promise<void> {
   return new Promise((resolve) => {
     chrome.storage.local.set(items, () => resolve());
+  });
+}
+
+function removeKeys(keys: string[]): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(keys, () => resolve());
   });
 }
 
@@ -129,22 +172,31 @@ function isAccountMap(value: unknown): value is AccountMap {
 }
 
 export function createBlockedStore(): BlockedStore {
-  // chrome.storage has no transactions, so read-modify-write mutations are
-  // serialized through this chain; concurrent record/markSynced/mergeRemote
-  // calls queue instead of racing (XB-BUG-08 family). The chain is advanced by
-  // a settled (never-rejecting) promise so one failed mutation cannot wedge it.
+  // chrome.storage has no transactions, so ACCOUNTS_KEY read-modify-write mutations
+  // (record, mergeRemote) are serialized through this chain; concurrent calls queue
+  // instead of racing (XB-BUG-08 family). The chain is advanced by a settled
+  // (never-rejecting) promise so one failed mutation cannot wedge it.
   //
-  // SCOPE: this serializes only WITHIN one JS context. `blockedStore` is a
-  // per-context singleton, and the popup (which runs mergeRemote on a cloud pull)
-  // and the content script (which runs record) are separate contexts whose
-  // singletons can still lose-update each other on ACCOUNTS_KEY. That is harmless
-  // today because (a) the sync path never writes OUTBOX_KEY, so a queued action is
-  // never clobbered cross-context (the block itself is already done before record
-  // runs, and the outbox re-syncs idempotently), and (b) no live app code reads the
-  // account map, so any momentarily-stale stats self-heal on the next pull. A real
-  // fix (re-read-and-revalidate ACCOUNTS_KEY inside writeKeys) becomes necessary only
-  // if stats/list/hasActiveHandle/onChange get wired into the popup UI, or if the
-  // sync path ever also writes OUTBOX_KEY — at which point this turns into a bug.
+  // SCOPE: the chain serializes only WITHIN one JS context. `blockedStore` is a
+  // per-context singleton, and the sync side (popup or background service worker,
+  // running markSynced/mergeRemote) and the content script (running record) are
+  // separate contexts whose singletons interleave freely. Cross-context safety is
+  // therefore provided per structure, not by the chain:
+  //   - Outbox (XB-BUG-09, fixed): safe by construction. Every queued action lives
+  //     under its own key (`blockedOutbox:<actionId>`); record() only ever inserts a
+  //     fresh key, and markSynced() only removes exactly the keys whose ids the cloud
+  //     confirmed. Inserts and removes of distinct keys commute, so a record() landing
+  //     in the middle of another context's sync can no longer be dropped. (The old
+  //     scheme kept ONE array that markSynced read-filtered-wrote — the sync path DID
+  //     write the outbox — so an item appended between that read and write was
+  //     silently lost and its action never reached the cloud backup.)
+  //   - ACCOUNTS_KEY: still a single read-modify-write map, so a sync-side mergeRemote
+  //     and a content-script record can lose-update each other's map entry. That stays
+  //     harmless: the action itself is safe in the outbox, no live app code reads the
+  //     map on the block hot path, and a momentarily-stale entry self-heals on the
+  //     next cloud pull. A real fix (re-read-and-revalidate inside writeKeys) becomes
+  //     necessary only if stats/list/hasActiveHandle/onChange get wired into decisions
+  //     that cannot tolerate one stale read.
   let mutationChain: Promise<unknown> = Promise.resolve();
 
   function enqueueMutation<T>(mutate: () => Promise<T>): Promise<T> {
@@ -201,19 +253,23 @@ export function createBlockedStore(): BlockedStore {
         const storeKey = existingKey ?? merged.key;
         map[storeKey] = merged;
 
+        // The queued action gets its own storage key, so this insert commutes with a
+        // concurrent markSynced() in another context (see the chain note above).
+        const writes: Record<string, unknown> = { [ACCOUNTS_KEY]: map };
         const lastAction = merged.actions[merged.actions.length - 1];
-        const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
         if (lastAction) {
-          outbox.push({
+          const item: OutboxItem = {
             accountKey: storeKey,
             ...(merged.xUserId ? { xUserId: merged.xUserId } : {}),
             handle: merged.handle,
             idUnknown: merged.idUnknown,
             action: lastAction,
-          });
+            seq: ++outboxSeq,
+          };
+          writes[outboxKeyFor(lastAction.actionId)] = item;
         }
 
-        await writeKeys({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
+        await writeKeys(writes);
         return merged;
       });
     },
@@ -229,17 +285,42 @@ export function createBlockedStore(): BlockedStore {
     },
 
     async pending() {
-      return (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
+      // One key per item, so enumerate by prefix. get(null) is fine at this scale:
+      // pending() runs on the popup/sync cadence, never on the block hot path.
+      const all = await readAll<OutboxItem | OutboxItem[]>();
+      const items: OutboxItem[] = [];
+      for (const [key, value] of Object.entries(all)) {
+        if (key.startsWith(OUTBOX_PREFIX) && !Array.isArray(value)) items.push(value);
+      }
+
+      // Migrate a legacy array-format outbox forward: give its items per-item keys
+      // (skipping any a crashed earlier migration already wrote), then drop the array.
+      // Concurrent migrations write identical keys/values, so this is idempotent; the
+      // worst interleaving briefly re-queues an already-synced item, which the cloud
+      // dedupes by clientActionId and the next markSynced removes again.
+      const legacy = all[LEGACY_OUTBOX_KEY];
+      if (Array.isArray(legacy) && legacy.length > 0) {
+        const writes: Record<string, unknown> = {};
+        for (const [index, item] of legacy.entries()) {
+          const migrated: OutboxItem = { ...item, seq: item.seq ?? index };
+          writes[outboxKeyFor(item.action.actionId)] = migrated;
+          if (!items.some((queued) => queued.action.actionId === item.action.actionId)) {
+            items.push(migrated);
+          }
+        }
+        await writeKeys(writes);
+        await removeKeys([LEGACY_OUTBOX_KEY]);
+      }
+
+      return items.toSorted(compareOutboxItems);
     },
 
-    markSynced(actionIds) {
-      if (actionIds.length === 0) return Promise.resolve();
-      return enqueueMutation(async () => {
-        const done = new Set(actionIds);
-        const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
-        const remaining = outbox.filter((item) => !done.has(item.action.actionId));
-        await writeKeys({ [OUTBOX_KEY]: remaining });
-      });
+    async markSynced(actionIds) {
+      if (actionIds.length === 0) return;
+      // A pure remove of exactly the synced items' keys: no read-modify-write, so a
+      // record() landing concurrently — in this or any other context — inserts a
+      // different key and cannot be clobbered (XB-BUG-09).
+      await removeKeys(actionIds.map(outboxKeyFor));
     },
 
     mergeRemote(remote) {

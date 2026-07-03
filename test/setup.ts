@@ -61,6 +61,7 @@ export class FakeChromeStorageArea {
   data: StorageItems = {};
   getCalls: StorageGetKeys[] = [];
   setCalls: StorageItems[] = [];
+  removeCalls: string[][] = [];
   failNextGet = false;
   failNextSet = false;
   private mode: DispatchMode = "sync";
@@ -90,6 +91,19 @@ export class FakeChromeStorageArea {
         return;
       }
       Object.assign(this.data, structuredClone(items));
+      callback?.();
+    });
+  }
+
+  /** Delete the named keys; mirrors chrome.storage.local.remove(). Used by the
+   *  blocked-store outbox, whose per-item keys are dropped once synced. */
+  remove(keys: string | string[], callback?: () => void): void {
+    const names = typeof keys === "string" ? [keys] : keys;
+    this.removeCalls.push([...names]);
+    this.dispatch(() => {
+      for (const name of names) {
+        delete this.data[name];
+      }
       callback?.();
     });
   }
@@ -124,6 +138,7 @@ export class FakeChromeStorageArea {
     this.data = {};
     this.getCalls = [];
     this.setCalls = [];
+    this.removeCalls = [];
     this.failNextGet = false;
     this.failNextSet = false;
     this.mode = "sync";
@@ -162,6 +177,8 @@ g.chrome = {
     local: {
       get: (keys: StorageGetKeys, callback: StorageGetCallback) => storageFake.get(keys, callback),
       set: (items: StorageItems, callback?: () => void) => storageFake.set(items, callback),
+      remove: (keys: string | string[], callback?: () => void) =>
+        storageFake.remove(keys, callback),
       clear: (callback?: () => void) => storageFake.clear(callback),
     },
   },

@@ -63,6 +63,12 @@ so a future fix flips the assertion (search `BUG XB-BUG`):
 - **XB-BUG-08** (WL-12, WL-17, WL-18, MD-11): fixed — whitelist mutations are
   serialized through a single promise chain and the save is aborted when the
   storage read fails.
+- **XB-BUG-09** (BS-36..39, PU-CB-01): fixed — the cloud outbox is stored one
+  item per storage key (`blockedOutbox:<actionId>`), so the sync side's
+  markSynced removes exactly the synced keys instead of read-filter-writing one
+  array. Previously a content-script record() landing between that read and
+  write in another JS context was silently dropped and its action never reached
+  the cloud backup. Legacy array outboxes are migrated on first read.
 
 Other harsh inputs: boundary handle lengths (1/15/16 chars), reserved paths
 (case-insensitive), unicode/emoji/injection-shaped handles, empty/duplicate

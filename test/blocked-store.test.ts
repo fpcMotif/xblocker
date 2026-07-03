@@ -991,3 +991,112 @@ describe("BlockedStore serialized mutations (XB-BUG-08 family)", () => {
     }
   });
 });
+
+describe("cross-context outbox safety (XB-BUG-09)", () => {
+  test("BS-36 a record() landing mid-sync in ANOTHER context survives markSynced (XB-BUG-09)", async () => {
+    // Two stores over one storage area = two JS contexts (each has its own mutation
+    // chain, so nothing serializes between them). This choreographs the popup-sync vs
+    // content-script interleaving that used to drop a freshly queued action: the sync
+    // side read the single outbox array BEFORE record()'s append landed and wrote the
+    // filtered array AFTER it, clobbering the new item (its block then never reached
+    // the cloud). With per-item keys, markSynced only removes the synced item's own
+    // key, so the concurrent insert survives every interleaving.
+    const contentStore = createBlockedStore();
+    const popupStore = createBlockedStore();
+
+    await contentStore.record({
+      handle: "first",
+      kind: "block",
+      source: "reply-bar",
+      xUserId: "1",
+    });
+    const [queued] = await popupStore.pending();
+
+    storageFake.useManualDispatch();
+    try {
+      // The content context starts appending a second action and its storage read
+      // lands, so its write is now in flight...
+      const recording = contentStore.record({
+        handle: "second",
+        kind: "block",
+        source: "reply-bar",
+        xUserId: "2",
+      });
+      await settleMicrotasks();
+      storageFake.flush();
+      await settleMicrotasks();
+      // ...and in that window the popup confirms the first action as synced. Under
+      // the old scheme the sync now reads the outbox array without the new item and
+      // its filtered write lands after the append, erasing it.
+      const marking = popupStore.markSynced([queued!.action.actionId]);
+      await settleMicrotasks();
+
+      for (let round = 0; round < 6; round++) {
+        storageFake.flush();
+        await settleMicrotasks();
+      }
+      await recording;
+      await marking;
+
+      const pendingPromise = contentStore.pending();
+      for (let round = 0; round < 4; round++) {
+        storageFake.flush();
+        await settleMicrotasks();
+      }
+      // The synced action is gone and the concurrently recorded one is NOT lost.
+      expect((await pendingPromise).map((item) => item.accountKey)).toEqual(["2"]);
+    } finally {
+      storageFake.reset();
+    }
+  });
+
+  test("BS-37 migrates a legacy array outbox to per-item keys on first read", async () => {
+    const store = createBlockedStore();
+    const legacyItem = (id: string, at: number): OutboxItem => ({
+      accountKey: id,
+      xUserId: id,
+      handle: `user${id}`,
+      idUnknown: false,
+      action: { actionId: `a${id}`, kind: "block", at, source: "reply-bar" },
+    });
+    storageFake.data["blockedOutbox"] = [legacyItem("1", 100), legacyItem("2", 200)];
+    // A crashed earlier migration may have copied an item without managing to drop the
+    // array; the migration must fold it in without duplicating.
+    storageFake.data["blockedOutbox:a1"] = legacyItem("1", 100);
+
+    const pending = await store.pending();
+    expect(pending.map((item) => item.action.actionId)).toEqual(["a1", "a2"]);
+
+    // The array is gone and both items now live under their own keys.
+    expect(storageFake.data["blockedOutbox"]).toBeUndefined();
+    expect(storageFake.data["blockedOutbox:a1"]).toBeDefined();
+    expect(storageFake.data["blockedOutbox:a2"]).toBeDefined();
+
+    // A second read is a plain per-item enumeration with the same result, and a
+    // migrated item drains through markSynced like any other.
+    expect((await store.pending()).map((item) => item.action.actionId)).toEqual(["a1", "a2"]);
+    await store.markSynced(["a1"]);
+    expect((await store.pending()).map((item) => item.action.actionId)).toEqual(["a2"]);
+  });
+
+  test("BS-38 pending() orders by action time, then per-context enqueue order", async () => {
+    const store = createBlockedStore();
+    await store.record({ handle: "a", kind: "block", source: "reply-bar", xUserId: "1", at: 5000 });
+    await store.record({ handle: "b", kind: "block", source: "reply-bar", xUserId: "2", at: 5000 });
+    await store.record({ handle: "c", kind: "block", source: "reply-bar", xUserId: "3", at: 4000 });
+
+    // Same-timestamp items keep their enqueue order (seq breaks the tie); an older
+    // timestamp sorts first regardless of when it was enqueued.
+    expect((await store.pending()).map((item) => item.handle)).toEqual(["c", "a", "b"]);
+  });
+
+  test("BS-39 pending() degrades to an empty list when the storage read fails", async () => {
+    const store = createBlockedStore();
+    await store.record({ handle: "a", kind: "block", source: "reply-bar", xUserId: "1" });
+
+    storageFake.failNextGet = true;
+    expect(await store.pending()).toEqual([]);
+    // The failure is transient: the next read sees the queue again.
+    expect(await store.pending()).toHaveLength(1);
+  });
+});
