@@ -74,7 +74,9 @@ describe("popup cloud backup", () => {
 
     expect(calls.push).toBe(1);
     expect(calls.pull).toBe(1);
-    expect(storageFake.data["blockedOutbox"]).toEqual([]);
+    // The legacy array outbox was migrated to a per-item key, pushed, and drained.
+    expect(storageFake.data["blockedOutbox"]).toBeUndefined();
+    expect(storageFake.data["blockedOutbox:a1"]).toBeUndefined();
     expect(cloudSection().textContent).toContain("Backed up to your Convex");
     expect(storageFake.data["cloudBackup"]).toBe(true);
   });
