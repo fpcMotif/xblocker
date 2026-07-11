@@ -29,7 +29,10 @@ Object.assign(g, {
   Event: happyWindow.Event,
   KeyboardEvent: happyWindow.KeyboardEvent,
   MouseEvent: happyWindow.MouseEvent,
+  SVGCircleElement: happyWindow.SVGCircleElement,
   location: happyWindow.location,
+  requestAnimationFrame: happyWindow.requestAnimationFrame.bind(happyWindow),
+  cancelAnimationFrame: happyWindow.cancelAnimationFrame.bind(happyWindow),
 });
 
 const activeObservers = new Set<MutationObserver>();
@@ -86,7 +89,32 @@ export class FakeChromeStorageArea {
         callback?.();
         return;
       }
-      Object.assign(this.data, structuredClone(items));
+      for (const [key, value] of Object.entries(items)) {
+        // Real chrome.storage drops undefined values during serialization — the key
+        // keeps its old value. Mirroring that here keeps "clear via set-to-undefined"
+        // bugs visible in tests; clearing a key must go through remove().
+        if (value !== undefined) this.data[key] = structuredClone(value);
+      }
+      callback?.();
+    });
+  }
+
+  /** Mirrors chrome.storage.local.remove: deletes the key(s) outright — the only way
+   *  to clear a key, since set() drops undefined values. */
+  remove(keys: string | string[], callback?: () => void): void {
+    this.dispatch(() => {
+      for (const key of Array.isArray(keys) ? keys : [keys]) {
+        delete this.data[key];
+      }
+      callback?.();
+    });
+  }
+
+  /** Drop every stored key. Used by the blocked-store suite to start each test
+   *  from an empty area; mirrors chrome.storage.local.clear(). */
+  clear(callback?: () => void): void {
+    this.dispatch(() => {
+      this.data = {};
       callback?.();
     });
   }
@@ -150,6 +178,9 @@ g.chrome = {
     local: {
       get: (keys: StorageGetKeys, callback: StorageGetCallback) => storageFake.get(keys, callback),
       set: (items: StorageItems, callback?: () => void) => storageFake.set(items, callback),
+      remove: (keys: string | string[], callback?: () => void) =>
+        storageFake.remove(keys, callback),
+      clear: (callback?: () => void) => storageFake.clear(callback),
     },
   },
 };

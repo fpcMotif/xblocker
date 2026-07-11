@@ -1,5 +1,11 @@
 scratchpad.txt
+.claude/
 .wxt/
 .output/
 coverage/
 node_modules/
+
+# Local env (Convex deployment URL)
+.env
+.env.local
+.env.*.local

@@ -1,58 +1,53 @@
+// Gauge & Ledger popup: a lean status strip (see
+// docs/plans/2026-07-10-gauge-and-ledger/plan.md, "Popup"). Whitelist management and
+// max-replies now live on the settings page; this surface only shows the stat strip,
+// two behavior toggles, the cloud sync row, and a link out to settings.
+import type { BlockedStats } from "../lib/blocked-merge";
+import { blockedStore } from "../lib/blocked-store";
+import { CLOUD_BACKUP_KEY, SETTINGS_KEY, storageGet, storageSet } from "../lib/chrome-storage";
+import {
+  XB_DARK_TOKENS,
+  XB_FONT_STACK,
+  XB_LIGHT_TOKENS,
+  XB_TONE_TOKENS,
+} from "../lib/design-tokens";
+import { createIcon } from "../lib/icons";
+import { createLiveNumber, type LiveNumber, type LiveNumberClock } from "../lib/live-number";
+import { clampMaxReplies, DEFAULT_MAX_REPLIES } from "../lib/settings";
+import { getSyncMeta, runCloudSync, shouldAutoSync, type SyncMeta } from "../lib/sync-engine";
+import { getWhitelist } from "../lib/whitelist-store";
+
 type PopupSettings = {
   confirmDestructiveActions: boolean;
   keyboardMode: boolean;
+  maxReplies: number;
   protectWhitelist: boolean;
 };
 
-type PopupState = {
-  settings: PopupSettings;
-  whitelist: string[];
-};
-
+// keyboardMode and maxReplies have no row in this popup (keyboardMode is reserved for
+// future j/k navigation; maxReplies moved to the settings page) but both stay in the
+// schema so the stored settings blob shape is unchanged for other readers.
 const DEFAULT_SETTINGS: PopupSettings = {
   confirmDestructiveActions: true,
   keyboardMode: false,
+  maxReplies: DEFAULT_MAX_REPLIES,
   protectWhitelist: true,
 };
 
-const RESERVED_X_PATHS = new Set<string>([
-  "home",
-  "i",
-  "intent",
-  "messages",
-  "notifications",
-  "search",
-  "settings",
-  "share",
-]);
-
-function normalizeUsername(value: string): string | null {
-  const username = value.replace(/^@/, "").trim();
-  if (!username || RESERVED_X_PATHS.has(username.toLowerCase())) {
-    return null;
-  }
-
-  return /^[A-Za-z0-9_]{1,15}$/.test(username) ? username : null;
-}
-
-function getStoredState(): Promise<PopupState> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(["settings", "whitelist"], (result) => {
-      const storedSettings =
-        typeof result?.settings === "object" && result.settings ? result.settings : {};
-      const settings = { ...DEFAULT_SETTINGS, ...storedSettings };
-      const whitelist = Array.isArray(result?.whitelist) ? result.whitelist : [];
-      resolve({ settings, whitelist });
-    });
-  });
+async function getStoredSettings(): Promise<PopupSettings> {
+  const stored = await storageGet<Partial<PopupSettings>>(SETTINGS_KEY);
+  const settings: PopupSettings = { ...DEFAULT_SETTINGS, ...stored };
+  settings.maxReplies = clampMaxReplies(settings.maxReplies);
+  return settings;
 }
 
 function saveSettings(settings: PopupSettings): void {
-  void chrome.storage.local.set({ settings });
+  void storageSet({ [SETTINGS_KEY]: settings });
 }
 
-function saveWhitelist(whitelist: string[]): void {
-  void chrome.storage.local.set({ whitelist });
+/** Guarded so the test chrome mock (which has no openOptionsPage) never throws. */
+function openSettings(): void {
+  void chrome.runtime.openOptionsPage?.();
 }
 
 function ensurePopupStyles(): void {
@@ -61,294 +56,183 @@ function ensurePopupStyles(): void {
   const style = document.createElement("style");
   style.id = "xblocker-popup-styles";
   style.textContent = `
-		:root {
-			color-scheme: dark;
-			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-			background: #050607;
-			color: #e7e9ea;
+		:root {${XB_TONE_TOKENS}${XB_LIGHT_TOKENS}	color-scheme: light dark;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {${XB_DARK_TOKENS}}
 		}
 
 		body {
 			width: 360px;
-			min-height: 540px;
 			margin: 0;
-			background: #050607;
+			background: var(--xb-surface);
+			color: var(--xb-ink);
+			font-family: ${XB_FONT_STACK};
+			-webkit-font-smoothing: antialiased;
 		}
 
 		.xb-popup {
 			box-sizing: border-box;
 			width: 360px;
-			min-height: 540px;
-			padding: 14px;
-			background: linear-gradient(180deg, #111418 0%, #050607 34%);
-			color: #e7e9ea;
+			padding: 14px 16px;
 		}
 
-		.xb-popup-header {
+		.xb-region + .xb-region {
+			border-top: 1px solid var(--xb-border);
+		}
+
+		.xb-header {
 			display: flex;
 			align-items: center;
 			justify-content: space-between;
 			padding-bottom: 12px;
-			border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 		}
 
 		.xb-brand {
 			display: flex;
 			align-items: center;
-			gap: 10px;
+			gap: 8px;
 			min-width: 0;
 		}
 
 		.xb-brand-mark {
 			display: grid;
 			place-items: center;
-			width: 34px;
-			height: 34px;
+			flex: 0 0 auto;
+			width: 22px;
+			height: 22px;
 			border-radius: 8px;
-			border: 1px solid rgba(142, 205, 248, 0.5);
-			background: rgba(29, 155, 240, 0.14);
-			color: #8ecdf8;
-			font-size: 18px;
-			font-weight: 800;
-			line-height: 1;
+			background: oklch(0.63 0.16 246 / 0.12);
+			color: var(--xb-primary);
 		}
 
-		.xb-brand-copy {
-			display: grid;
-			gap: 3px;
-			min-width: 0;
-		}
-
-		.xb-popup h1 {
+		.xb-header h1 {
 			margin: 0;
-			font-size: 18px;
+			font-size: 15px;
 			line-height: 1.2;
-			font-weight: 750;
-			letter-spacing: 0;
+			font-weight: 700;
+			color: var(--xb-ink);
 		}
 
 		.xb-status {
 			display: inline-flex;
 			align-items: center;
 			gap: 6px;
-			color: #8b98a5;
+			color: var(--xb-ink-muted);
 			font-size: 12px;
-			font-weight: 700;
+			font-weight: 600;
 			white-space: nowrap;
 		}
 
-		.xb-status::before {
-			content: "";
-			width: 7px;
-			height: 7px;
+		.xb-status-dot {
+			flex: 0 0 auto;
+			width: 6px;
+			height: 6px;
 			border-radius: 50%;
-			background: #00ba7c;
+			background: var(--xb-success);
 		}
 
-		.xb-header-settings {
-			display: grid;
-			place-items: center;
-			width: 32px;
-			height: 32px;
-			border: 1px solid rgba(255, 255, 255, 0.12);
-			border-radius: 8px;
-			background: rgba(255, 255, 255, 0.04);
-			color: #8b98a5;
-			cursor: pointer;
-			font: inherit;
-			font-size: 17px;
-		}
-
-		.xb-popup-section {
-			margin-top: 12px;
-			padding: 12px;
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			border-radius: 8px;
-			background: rgba(255, 255, 255, 0.035);
-		}
-
-		.xb-section-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 10px;
-			margin-bottom: 10px;
-		}
-
-		.xb-popup-section h2 {
-			margin: 0;
-			color: #f7f9f9;
-			font-size: 13px;
-			line-height: 1.2;
-			font-weight: 750;
-			letter-spacing: 0;
-		}
-
-		.xb-section-note {
-			color: #8b98a5;
-			font-size: 12px;
-			font-weight: 700;
-			white-space: nowrap;
-		}
-
-		.xb-settings-list,
-		.xb-whitelist-list {
-			display: grid;
-			gap: 8px;
-		}
-
-		.xb-toggle-row,
-		.xb-whitelist-row {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 10px;
-			min-height: 34px;
-			color: #d7dbdc;
-			font-size: 13px;
-			line-height: 1.2;
-		}
-
-		.xb-action-summary {
+		.xb-stat-strip {
 			display: grid;
 			grid-template-columns: repeat(3, 1fr);
-			gap: 8px;
+			align-items: center;
+			min-height: 64px;
+			padding: 10px 0;
 		}
 
-		.xb-summary-card {
-			box-sizing: border-box;
-			min-width: 0;
-			padding: 10px 8px;
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			border-radius: 8px;
-			background: rgba(0, 0, 0, 0.16);
-			text-align: center;
-		}
-
-		.xb-card-icon {
-			display: inline-grid;
-			place-items: center;
-			width: 24px;
-			height: 24px;
-			margin-bottom: 6px;
-			border-radius: 8px;
-			font-size: 12px;
-			font-weight: 850;
-		}
-
-		.xb-summary-card[data-tone="danger"] .xb-card-icon {
-			background: rgba(244, 33, 46, 0.12);
-			color: #ff6b73;
-		}
-
-		.xb-summary-card[data-tone="warning"] .xb-card-icon {
-			background: rgba(255, 173, 31, 0.12);
-			color: #ffcc66;
-		}
-
-		.xb-summary-card[data-tone="success"] .xb-card-icon {
-			background: rgba(0, 186, 124, 0.12);
-			color: #54d69d;
-		}
-
-		.xb-card-value {
-			display: block;
-			color: #f7f9f9;
-			font-size: 19px;
-			line-height: 1;
-			font-weight: 850;
-		}
-
-		.xb-card-label {
-			display: block;
-			margin-top: 4px;
-			color: #b5bdc4;
-			font-size: 11px;
-			font-weight: 700;
-		}
-
-		.xb-whitelist-form {
+		.xb-stat-cell {
 			display: flex;
-			gap: 8px;
-			margin-bottom: 10px;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 4px;
+			padding: 0 4px;
+			border-left: 1px solid var(--xb-border);
 		}
 
-		.xb-whitelist-input {
-			flex: 1;
-			box-sizing: border-box;
-			height: 36px;
-			min-width: 0;
-			border: 1px solid rgba(255, 255, 255, 0.12);
-			border-radius: 8px;
-			background: rgba(255, 255, 255, 0.06);
-			color: #e7e9ea;
-			padding: 0 10px;
-			font: inherit;
-			font-size: 13px;
-			outline: none;
+		.xb-stat-cell:first-child {
+			border-left: 0;
 		}
 
-		.xb-whitelist-input:focus {
-			border-color: #00ba7c;
+		.xb-stat-value {
+			font-size: 26px;
+			line-height: 1;
+			font-weight: 700;
+			color: var(--xb-ink);
+			font-variant-numeric: tabular-nums;
 		}
 
-		.xb-button {
-			height: 36px;
-			border: 1px solid rgba(0, 186, 124, 0.58);
-			border-radius: 8px;
-			background: #00ba7c;
-			color: white;
-			padding: 0 12px;
-			font: inherit;
-			font-size: 13px;
-			font-weight: 750;
-			cursor: pointer;
-			white-space: nowrap;
+		.xb-stat-tick {
+			width: 20px;
+			height: 2px;
+			border-radius: 1px;
+		}
+
+		.xb-stat-tick[data-tone="danger"] { background: var(--xb-danger); }
+		.xb-stat-tick[data-tone="warning"] { background: var(--xb-warning); }
+		.xb-stat-tick[data-tone="success"] { background: var(--xb-success); }
+
+		.xb-stat-label {
+			font-size: 11px;
+			font-weight: 600;
+			letter-spacing: 0.06em;
+			text-transform: uppercase;
+			color: var(--xb-ink-muted);
+		}
+
+		.xb-toggles {
+			padding: 2px 0;
 		}
 
 		.xb-toggle-row {
-			min-height: 48px;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			min-height: 44px;
 			padding: 8px 0;
-			border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+			cursor: pointer;
 		}
 
-		.xb-toggle-row:last-child {
-			border-bottom: 0;
+		.xb-toggle-row + .xb-toggle-row {
+			border-top: 1px solid var(--xb-border);
 		}
 
 		.xb-toggle-copy {
 			display: grid;
-			gap: 3px;
+			gap: 2px;
 			min-width: 0;
 		}
 
 		.xb-toggle-title {
-			color: #e7e9ea;
 			font-size: 13px;
-			font-weight: 700;
+			font-weight: 600;
+			color: var(--xb-ink);
 		}
 
-		.xb-toggle-description {
-			color: #8b98a5;
+		.xb-toggle-caption {
 			font-size: 11px;
-			line-height: 1.25;
+			font-weight: 500;
+			line-height: 1.3;
+			color: var(--xb-ink-muted);
 		}
 
-		.xb-switch-input {
+		.xb-switch {
 			appearance: none;
 			position: relative;
 			flex: 0 0 auto;
+			box-sizing: border-box;
 			width: 42px;
 			height: 24px;
 			margin: 0;
 			border-radius: 999px;
-			border: 1px solid rgba(255, 255, 255, 0.16);
-			background: #2f3336;
+			border: 1px solid var(--xb-border);
+			background: var(--xb-track);
 			cursor: pointer;
-			transition: background 0.16s ease, border-color 0.16s ease;
+			transition: background-color 160ms var(--xb-ease-out), border-color 160ms var(--xb-ease-out);
 		}
 
-		.xb-switch-input::before {
+		.xb-switch::before {
 			content: "";
 			position: absolute;
 			top: 3px;
@@ -356,323 +240,628 @@ function ensurePopupStyles(): void {
 			width: 16px;
 			height: 16px;
 			border-radius: 50%;
-			background: #d7dbdc;
-			transition: transform 0.16s ease, background 0.16s ease;
+			background: oklch(1 0 0);
+			transition: transform 160ms var(--xb-ease-out);
 		}
 
-		.xb-switch-input:checked {
-			border-color: rgba(29, 155, 240, 0.75);
-			background: #1d9bf0;
+		.xb-switch:checked {
+			border-color: var(--xb-primary);
+			background: var(--xb-primary);
 		}
 
-		.xb-switch-input:checked::before {
-			background: white;
+		.xb-switch:checked::before {
 			transform: translateX(18px);
 		}
 
-		.xb-whitelist-row {
-			min-height: 38px;
-			padding: 0 0 8px;
-			border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		.xb-switch:active {
+			transform: scale(0.96);
 		}
 
-		.xb-whitelist-row:last-child {
-			border-bottom: 0;
-			padding-bottom: 0;
+		.xb-switch:focus-visible {
+			outline: 2px solid var(--xb-primary);
+			outline-offset: 2px;
 		}
 
-		.xb-whitelist-handle {
+		.xb-sync-row {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			min-height: 48px;
+			padding: 10px 0;
+		}
+
+		.xb-sync-left {
 			display: flex;
 			align-items: center;
 			gap: 8px;
 			min-width: 0;
 		}
 
-		.xb-avatar {
-			display: grid;
-			place-items: center;
-			width: 28px;
-			height: 28px;
+		.xb-telltale {
+			box-sizing: border-box;
+			flex: 0 0 auto;
+			width: 8px;
+			height: 8px;
 			border-radius: 50%;
-			background: rgba(29, 155, 240, 0.18);
-			color: #8ecdf8;
-			font-size: 11px;
-			font-weight: 850;
-			text-transform: uppercase;
+			border: 1.5px solid var(--xb-ink-muted);
+			background: transparent;
 		}
 
-		.xb-whitelist-name {
-			color: #d7dbdc;
-			font-weight: 650;
+		.xb-telltale[data-state="idle"] {
+			border-color: var(--xb-success);
+			background: var(--xb-success);
+		}
+
+		.xb-telltale[data-state="syncing"] {
+			border-color: var(--xb-primary);
+			background: var(--xb-primary);
+			animation: xb-breathe 900ms ease-in-out infinite;
+		}
+
+		.xb-telltale[data-state="error"] {
+			border-color: var(--xb-danger);
+			background: var(--xb-danger);
+			animation: xb-blink-error 900ms ease-in-out 1;
+		}
+
+		@keyframes xb-breathe {
+			0%, 100% { opacity: 1; }
+			50% { opacity: 0.4; }
+		}
+
+		@keyframes xb-blink-error {
+			0%, 100% { opacity: 1; }
+			15% { opacity: 0.25; }
+			30% { opacity: 1; }
+			45% { opacity: 0.25; }
+			60% { opacity: 1; }
+		}
+
+		.xb-sync-copy {
+			display: grid;
+			gap: 2px;
+			min-width: 0;
+		}
+
+		.xb-sync-title {
+			font-size: 12px;
+			font-weight: 600;
+			color: var(--xb-ink);
+		}
+
+		.xb-sync-detail {
+			font-size: 11px;
+			font-weight: 500;
+			color: var(--xb-ink-muted);
 			overflow: hidden;
 			text-overflow: ellipsis;
 			white-space: nowrap;
 		}
 
-		.xb-remove-button,
-		.xb-link-button {
+		.xb-sync-action {
+			flex: 0 0 auto;
+		}
+
+		.xb-sync-note {
+			font-size: 11px;
+			font-weight: 500;
+			color: var(--xb-ink-muted);
+			white-space: nowrap;
+		}
+
+		.xb-ghost-link {
 			border: 0;
 			background: transparent;
-			color: #8b98a5;
+			padding: 4px 0;
+			color: var(--xb-primary);
 			font: inherit;
 			font-size: 12px;
-			font-weight: 700;
+			font-weight: 600;
 			cursor: pointer;
-			padding: 4px 0;
+			white-space: nowrap;
 		}
 
-		.xb-remove-button:hover,
-		.xb-link-button:hover {
-			color: #e7e9ea;
+		.xb-ghost-link:focus-visible {
+			outline: 2px solid var(--xb-primary);
+			outline-offset: 2px;
+			border-radius: 4px;
 		}
 
-		.xb-popup-footer {
+		.xb-sync-button {
+			box-sizing: border-box;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: 6px;
+			height: 30px;
+			min-width: 9ch;
+			padding: 0 10px;
+			border: 1px solid var(--xb-border);
+			border-radius: 8px;
+			background: transparent;
+			color: var(--xb-ink);
+			font: inherit;
+			font-size: 12px;
+			font-weight: 600;
+			cursor: pointer;
+			white-space: nowrap;
+			transition: transform 160ms var(--xb-ease-out), background-color 150ms ease, opacity 150ms ease;
+		}
+
+		.xb-sync-button:disabled {
+			opacity: 0.45;
+			cursor: default;
+		}
+
+		.xb-sync-button:active {
+			transform: scale(0.96);
+		}
+
+		.xb-sync-button:focus-visible {
+			outline: 2px solid var(--xb-primary);
+			outline-offset: 2px;
+		}
+
+		.xb-spin {
+			animation: xb-spin 0.8s linear infinite;
+		}
+
+		@keyframes xb-spin {
+			from { transform: rotate(0deg); }
+			to { transform: rotate(360deg); }
+		}
+
+		@media (hover: hover) and (pointer: fine) {
+			.xb-sync-button:not(:disabled):hover { background: var(--xb-track); }
+			.xb-ghost-link:hover { color: var(--xb-ink); }
+			.xb-footer-button:hover { background: var(--xb-elevated); }
+		}
+
+		.xb-footer {
+			margin-top: 8px;
+		}
+
+		.xb-footer-button {
+			box-sizing: border-box;
 			display: flex;
 			align-items: center;
 			justify-content: space-between;
-			margin-top: 12px;
-			padding: 10px 12px;
-			border: 1px solid rgba(255, 255, 255, 0.1);
+			width: 100%;
+			height: 40px;
+			padding: 0 4px;
+			border: 0;
 			border-radius: 8px;
-			background: rgba(255, 255, 255, 0.035);
+			background: transparent;
+			color: var(--xb-ink);
+			font: inherit;
+			font-size: 13px;
+			font-weight: 600;
+			cursor: pointer;
+			transition: background-color 150ms ease, transform 160ms var(--xb-ease-out);
+		}
+
+		.xb-footer-button:active {
+			transform: scale(0.98);
+		}
+
+		.xb-footer-button:focus-visible {
+			outline: 2px solid var(--xb-primary);
+			outline-offset: 2px;
+		}
+
+		.xb-footer-chevron {
+			color: var(--xb-ink-muted);
+			font-size: 15px;
+			line-height: 1;
+		}
+
+		@media (prefers-reduced-motion: reduce) {
+			.xb-popup, .xb-popup *, .xb-popup *::before, .xb-popup *::after {
+				animation-duration: 0.01ms !important;
+				animation-iteration-count: 1 !important;
+				transition-property: opacity !important;
+				transition-duration: 120ms !important;
+			}
+			.xb-telltale[data-state="syncing"] {
+				animation: none !important;
+				opacity: 0.7 !important;
+			}
 		}
 	`;
   document.head.appendChild(style);
 }
 
-function createSection(title: string, note?: string): HTMLElement {
-  const section = document.createElement("section");
-  section.className = "xb-popup-section";
+function buildHeader(): HTMLElement {
+  const header = document.createElement("header");
+  header.className = "xb-region xb-header";
 
-  const header = document.createElement("div");
-  header.className = "xb-section-header";
+  const brand = document.createElement("div");
+  brand.className = "xb-brand";
 
-  const heading = document.createElement("h2");
-  heading.textContent = title;
-  header.appendChild(heading);
+  const mark = document.createElement("span");
+  mark.className = "xb-brand-mark";
+  mark.appendChild(createIcon("shield", 14));
 
-  if (note) {
-    const noteNode = document.createElement("span");
-    noteNode.className = "xb-section-note";
-    noteNode.textContent = note;
-    header.appendChild(noteNode);
-  }
+  const title = document.createElement("h1");
+  title.textContent = "XBlocker";
 
-  section.appendChild(header);
+  brand.append(mark, title);
 
-  return section;
+  const status = document.createElement("div");
+  status.className = "xb-status";
+
+  const dot = document.createElement("span");
+  dot.className = "xb-status-dot";
+  dot.setAttribute("aria-hidden", "true");
+
+  const label = document.createElement("span");
+  // Always true today (there is no per-tab/enabled-state signal yet) so the copy says
+  // what the extension DOES rather than implying a toggle-able "on/off" the popup can't
+  // actually observe.
+  label.textContent = "Protecting x.com";
+
+  status.append(dot, label);
+  header.append(brand, status);
+  return header;
 }
 
-function renderActionSummary(section: HTMLElement, state: PopupState): void {
-  const list = document.createElement("div");
-  list.className = "xb-action-summary";
+function buildStatCell(
+  label: string,
+  tone: "danger" | "success" | "warning",
+  clock: Partial<LiveNumberClock> | undefined,
+): {
+  element: HTMLElement;
+  live: LiveNumber;
+} {
+  const cell = document.createElement("div");
+  cell.className = "xb-stat-cell";
+  cell.setAttribute("role", "group");
+  cell.setAttribute("aria-label", label);
 
-  const summaryRows: Array<[string, string, string, string]> = [
-    ["Block replies", "0", "Blocked", "danger"],
-    ["Mute replies", "0", "Muted", "warning"],
-    ["Whitelist", String(state.whitelist.length), "Whitelisted", "success"],
-  ];
+  const value = document.createElement("span");
+  value.className = "xb-stat-value";
+  cell.appendChild(value);
+  const live = createLiveNumber(value, clock ? { clock } : {});
 
-  for (const [label, value, caption, tone] of summaryRows) {
-    const card = document.createElement("div");
-    card.className = "xb-summary-card";
-    card.dataset.tone = tone;
-    card.setAttribute("aria-label", label);
+  const tick = document.createElement("span");
+  tick.className = "xb-stat-tick";
+  tick.dataset.tone = tone;
+  cell.appendChild(tick);
 
-    const icon = document.createElement("span");
-    icon.className = "xb-card-icon";
-    icon.textContent = label.slice(0, 1);
+  const labelNode = document.createElement("span");
+  labelNode.className = "xb-stat-label";
+  labelNode.textContent = label;
+  cell.appendChild(labelNode);
 
-    const valueNode = document.createElement("span");
-    valueNode.className = "xb-card-value";
-    valueNode.textContent = value;
-
-    const labelNode = document.createElement("span");
-    labelNode.className = "xb-card-label";
-    labelNode.textContent = caption;
-
-    const actionName = document.createElement("span");
-    actionName.hidden = true;
-    actionName.textContent = label;
-
-    card.append(icon, valueNode, labelNode, actionName);
-    list.appendChild(card);
-  }
-
-  section.appendChild(list);
+  return { element: cell, live };
 }
 
-function renderWhitelist(section: HTMLElement, state: PopupState): void {
-  const form = document.createElement("form");
-  form.className = "xb-whitelist-form";
+function buildStatStrip(clock: Partial<LiveNumberClock> | undefined): {
+  element: HTMLElement;
+  blockedLive: LiveNumber;
+  mutedLive: LiveNumber;
+  whitelistLive: LiveNumber;
+} {
+  const strip = document.createElement("div");
+  strip.className = "xb-region xb-stat-strip";
+
+  const blocked = buildStatCell("Blocked", "danger", clock);
+  const muted = buildStatCell("Muted", "warning", clock);
+  const whitelisted = buildStatCell("Whitelisted", "success", clock);
+  strip.append(blocked.element, muted.element, whitelisted.element);
+
+  return {
+    element: strip,
+    blockedLive: blocked.live,
+    mutedLive: muted.live,
+    whitelistLive: whitelisted.live,
+  };
+}
+
+function buildToggleRow(
+  label: string,
+  caption: string,
+  checked: boolean,
+  onChange: (checked: boolean) => void,
+): HTMLElement {
+  const row = document.createElement("label");
+  row.className = "xb-toggle-row";
+
+  const copy = document.createElement("span");
+  copy.className = "xb-toggle-copy";
+
+  const title = document.createElement("span");
+  title.className = "xb-toggle-title";
+  title.textContent = label;
+
+  const captionNode = document.createElement("span");
+  captionNode.className = "xb-toggle-caption";
+  captionNode.textContent = caption;
+
+  copy.append(title, captionNode);
 
   const input = document.createElement("input");
-  input.className = "xb-whitelist-input";
-  input.placeholder = "Add username";
-  input.autocomplete = "off";
+  input.type = "checkbox";
+  input.className = "xb-switch";
+  input.checked = checked;
+  input.addEventListener("change", () => onChange(input.checked));
 
-  const addButton = document.createElement("button");
-  addButton.className = "xb-button";
-  addButton.type = "submit";
-  addButton.textContent = "Add";
-
-  form.append(input, addButton);
-
-  const list = document.createElement("div");
-  list.className = "xb-whitelist-list";
-
-  const drawList = () => {
-    list.replaceChildren();
-    for (const username of state.whitelist) {
-      const row = document.createElement("div");
-      row.className = "xb-whitelist-row";
-
-      const handle = document.createElement("div");
-      handle.className = "xb-whitelist-handle";
-
-      const avatar = document.createElement("span");
-      avatar.className = "xb-avatar";
-      avatar.textContent = username.slice(0, 2);
-
-      const handleName = document.createElement("span");
-      handleName.className = "xb-whitelist-name";
-      handleName.textContent = `@${username}`;
-      handle.append(avatar, handleName);
-
-      const removeButton = document.createElement("button");
-      removeButton.className = "xb-remove-button";
-      removeButton.type = "button";
-      removeButton.textContent = "Remove";
-      removeButton.addEventListener("click", () => {
-        state.whitelist = state.whitelist.filter((item) => item !== username);
-        saveWhitelist(state.whitelist);
-        drawList();
-      });
-
-      row.append(handle, removeButton);
-      list.appendChild(row);
-    }
-  };
-
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const username = normalizeUsername(input.value);
-    if (!username || state.whitelist.includes(username)) return;
-
-    state.whitelist = [...state.whitelist, username];
-    saveWhitelist(state.whitelist);
-    input.value = "";
-    drawList();
-  });
-
-  drawList();
-  section.append(form, list);
+  row.append(copy, input);
+  return row;
 }
 
-function renderSettings(section: HTMLElement, settings: PopupSettings): void {
-  const list = document.createElement("div");
-  list.className = "xb-settings-list";
+function buildToggles(settings: PopupSettings): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "xb-region xb-toggles";
 
-  const rows: Array<[keyof PopupSettings, string, string]> = [
-    ["protectWhitelist", "Protect whitelist", "Block and mute skip trusted handles"],
-    ["confirmDestructiveActions", "Confirm destructive actions", "Ask before irreversible actions"],
-    ["keyboardMode", "Keyboard mode", "Reserved for future j/k reply navigation"],
-  ];
+  wrap.appendChild(
+    buildToggleRow(
+      "Protect whitelist",
+      "Whitelisted handles are skipped during bulk actions.",
+      settings.protectWhitelist,
+      (checked) => {
+        settings.protectWhitelist = checked;
+        saveSettings(settings);
+      },
+    ),
+  );
 
-  for (const [key, label, description] of rows) {
-    const row = document.createElement("label");
-    row.className = "xb-toggle-row";
+  wrap.appendChild(
+    buildToggleRow(
+      "Confirm destructive actions",
+      "Ask before block or mute runs.",
+      settings.confirmDestructiveActions,
+      (checked) => {
+        settings.confirmDestructiveActions = checked;
+        saveSettings(settings);
+      },
+    ),
+  );
 
-    const copy = document.createElement("span");
-    copy.className = "xb-toggle-copy";
+  return wrap;
+}
 
-    const labelNode = document.createElement("span");
-    labelNode.className = "xb-toggle-title";
-    labelNode.textContent = label;
+export type SyncRowState = "error" | "idle" | "off" | "syncing" | "unconfigured";
 
-    const descriptionNode = document.createElement("span");
-    descriptionNode.className = "xb-toggle-description";
-    descriptionNode.textContent = description;
-    copy.append(labelNode, descriptionNode);
+/** Human "how long ago" for the sync row's idle detail line; coarse on purpose. */
+export function formatLastSync(meta: SyncMeta, now: number): string {
+  const at = meta.lastSyncAt;
+  if (typeof at !== "number") return "Never synced.";
+  const mins = Math.max(0, Math.round((now - at) / 60_000));
+  if (mins < 1) return "Synced just now.";
+  if (mins < 60) return `Synced ${mins}m ago.`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `Synced ${hours}h ago.`;
+  return `Synced ${Math.round(hours / 24)}d ago.`;
+}
 
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.className = "xb-switch-input";
-    input.checked = settings[key];
-    input.addEventListener("change", () => {
-      settings[key] = input.checked;
-      saveSettings(settings);
-    });
+function syncRowCopy(state: SyncRowState, idleDetail: string): { title: string; detail: string } {
+  switch (state) {
+    case "unconfigured":
+      return { title: "Cloud backup", detail: "Not configured for this build." };
+    case "off":
+      return { title: "Backup off", detail: "Turn on in settings." };
+    case "syncing":
+      return { title: "Backup on", detail: "Syncing…" };
+    case "error":
+      return { title: "Backup on", detail: "Sync failed. Tap retry." };
+    default:
+      return { title: "Backup on", detail: idleDetail };
+  }
+}
 
-    row.append(copy, input);
-    list.appendChild(row);
+type SyncRowHandles = {
+  element: HTMLElement;
+  setState(state: SyncRowState, idleDetail: string): void;
+};
+
+/**
+ * The sync row has no toggle of its own (enabling cloud backup lives on the settings
+ * page) — it only ever shows a status + the ONE action that is actually available:
+ * "Sync now" when backup is on, a link to settings when it's off, or plain text when
+ * the build has no Convex URL at all. `trigger` is a mutable box so the row can be
+ * built before its click handler (which needs the not-yet-created guarded-sync
+ * function) exists — renderPopup fills in `trigger.run` right after construction, before
+ * the row is ever interactive, so `run` starts `undefined` rather than a placeholder
+ * that would never actually run.
+ */
+function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
+  const row = document.createElement("div");
+  row.className = "xb-region xb-sync-row";
+
+  const left = document.createElement("div");
+  left.className = "xb-sync-left";
+
+  const dot = document.createElement("span");
+  dot.className = "xb-telltale";
+  dot.setAttribute("aria-hidden", "true");
+
+  const copy = document.createElement("div");
+  copy.className = "xb-sync-copy";
+  // Screen-reader feedback for syncing/success/error transitions — the telltale dot
+  // itself stays aria-hidden, so this text is the only accessible signal.
+  copy.setAttribute("aria-live", "polite");
+  copy.setAttribute("aria-atomic", "true");
+  const title = document.createElement("span");
+  title.className = "xb-sync-title";
+  const detail = document.createElement("span");
+  detail.className = "xb-sync-detail";
+  copy.append(title, detail);
+
+  left.append(dot, copy);
+
+  const action = document.createElement("div");
+  action.className = "xb-sync-action";
+
+  row.append(left, action);
+
+  function renderAction(state: SyncRowState): void {
+    action.replaceChildren();
+
+    if (state === "unconfigured") {
+      const note = document.createElement("span");
+      note.className = "xb-sync-note";
+      note.textContent = "Not configured";
+      action.appendChild(note);
+      return;
+    }
+
+    if (state === "off") {
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = "xb-ghost-link";
+      link.textContent = "Turn on in settings";
+      link.addEventListener("click", openSettings);
+      action.appendChild(link);
+      return;
+    }
+
+    // idle | syncing | error: the one available action is (re)running a sync.
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "xb-sync-button";
+    const busy = state === "syncing";
+    button.disabled = busy;
+    if (busy) {
+      button.appendChild(createIcon("loading", 12));
+    }
+    const buttonLabel = document.createElement("span");
+    buttonLabel.textContent = busy ? "Syncing…" : "Sync now";
+    button.appendChild(buttonLabel);
+    button.addEventListener("click", () => trigger.run?.());
+    action.appendChild(button);
   }
 
-  section.appendChild(list);
+  function setState(state: SyncRowState, idleDetail: string): void {
+    dot.dataset.state = state;
+    const rowCopy = syncRowCopy(state, idleDetail);
+    title.textContent = rowCopy.title;
+    detail.textContent = rowCopy.detail;
+    renderAction(state);
+  }
+
+  return { element: row, setState };
 }
 
-export async function renderPopup(root: HTMLElement): Promise<void> {
+function buildFooter(): HTMLElement {
+  const footer = document.createElement("footer");
+  footer.className = "xb-footer";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "xb-footer-button";
+
+  const label = document.createElement("span");
+  label.textContent = "Open settings";
+
+  const chevron = document.createElement("span");
+  chevron.className = "xb-footer-chevron";
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.textContent = "›";
+
+  button.append(label, chevron);
+  button.addEventListener("click", openSettings);
+
+  footer.appendChild(button);
+  return footer;
+}
+
+export type RenderPopupOptions = {
+  /**
+   * Test-only seam: inject a deterministic clock for the stat strip's live-number
+   * primitive so a storage-driven delta (see the `blockedStore.onChange` wiring below)
+   * can be driven through its 100ms debounce + 180ms animation synchronously in tests
+   * instead of depending on real timers/rAF. Production callers (mountPopupIfPresent)
+   * never pass this, so the popup always animates on the real clock.
+   */
+  clock?: Partial<LiveNumberClock>;
+};
+
+export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = {}): Promise<void> {
   ensurePopupStyles();
-  const state = await getStoredState();
+
+  const [settings, whitelist, cloudBackupEnabled, stats] = await Promise.all([
+    getStoredSettings(),
+    getWhitelist(),
+    storageGet<boolean>(CLOUD_BACKUP_KEY).then((value) => value === true),
+    blockedStore.stats(),
+  ]);
 
   const popup = document.createElement("main");
   popup.className = "xb-popup";
   popup.dataset.xbSurface = "popup";
 
-  const header = document.createElement("header");
-  header.className = "xb-popup-header";
+  const header = buildHeader();
+  const statStrip = buildStatStrip(opts.clock);
+  const toggles = buildToggles(settings);
+  const syncTrigger: { run?: () => void } = {};
+  const syncRow = buildSyncRow(syncTrigger);
+  const footer = buildFooter();
 
-  const brand = document.createElement("div");
-  brand.className = "xb-brand";
-
-  const brandMark = document.createElement("div");
-  brandMark.className = "xb-brand-mark";
-  brandMark.textContent = "X";
-
-  const brandCopy = document.createElement("div");
-  brandCopy.className = "xb-brand-copy";
-
-  const title = document.createElement("h1");
-  title.textContent = "XBlocker";
-
-  const status = document.createElement("div");
-  status.className = "xb-status";
-  status.textContent = "Active on x.com";
-
-  brandCopy.append(title, status);
-  brand.append(brandMark, brandCopy);
-
-  const headerSettings = document.createElement("button");
-  headerSettings.type = "button";
-  headerSettings.className = "xb-header-settings";
-  headerSettings.setAttribute("aria-label", "Advanced settings");
-  headerSettings.textContent = "*";
-
-  header.append(brand, headerSettings);
-
-  const summarySection = createSection("Quick actions");
-  renderActionSummary(summarySection, state);
-
-  const whitelistSection = createSection("Whitelist", `${state.whitelist.length} saved`);
-  renderWhitelist(whitelistSection, state);
-
-  const settingsSection = createSection("Behavior settings");
-  renderSettings(settingsSection, state.settings);
-
-  const footer = document.createElement("footer");
-  footer.className = "xb-popup-footer";
-
-  const advancedButton = document.createElement("button");
-  advancedButton.type = "button";
-  advancedButton.className = "xb-link-button";
-  advancedButton.textContent = "Advanced settings";
-  const footerHint = document.createElement("span");
-  footerHint.className = "xb-section-note";
-  footerHint.textContent = "More controls";
-  footer.append(footerHint, advancedButton);
-
-  popup.append(header, summarySection, whitelistSection, settingsSection, footer);
+  popup.append(header, statStrip.element, toggles, syncRow.element, footer);
   root.replaceChildren(popup);
+
+  // The first set() on a fresh createLiveNumber renders instantly with no debounce or
+  // animation (see live-number.ts) — this is what keeps the popup's mount free of any
+  // entrance animation even though it runs after the awaits above.
+  statStrip.blockedLive.set(stats.blocked);
+  statStrip.mutedLive.set(stats.muted);
+  statStrip.whitelistLive.set(whitelist.length);
+
+  blockedStore.onChange((next: BlockedStats) => {
+    statStrip.blockedLive.set(next.blocked);
+    statStrip.mutedLive.set(next.muted);
+  });
+
+  // Best guess before the lazy configured-check below resolves: "off" needs no Convex
+  // knowledge at all, and "idle" is the common case for an already-configured, already
+  // enabled build. Never import convex-sync eagerly — see loadConvexAdapter in
+  // sync-engine.ts for why.
+  syncRow.setState(cloudBackupEnabled ? "idle" : "off", "Never synced.");
+
+  let syncInFlight = false;
+  const runGuardedSync = async (): Promise<void> => {
+    if (syncInFlight) return;
+    syncInFlight = true;
+    syncRow.setState("syncing", "");
+    try {
+      const outcome = await runCloudSync();
+      if (outcome.status === "synced") {
+        syncRow.setState("idle", formatLastSync({ lastSyncAt: outcome.at }, Date.now()));
+      } else {
+        syncRow.setState("unconfigured", "");
+      }
+    } catch {
+      syncRow.setState("error", "");
+    } finally {
+      syncInFlight = false;
+    }
+  };
+  syncTrigger.run = () => {
+    void runGuardedSync();
+  };
+
+  void (async () => {
+    const { isCloudConfigured } = await import("../lib/convex-sync");
+    if (!isCloudConfigured()) {
+      syncRow.setState("unconfigured", "");
+      return;
+    }
+    if (!cloudBackupEnabled) {
+      syncRow.setState("off", "");
+      return;
+    }
+    const [pending, meta] = await Promise.all([blockedStore.pending(), getSyncMeta()]);
+    if (shouldAutoSync(true, pending.length, meta, Date.now())) {
+      await runGuardedSync();
+    } else if (!syncInFlight) {
+      // Re-read after the awaits above: a manual "Sync now" click may have started
+      // and is now owning the row (syncing/error/idle-from-its-own-result) — never
+      // clobber it back to idle out from under a concurrently-running sync.
+      syncRow.setState("idle", formatLastSync(meta, Date.now()));
+    }
+  })();
 }
 
 export function mountPopupIfPresent(): void {

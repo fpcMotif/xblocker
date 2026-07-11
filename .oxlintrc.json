@@ -26,5 +26,12 @@
     "es2024": true,
     "webextensions": true
   },
-  "ignorePatterns": [".output/**", ".wxt/**", "coverage/**", "node_modules/**"]
+  "ignorePatterns": [
+    ".claude/**",
+    ".output/**",
+    ".wxt/**",
+    "convex/**",
+    "coverage/**",
+    "node_modules/**"
+  ]
 }

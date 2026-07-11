@@ -14,6 +14,8 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy",
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware --deny-warnings .",
     "lint:fix": "oxlint --type-aware --fix .",
@@ -22,10 +24,13 @@
     "check": "bun run typecheck && bun run lint && bun run format:check && bun test && bun run build",
     "postinstall": "wxt prepare"
   },
+  "dependencies": {
+    "convex": "^1.41.0"
+  },
   "devDependencies": {
     "@types/chrome": "^0.1.43",
-    "@typescript/native-preview": "^7.0.0-dev.20260611.2",
-    "bun-types": "latest",
+    "@typescript/native-preview": "^7.0.0-dev.20260612.1",
+    "bun-types": "^1.3.14",
     "happy-dom": "^20.10.2",
     "oxfmt": "^0.54.0",
     "oxlint": "^1.69.0",
