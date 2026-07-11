@@ -7,10 +7,19 @@
 // person several times, from several of your accounts" is recorded as one account
 // with many actions — not as duplicate rows.
 //
-// This module is imported by both the local store (`blocked-store.ts`) and the
-// content script. The Convex mutation in `convex/blocked.ts` mirrors this rollup
-// arithmetic against its two-table schema; these tests are the source of truth for
-// the semantics.
+// This module is imported by both the local store (`blocked-store.ts`) and the content
+// script, and — per docs/adr/0002-shared-ledger-algebra.md — directly by
+// `convex/blocked.ts`, which imports `applyAccountRollup` and `sumAccountRollups` rather
+// than maintaining its own copy of the arithmetic.
+//
+// THREE distinct fold operators live here and must never be conflated:
+//   - applyAccountRollup — the "+1" operator: one new action folded into a rollup.
+//   - sumAccountRollups  — the "SUM" operator: two separate rows' histories merged
+//     (e.g. a legacy handle row aliased into a numeric-id row).
+//   - foldAccountSnapshot — the "max" operator: two already-rolled-up snapshots of the
+//     SAME logical total reconciled on pull.
+// Tests BS-33/34/35 (and the direct unit tests below them) pin the +1/SUM/max
+// distinction; do not let any of the three borrow another's semantics.
 
 export type BlockActionKind = "block" | "mute" | "unblock";
 export type BlockSource = "reply-bar" | "popup" | "import" | "background";
@@ -60,13 +69,13 @@ export type BlockedStats = {
   muted: number;
 };
 
-function normalizeHandle(handle: string): string {
+function stripAtPrefix(handle: string): string {
   return handle.replace(/^@/, "").trim();
 }
 
 /** The dedup key for an account: its numeric id, or "@handle" when the id is unknown. */
 export function accountKeyFor(input: { xUserId?: string; handle: string }): string {
-  return input.xUserId ? input.xUserId : `@${normalizeHandle(input.handle).toLowerCase()}`;
+  return input.xUserId ? input.xUserId : `@${stripAtPrefix(input.handle).toLowerCase()}`;
 }
 
 function makeAction(input: RecordInput, at: number, actionId: string): BlockAction {
@@ -76,6 +85,102 @@ function makeAction(input: RecordInput, at: number, actionId: string): BlockActi
     at,
     source: input.source,
     ...(input.fromAccount ? { fromAccount: input.fromAccount } : {}),
+  };
+}
+
+/**
+ * The account rollup fields shared between the local store's `BlockedAccount` and the
+ * Convex `blockedAccounts` row — everything EXCEPT the shape-specific bookkeeping each
+ * side keeps on its own (the local `key` map key and `actions[]` history; Convex's
+ * `owner`/table plumbing). `applyAccountRollup` and `sumAccountRollups` operate purely
+ * on this shape so both runtimes share one implementation of the arithmetic.
+ */
+export type AccountRollup = {
+  handle: string;
+  idUnknown: boolean;
+  xUserId?: string;
+  firstActionAt: number;
+  lastActionAt: number;
+  blockCount: number;
+  muteCount: number;
+  status: BlockedStatus;
+};
+
+/**
+ * One action folded into a rollup by `applyAccountRollup`. `idUnknown` and `xUserId`
+ * are passed explicitly rather than derived, so both the local wrapper (which infers
+ * them from whether the action carries a numeric id) and the Convex mutation (which
+ * receives them directly as call args) can drive the same function.
+ */
+export type AccountRollupInput = {
+  handle: string;
+  idUnknown: boolean;
+  xUserId?: string;
+  kind: BlockActionKind;
+  at: number;
+};
+
+/**
+ * The "+1" operator: fold one new action into a rollup, or start one if there isn't one
+ * yet. Counters increment by the action's kind; `firstActionAt`/`lastActionAt` widen to
+ * span the action; `idUnknown` is the AND of the existing and incoming flags (an input
+ * carrying a known id passes `idUnknown: false`, which always clears it); `xUserId`
+ * prefers the input's, falling back to the existing one, so a later-learned id is
+ * adopted without ever regressing to unknown; the side with the newer `at` wins the
+ * display handle; `status` always reflects this action's own kind.
+ */
+export function applyAccountRollup(
+  existing: AccountRollup | undefined,
+  input: AccountRollupInput,
+): AccountRollup {
+  if (!existing) {
+    return {
+      handle: input.handle,
+      idUnknown: input.idUnknown,
+      ...(input.xUserId ? { xUserId: input.xUserId } : {}),
+      firstActionAt: input.at,
+      lastActionAt: input.at,
+      blockCount: input.kind === "block" ? 1 : 0,
+      muteCount: input.kind === "mute" ? 1 : 0,
+      status: input.kind === "unblock" ? "unblocked" : "active",
+    };
+  }
+
+  const xUserId = input.xUserId ?? existing.xUserId;
+  const isNewer = input.at >= existing.lastActionAt;
+
+  return {
+    ...existing,
+    handle: isNewer ? input.handle : existing.handle,
+    idUnknown: existing.idUnknown && input.idUnknown,
+    ...(xUserId ? { xUserId } : {}),
+    firstActionAt: Math.min(existing.firstActionAt, input.at),
+    lastActionAt: Math.max(existing.lastActionAt, input.at),
+    blockCount: existing.blockCount + (input.kind === "block" ? 1 : 0),
+    muteCount: existing.muteCount + (input.kind === "mute" ? 1 : 0),
+    status: input.kind === "unblock" ? "unblocked" : "active",
+  };
+}
+
+/**
+ * The "SUM" operator: fold two rows for the SAME logical account that were split by a
+ * historical accident (a legacy "@handle" row later duplicated by one recorded with the
+ * real numeric id) back into one. Distinct from `applyAccountRollup` (+1 one action) and
+ * `foldAccountSnapshot` (max, two snapshots of one already-converged total): here the two
+ * rows' full histories are summed. Extracted bit-for-bit from convex/blocked.ts's
+ * alias-row fold: counters SUM, timestamps min/max, `idUnknown` AND. `handle`, `status`,
+ * and `xUserId` are NOT recomputed here — `target` (the row callers keep) wins
+ * unconditionally, matching the Convex patch, which never writes those three fields in
+ * this branch.
+ */
+export function sumAccountRollups(target: AccountRollup, alias: AccountRollup): AccountRollup {
+  return {
+    ...target,
+    idUnknown: target.idUnknown && alias.idUnknown,
+    firstActionAt: Math.min(target.firstActionAt, alias.firstActionAt),
+    lastActionAt: Math.max(target.lastActionAt, alias.lastActionAt),
+    blockCount: target.blockCount + alias.blockCount,
+    muteCount: target.muteCount + alias.muteCount,
   };
 }
 
@@ -96,40 +201,25 @@ export function mergeBlockedAccount(
   const at = input.at ?? now;
   const actionId = input.actionId ?? genId();
   const action = makeAction(input, at, actionId);
-  const handle = normalizeHandle(input.handle);
+  const handle = stripAtPrefix(input.handle);
 
-  if (!existing) {
-    return {
-      key: accountKeyFor({ ...(input.xUserId ? { xUserId: input.xUserId } : {}), handle }),
-      handle,
-      idUnknown: !input.xUserId,
-      ...(input.xUserId ? { xUserId: input.xUserId } : {}),
-      firstActionAt: at,
-      lastActionAt: at,
-      blockCount: input.kind === "block" ? 1 : 0,
-      muteCount: input.kind === "mute" ? 1 : 0,
-      status: input.kind === "unblock" ? "unblocked" : "active",
-      actions: [action],
-    };
-  }
-
-  // We may now have learned a numeric id for an account previously keyed by handle.
-  // We keep the existing map key stable (so the store never has to move entries) but
-  // record the id and clear the idUnknown flag.
-  const xUserId = input.xUserId ?? existing.xUserId;
-  const isNewer = at >= existing.lastActionAt;
+  // We may now have learned a numeric id for an account previously keyed by handle. We
+  // keep the existing map key stable (so the store never has to move entries) — only
+  // the rollup fields (via applyAccountRollup) and the action history are recomputed.
+  const rollup = applyAccountRollup(existing, {
+    handle,
+    idUnknown: !input.xUserId,
+    ...(input.xUserId ? { xUserId: input.xUserId } : {}),
+    kind: input.kind,
+    at,
+  });
 
   return {
-    ...existing,
-    handle: isNewer ? handle : existing.handle,
-    idUnknown: xUserId ? false : existing.idUnknown,
-    ...(xUserId ? { xUserId } : {}),
-    firstActionAt: Math.min(existing.firstActionAt, at),
-    lastActionAt: Math.max(existing.lastActionAt, at),
-    blockCount: existing.blockCount + (input.kind === "block" ? 1 : 0),
-    muteCount: existing.muteCount + (input.kind === "mute" ? 1 : 0),
-    status: input.kind === "unblock" ? "unblocked" : "active",
-    actions: [...existing.actions, action],
+    ...rollup,
+    key:
+      existing?.key ??
+      accountKeyFor({ ...(input.xUserId ? { xUserId: input.xUserId } : {}), handle }),
+    actions: existing ? [...existing.actions, action] : [action],
   };
 }
 

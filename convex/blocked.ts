@@ -1,5 +1,6 @@
 import { v, type Infer } from "convex/values";
 
+import { applyAccountRollup, sumAccountRollups } from "../entrypoints/lib/blocked-merge";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 
 const kindValidator = v.union(v.literal("block"), v.literal("mute"), v.literal("unblock"));
@@ -29,13 +30,15 @@ const remoteAccountValidator = v.object({
 const OWNER = "local";
 
 // Upsert keyed on (owner, xUserId): never duplicate the id, just roll the counts up and
-// append the event. This mirrors mergeBlockedAccount in entrypoints/lib/blocked-merge.ts,
-// whose mapping is pinned by test/blocked-store.test.ts (outboxItemToRecordArgs).
+// append the event. The rollup arithmetic (a same-id upsert adds +1, an aliasKey
+// migration SUMs the legacy handle row into the numeric one) is not reimplemented here —
+// it comes from applyAccountRollup/sumAccountRollups in
+// entrypoints/lib/blocked-merge.ts, shared with the local store per
+// docs/adr/0002-shared-ledger-algebra.md.
 //
-// This handler runs in the Convex runtime and is not executed by the unit suite, so its
-// arithmetic is mirrored by makeFakeCloud in test/blocked-store.test.ts and pinned by
-// BS-33/34/35. Keep the two in lockstep: a same-id upsert adds +1, an aliasKey migration
-// SUMs the legacy handle row into the numeric one, and idUnknown clears via AND.
+// This handler runs in the Convex runtime and is not executed by the unit suite, so
+// makeFakeCloud in test/blocked-store.test.ts exercises the same shared operators and
+// BS-33/34/35 pin the +1/SUM distinction.
 const recordActionArgs = {
   xUserId: v.string(),
   handle: v.string(),
@@ -87,12 +90,14 @@ async function applyRecordAction(ctx: MutationCtx, args: RecordActionArgs): Prom
         await ctx.db.patch(aliasRow._id, { xUserId: args.xUserId, idUnknown: false });
         account = await ctx.db.get(aliasRow._id);
       } else if (aliasRow._id !== account._id) {
+        // The SUM operator: two distinct rows for the same person, folded into one.
+        const summed = sumAccountRollups(account, aliasRow);
         await ctx.db.patch(account._id, {
-          idUnknown: account.idUnknown && aliasRow.idUnknown,
-          firstActionAt: Math.min(account.firstActionAt, aliasRow.firstActionAt),
-          lastActionAt: Math.max(account.lastActionAt, aliasRow.lastActionAt),
-          blockCount: account.blockCount + aliasRow.blockCount,
-          muteCount: account.muteCount + aliasRow.muteCount,
+          idUnknown: summed.idUnknown,
+          firstActionAt: summed.firstActionAt,
+          lastActionAt: summed.lastActionAt,
+          blockCount: summed.blockCount,
+          muteCount: summed.muteCount,
         });
         await ctx.db.delete(aliasRow._id);
         account = await ctx.db.get(account._id);
@@ -100,30 +105,36 @@ async function applyRecordAction(ctx: MutationCtx, args: RecordActionArgs): Prom
     }
   }
 
-  const status = args.kind === "unblock" ? "unblocked" : "active";
+  // The +1 operator: this action folded into the (possibly just-migrated) account row.
+  const rollup = applyAccountRollup(account ?? undefined, {
+    handle: args.handle,
+    idUnknown: args.idUnknown,
+    xUserId: args.xUserId,
+    kind: args.kind,
+    at: args.at,
+  });
 
   if (!account) {
     await ctx.db.insert("blockedAccounts", {
       owner,
       xUserId: args.xUserId,
-      handle: args.handle,
-      idUnknown: args.idUnknown,
-      firstActionAt: args.at,
-      lastActionAt: args.at,
-      blockCount: args.kind === "block" ? 1 : 0,
-      muteCount: args.kind === "mute" ? 1 : 0,
-      status,
+      handle: rollup.handle,
+      idUnknown: rollup.idUnknown,
+      firstActionAt: rollup.firstActionAt,
+      lastActionAt: rollup.lastActionAt,
+      blockCount: rollup.blockCount,
+      muteCount: rollup.muteCount,
+      status: rollup.status,
     });
   } else {
-    const isNewer = args.at >= account.lastActionAt;
     await ctx.db.patch(account._id, {
-      handle: isNewer ? args.handle : account.handle,
-      idUnknown: account.idUnknown && args.idUnknown,
-      firstActionAt: Math.min(account.firstActionAt, args.at),
-      lastActionAt: Math.max(account.lastActionAt, args.at),
-      blockCount: account.blockCount + (args.kind === "block" ? 1 : 0),
-      muteCount: account.muteCount + (args.kind === "mute" ? 1 : 0),
-      status,
+      handle: rollup.handle,
+      idUnknown: rollup.idUnknown,
+      firstActionAt: rollup.firstActionAt,
+      lastActionAt: rollup.lastActionAt,
+      blockCount: rollup.blockCount,
+      muteCount: rollup.muteCount,
+      status: rollup.status,
     });
   }
 

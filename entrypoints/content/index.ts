@@ -81,6 +81,15 @@ function attachGlobalListeners(): void {
     },
     { passive: true, capture: true },
   );
+  // "resize" only fires on window, never document — a docked (dragged) rail
+  // can otherwise be stranded off-screen when the viewport shrinks.
+  window.addEventListener(
+    "resize",
+    () => {
+      rail?.handleResize();
+    },
+    { passive: true },
+  );
   document.addEventListener("keydown", (event) => {
     rail?.handleKeydown(event);
   });

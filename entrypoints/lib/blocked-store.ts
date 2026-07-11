@@ -14,13 +14,12 @@ import {
   mergeBlockedAccount,
   summarizeAccounts,
   type BlockAction,
-  type BlockActionKind,
   type BlockedAccount,
   type BlockedStats,
-  type BlockSource,
   type RecordInput,
   type RemoteAccountSnapshot,
 } from "./blocked-merge";
+import { storageSet } from "./chrome-storage";
 
 const ACCOUNTS_KEY = "blockedAccounts";
 const OUTBOX_KEY = "blockedOutbox";
@@ -40,78 +39,9 @@ export type OutboxItem = {
   action: BlockAction;
 };
 
-/** Arguments for the Convex `recordAction` mutation. Built by `outboxItemToRecordArgs`
- *  (kept here, not in convex-sync.ts, so the pure mapping is unit-tested). */
-export type RecordActionArgs = {
-  xUserId: string;
-  handle: string;
-  idUnknown: boolean;
-  kind: BlockActionKind;
-  at: number;
-  source: BlockSource;
-  clientActionId: string;
-  fromAccount?: string;
-  // The account's prior "@handle" key, sent only once a numeric id is learned, so the
-  // cloud can fold a legacy handle-keyed row into the numeric one (one row per person).
-  aliasKey?: string;
-};
-
-/**
- * Map a queued outbox item to the cloud `recordAction` arguments.
- *
- * The cloud row is keyed by the account's stable key: the numeric id once known,
- * otherwise "@handle". `aliasKey` carries the original "@handle" key whenever it differs
- * from the canonical key, which only happens after an id is learned for a handle-first
- * account — letting the cloud migrate the old row instead of creating a duplicate.
- */
-export function outboxItemToRecordArgs(item: OutboxItem): RecordActionArgs {
-  const xUserId = item.xUserId ?? item.accountKey;
-  return {
-    xUserId,
-    handle: item.handle,
-    idUnknown: item.idUnknown,
-    kind: item.action.kind,
-    at: item.action.at,
-    source: item.action.source,
-    clientActionId: item.action.actionId,
-    ...(item.action.fromAccount ? { fromAccount: item.action.fromAccount } : {}),
-    ...(item.accountKey !== xUserId ? { aliasKey: item.accountKey } : {}),
-  };
-}
-
 /** Shape returned by the Convex `listBlocked` query, merged back in on pull. The single
  *  definition lives in blocked-merge alongside the fold that consumes it. */
 export type RemoteAccount = RemoteAccountSnapshot;
-
-/** One chunk of outbox items ready for the cloud's batched `recordActions` mutation:
- *  the mapped mutation args plus the action ids to mark synced once accepted, and the
- *  original items so a caller can fall back to per-item pushes. */
-export type RecordBatch = {
-  args: RecordActionArgs[];
-  actionIds: string[];
-  items: OutboxItem[];
-};
-
-/**
- * Split the outbox into chunks of at most `size` items, each mapped to the batched
- * `recordActions` args. One chunk = one HTTP round-trip and one Convex transaction;
- * pushing item-by-item made sync latency scale linearly with the outbox length
- * (~300ms per queued action). Kept here rather than in convex-sync.ts so the mapping
- * is unit-tested; convex-sync stays a thin I/O wrapper.
- */
-export function outboxToRecordBatches(items: OutboxItem[], size: number): RecordBatch[] {
-  const chunkSize = Math.max(1, Math.trunc(size));
-  const batches: RecordBatch[] = [];
-  for (let start = 0; start < items.length; start += chunkSize) {
-    const chunk = items.slice(start, start + chunkSize);
-    batches.push({
-      args: chunk.map(outboxItemToRecordArgs),
-      actionIds: chunk.map((item) => item.action.actionId),
-      items: chunk,
-    });
-  }
-  return batches;
-}
 
 export interface BlockedStore {
   has(key: string): Promise<boolean>;
@@ -138,6 +68,11 @@ function genId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// Deliberately NOT lib/chrome-storage.ts's storageGet: that helper degrades a failed
+// get to `undefined`, but a read-modify-write mutation here must instead REJECT on a
+// failed read (a thrown TypeError on `result[key]` when the callback gets no result
+// object) so enqueueMutation's chain sees a rejection and skips the write rather than
+// silently overwriting ACCOUNTS_KEY/OUTBOX_KEY with a `{}` built from a failed read.
 function readKey<T>(key: string): Promise<T | undefined> {
   return new Promise((resolve) => {
     // Annotate the (inherently untyped) storage result so the value flows out as T
@@ -148,13 +83,7 @@ function readKey<T>(key: string): Promise<T | undefined> {
   });
 }
 
-function writeKeys(items: Record<string, unknown>): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.set(items, () => resolve());
-  });
-}
-
-function normalizeHandle(handle: string): string {
+function normalizeHandleForLookup(handle: string): string {
   return handle.replace(/^@/, "").trim().toLowerCase();
 }
 
@@ -169,16 +98,21 @@ export function createBlockedStore(): BlockedStore {
   // a settled (never-rejecting) promise so one failed mutation cannot wedge it.
   //
   // SCOPE: this serializes only WITHIN one JS context. `blockedStore` is a
-  // per-context singleton, and the popup (which runs mergeRemote on a cloud pull)
-  // and the content script (which runs record) are separate contexts whose
-  // singletons can still lose-update each other on ACCOUNTS_KEY. That is harmless
-  // today because (a) the sync path never writes OUTBOX_KEY, so a queued action is
-  // never clobbered cross-context (the block itself is already done before record
-  // runs, and the outbox re-syncs idempotently), and (b) no live app code reads the
-  // account map, so any momentarily-stale stats self-heal on the next pull. A real
-  // fix (re-read-and-revalidate ACCOUNTS_KEY inside writeKeys) becomes necessary only
-  // if stats/list/hasActiveHandle/onChange get wired into the popup UI, or if the
-  // sync path ever also writes OUTBOX_KEY — at which point this turns into a bug.
+  // per-context singleton, and the popup/background (running mergeRemote on a cloud
+  // pull) and the content script (running record) are separate contexts whose
+  // singletons can still lose-update each other on ACCOUNTS_KEY: each does its own
+  // read-modify-write, so whichever storage.set lands last wins that key, dropping
+  // the other side's account-map update. That is SELF-HEALING, not merely harmless:
+  // record() writes ACCOUNTS_KEY and OUTBOX_KEY together in ONE storage.set, while
+  // mergeRemote only ever writes ACCOUNTS_KEY — so a clobbered account-map update can
+  // never take its matching outbox entry down with it. The queued action still gets
+  // pushed to the cloud on the next sync, and the next pull's mergeRemote (which folds
+  // by taking the max of both sides' counts, see foldAccountSnapshot) brings the
+  // clobbered side back up to the correct rolled-up total. So a cross-context race
+  // here costs at most a transient stale count between the clobber and the next sync
+  // round-trip, never a lost block/mute/unblock. popup/main.ts's stats()/onChange()
+  // reads are therefore best-effort snapshots of that eventually-consistent state,
+  // not a reason to add a stronger (re-read-and-revalidate) write here.
   let mutationChain: Promise<unknown> = Promise.resolve();
 
   function enqueueMutation<T>(mutate: () => Promise<T>): Promise<T> {
@@ -219,10 +153,11 @@ export function createBlockedStore(): BlockedStore {
     },
 
     async hasActiveHandle(handle) {
-      const needle = normalizeHandle(handle);
+      const needle = normalizeHandleForLookup(handle);
       const map = await loadMap();
       return Object.values(map).some(
-        (account) => account.status === "active" && normalizeHandle(account.handle) === needle,
+        (account) =>
+          account.status === "active" && normalizeHandleForLookup(account.handle) === needle,
       );
     },
 
@@ -247,7 +182,7 @@ export function createBlockedStore(): BlockedStore {
           });
         }
 
-        await writeKeys({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
+        await storageSet({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
         return merged;
       });
     },
@@ -272,7 +207,7 @@ export function createBlockedStore(): BlockedStore {
         const done = new Set(actionIds);
         const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
         const remaining = outbox.filter((item) => !done.has(item.action.actionId));
-        await writeKeys({ [OUTBOX_KEY]: remaining });
+        await storageSet({ [OUTBOX_KEY]: remaining });
       });
     },
 
@@ -297,9 +232,9 @@ export function createBlockedStore(): BlockedStore {
           // now carries the id, by screen name — so an id learned on another device folds in
           // here instead of creating a duplicate account.
           if (!localKey && !row.idUnknown) {
-            const needle = normalizeHandle(row.handle);
+            const needle = normalizeHandleForLookup(row.handle);
             for (const [candidate, account] of Object.entries(map)) {
-              if (account.idUnknown && normalizeHandle(account.handle) === needle) {
+              if (account.idUnknown && normalizeHandleForLookup(account.handle) === needle) {
                 localKey = candidate;
                 break;
               }
@@ -332,7 +267,7 @@ export function createBlockedStore(): BlockedStore {
           changed = true;
         }
 
-        if (changed) await writeKeys({ [ACCOUNTS_KEY]: map });
+        if (changed) await storageSet({ [ACCOUNTS_KEY]: map });
       });
     },
 

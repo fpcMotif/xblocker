@@ -199,4 +199,31 @@ describe("storage failure tolerance", () => {
     expect(storageFake.data["whitelist"]).toEqual(["alice"]);
     expect(storageFake.setCalls).toHaveLength(0);
   });
+
+  test("WL-20 a failed mutation does not wedge the chain for later mutations", async () => {
+    // Both mutations are enqueued before either settles, so the recovering one
+    // only runs if the chain advances PAST the rejected one. This pins the
+    // `whitelistMutationChain = run.catch(...)` recovery (same shape as BS-34):
+    // with a plain `whitelistMutationChain = run` the second add chains off a
+    // rejected promise, its body is skipped, and "ok" is never written.
+    // chrome.storage.local.get throws synchronously when the extension context
+    // is invalidated; a one-shot throwing get reproduces that rejection.
+    const originalGet = storageFake.get.bind(storageFake);
+    storageFake.get = () => {
+      storageFake.get = originalGet;
+      throw new Error("Extension context invalidated.");
+    };
+
+    const failing = addToWhitelist("boom");
+    const recovering = addToWhitelist("ok");
+
+    let failingRejected = false;
+    await failing.catch(() => {
+      failingRejected = true;
+    });
+    expect(failingRejected).toBe(true);
+
+    expect(await recovering).toBe("added");
+    expect(storageFake.data["whitelist"]).toEqual(["ok"]);
+  });
 });

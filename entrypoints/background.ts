@@ -14,12 +14,12 @@ import {
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
 } from "./lib/background-sync";
-import { runCloudSync } from "./lib/sync-engine";
+import { runAutoCloudSync } from "./lib/sync-engine";
 
 export function startBackgroundSync(): void {
   const scheduler = createBackgroundSyncScheduler({
     isEnabled: readCloudBackupEnabled,
-    sync: runCloudSync,
+    sync: () => runAutoCloudSync(true),
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {

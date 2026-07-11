@@ -3,21 +3,18 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   accountKeyFor,
+  applyAccountRollup,
   foldAccountSnapshot,
   mergeBlockedAccount,
+  sumAccountRollups,
   summarizeAccounts,
+  type AccountRollup,
   type BlockedAccount,
   type BlockedStats,
   type RemoteAccountSnapshot,
 } from "../entrypoints/lib/blocked-merge.ts";
-import {
-  createBlockedStore,
-  outboxItemToRecordArgs,
-  outboxToRecordBatches,
-  type OutboxItem,
-  type RecordActionArgs,
-  type RemoteAccount,
-} from "../entrypoints/lib/blocked-store.ts";
+import { createBlockedStore, type RemoteAccount } from "../entrypoints/lib/blocked-store.ts";
+import { outboxItemToRecordArgs, type RecordActionArgs } from "../entrypoints/lib/cloud-wire.ts";
 import { settleMicrotasks } from "./helpers/timers.ts";
 import { storageFake } from "./setup.ts";
 
@@ -46,6 +43,19 @@ function mkSnapshot(
 ): RemoteAccountSnapshot {
   return {
     xUserId: "111",
+    handle: "h",
+    idUnknown: false,
+    firstActionAt: 0,
+    lastActionAt: 0,
+    ...partial,
+  };
+}
+
+/** Build a full AccountRollup for applyAccountRollup/sumAccountRollups tests. */
+function mkRollup(
+  partial: Partial<AccountRollup> & Pick<AccountRollup, "blockCount" | "muteCount" | "status">,
+): AccountRollup {
+  return {
     handle: "h",
     idUnknown: false,
     firstActionAt: 0,
@@ -337,6 +347,196 @@ describe("mergeBlockedAccount (pure dedup logic)", () => {
   });
 });
 
+// Direct unit tests for the shared ledger algebra (docs/adr/0002-shared-ledger-algebra.md):
+// applyAccountRollup is the "+1" operator mergeBlockedAccount wraps, sumAccountRollups is
+// the "SUM" operator convex/blocked.ts's alias-row fold delegates to. They must never be
+// conflated with each other or with foldAccountSnapshot's "max" (tested above).
+describe("applyAccountRollup / sumAccountRollups (shared ledger algebra)", () => {
+  test("BS-40 applyAccountRollup +1s the counter matching the action's kind", () => {
+    const blocked = applyAccountRollup(undefined, {
+      handle: "spammer",
+      idUnknown: false,
+      xUserId: "111",
+      kind: "block",
+      at: 1000,
+    });
+    expect(blocked.blockCount).toBe(1);
+    expect(blocked.muteCount).toBe(0);
+
+    const muted = applyAccountRollup(blocked, {
+      handle: "spammer",
+      idUnknown: false,
+      xUserId: "111",
+      kind: "mute",
+      at: 2000,
+    });
+    expect(muted.blockCount).toBe(1);
+    expect(muted.muteCount).toBe(1);
+  });
+
+  test("BS-41 applyAccountRollup folds min(firstActionAt) and max(lastActionAt) across out-of-order actions", () => {
+    const latest = applyAccountRollup(undefined, {
+      handle: "a",
+      idUnknown: false,
+      xUserId: "1",
+      kind: "block",
+      at: 2000,
+    });
+    const folded = applyAccountRollup(latest, {
+      handle: "a",
+      idUnknown: false,
+      xUserId: "1",
+      kind: "block",
+      at: 500,
+    });
+    expect(folded.firstActionAt).toBe(500);
+    expect(folded.lastActionAt).toBe(2000);
+  });
+
+  test("BS-42 applyAccountRollup clears idUnknown (AND) only once an input carries a known id", () => {
+    const unknown = applyAccountRollup(undefined, {
+      handle: "ghost",
+      idUnknown: true,
+      kind: "mute",
+      at: 1,
+    });
+    expect(unknown.idUnknown).toBe(true);
+
+    // Still no id on this input -> AND keeps it unknown.
+    const stillUnknown = applyAccountRollup(unknown, {
+      handle: "ghost",
+      idUnknown: true,
+      kind: "mute",
+      at: 2,
+    });
+    expect(stillUnknown.idUnknown).toBe(true);
+
+    // An input carrying a known id clears it (AND with idUnknown: false is always false).
+    const learned = applyAccountRollup(unknown, {
+      handle: "ghost",
+      idUnknown: false,
+      xUserId: "1",
+      kind: "block",
+      at: 3,
+    });
+    expect(learned.idUnknown).toBe(false);
+    expect(learned.xUserId).toBe("1");
+  });
+
+  test("BS-43 applyAccountRollup: the newer action's `at` wins the handle, but status always reflects this action's own kind", () => {
+    const base = applyAccountRollup(undefined, {
+      handle: "newname",
+      idUnknown: false,
+      xUserId: "1",
+      kind: "unblock",
+      at: 2000,
+    });
+    // An older action must not clobber the newer display handle...
+    const older = applyAccountRollup(base, {
+      handle: "oldname",
+      idUnknown: false,
+      xUserId: "1",
+      kind: "block",
+      at: 1000,
+    });
+    expect(older.handle).toBe("newname");
+    // ...but status is NOT "newer wins": it always reflects the just-applied action.
+    expect(older.status).toBe("active");
+  });
+
+  test("BS-44 applyAccountRollup does not mutate its `existing` argument", () => {
+    const existing = applyAccountRollup(undefined, {
+      handle: "a",
+      idUnknown: false,
+      xUserId: "1",
+      kind: "block",
+      at: 1,
+    });
+    const snapshot = structuredClone(existing);
+    applyAccountRollup(existing, {
+      handle: "a",
+      idUnknown: false,
+      xUserId: "1",
+      kind: "block",
+      at: 2,
+    });
+    expect(existing).toEqual(snapshot);
+  });
+
+  test("BS-45 sumAccountRollups SUMs counters and folds min/max timestamps, AND-ing idUnknown", () => {
+    const target = mkRollup({
+      blockCount: 1,
+      muteCount: 0,
+      status: "active",
+      idUnknown: false,
+      firstActionAt: 300,
+      lastActionAt: 900,
+    });
+    const alias = mkRollup({
+      blockCount: 2,
+      muteCount: 1,
+      status: "active",
+      idUnknown: true,
+      firstActionAt: 100,
+      lastActionAt: 400,
+    });
+    const summed = sumAccountRollups(target, alias);
+    expect(summed.blockCount).toBe(3);
+    expect(summed.muteCount).toBe(1);
+    expect(summed.firstActionAt).toBe(100);
+    expect(summed.lastActionAt).toBe(900);
+    expect(summed.idUnknown).toBe(false); // target's false ANDs the alias's true down to false
+  });
+
+  test('BS-46 sumAccountRollups keeps the target\'s own handle/status/xUserId ("target wins", not "newer wins")', () => {
+    const target = mkRollup({
+      handle: "numeric-row",
+      xUserId: "1",
+      status: "active",
+      blockCount: 1,
+      muteCount: 0,
+      lastActionAt: 100,
+    });
+    const alias = mkRollup({
+      handle: "legacy-handle-row",
+      xUserId: "@legacy",
+      status: "unblocked",
+      blockCount: 1,
+      muteCount: 0,
+      lastActionAt: 9999, // the alias is "newer" by timestamp, yet still loses
+    });
+    const summed = sumAccountRollups(target, alias);
+    expect(summed.handle).toBe("numeric-row");
+    expect(summed.status).toBe("active");
+    expect(summed.xUserId).toBe("1");
+  });
+
+  test("BS-47 sumAccountRollups does not mutate either input", () => {
+    const target = mkRollup({ blockCount: 1, muteCount: 0, status: "active" });
+    const alias = mkRollup({ blockCount: 2, muteCount: 3, status: "active" });
+    const targetSnapshot = structuredClone(target);
+    const aliasSnapshot = structuredClone(alias);
+    sumAccountRollups(target, alias);
+    expect(target).toEqual(targetSnapshot);
+    expect(alias).toEqual(aliasSnapshot);
+  });
+
+  test("BS-48 SUM and +1 are distinct operators: summing two rollups adds their totals, applying one action only +1s", () => {
+    const target = mkRollup({ blockCount: 2, muteCount: 0, status: "active" });
+    const alias = mkRollup({ blockCount: 3, muteCount: 0, status: "active" });
+    const summed = sumAccountRollups(target, alias);
+    expect(summed.blockCount).toBe(5); // SUM: 2 + 3
+
+    const applied = applyAccountRollup(target, {
+      handle: target.handle,
+      idUnknown: target.idUnknown,
+      kind: "block",
+      at: target.lastActionAt + 1,
+    });
+    expect(applied.blockCount).toBe(3); // +1: 2 + 1, never a sum of the two rollups
+  });
+});
+
 describe("summarizeAccounts", () => {
   test("BS-11 counts active blocked and muted accounts", () => {
     const stats = summarizeAccounts([
@@ -595,63 +795,6 @@ describe("BlockedStore edge cases", () => {
   });
 });
 
-describe("outboxItemToRecordArgs (cloud key mapping)", () => {
-  const baseAction = { actionId: "a1", kind: "block", at: 5, source: "reply-bar" } as const;
-
-  test("BS-27 keys by the numeric id and omits aliasKey when id-first", () => {
-    const item: OutboxItem = {
-      accountKey: "1",
-      xUserId: "1",
-      handle: "spammer",
-      idUnknown: false,
-      action: baseAction,
-    };
-    const args = outboxItemToRecordArgs(item);
-    expect(args.xUserId).toBe("1");
-    expect(args.aliasKey).toBeUndefined();
-    expect(args.idUnknown).toBe(false);
-    expect(args.clientActionId).toBe("a1");
-  });
-
-  test("BS-28 keys by @handle and omits aliasKey when the id is still unknown", () => {
-    const item: OutboxItem = {
-      accountKey: "@ghost",
-      handle: "ghost",
-      idUnknown: true,
-      action: baseAction,
-    };
-    const args = outboxItemToRecordArgs(item);
-    expect(args.xUserId).toBe("@ghost");
-    expect(args.aliasKey).toBeUndefined();
-    expect(args.idUnknown).toBe(true);
-  });
-
-  test("BS-29 sends aliasKey once an id is learned for a handle-first account", () => {
-    const item: OutboxItem = {
-      accountKey: "@ghost",
-      xUserId: "1",
-      handle: "ghost",
-      idUnknown: false,
-      action: baseAction,
-    };
-    const args = outboxItemToRecordArgs(item);
-    expect(args.xUserId).toBe("1");
-    expect(args.aliasKey).toBe("@ghost");
-  });
-
-  test("BS-30 passes through which of your accounts performed the action", () => {
-    const item: OutboxItem = {
-      accountKey: "1",
-      xUserId: "1",
-      handle: "spammer",
-      idUnknown: false,
-      action: { ...baseAction, fromAccount: "alt1" },
-    };
-    const args = outboxItemToRecordArgs(item);
-    expect(args.fromAccount).toBe("alt1");
-  });
-});
-
 describe("cloud round-trip parity", () => {
   test("BS-31 mergeRemote folds a remote id-row into a handle-only local record by screen name", async () => {
     const store = createBlockedStore();
@@ -681,7 +824,10 @@ describe("cloud round-trip parity", () => {
   // A minimal stand-in for convex/blocked.ts recordAction: it pins the contract that
   // outboxItemToRecordArgs targets (upsert on xUserId + aliasKey migration), so the
   // client mapping and the backend stay in agreement even though the real mutation runs
-  // in the Convex runtime, not here.
+  // in the Convex runtime, not here. The arithmetic itself is NOT reimplemented — this
+  // calls the same applyAccountRollup/sumAccountRollups functions convex/blocked.ts
+  // imports, so this fake exercises the real shared operators rather than a hand-mirrored
+  // copy of them.
   function makeFakeCloud() {
     const rows = new Map<string, RemoteAccount>();
     const seen = new Set<string>();
@@ -697,38 +843,22 @@ describe("cloud round-trip parity", () => {
             rows.delete(args.aliasKey);
             if (!row) {
               row = { ...alias, xUserId: args.xUserId, idUnknown: false };
-              rows.set(args.xUserId, row);
             } else {
-              row.firstActionAt = Math.min(row.firstActionAt, alias.firstActionAt);
-              row.lastActionAt = Math.max(row.lastActionAt, alias.lastActionAt);
-              row.blockCount += alias.blockCount;
-              row.muteCount += alias.muteCount;
-              row.idUnknown = row.idUnknown && alias.idUnknown;
+              // The SUM operator: two distinct rows for the same person, folded into one.
+              row = { ...sumAccountRollups(row, alias), xUserId: args.xUserId };
             }
           }
         }
 
-        const status = args.kind === "unblock" ? "unblocked" : "active";
-        if (!row) {
-          rows.set(args.xUserId, {
-            xUserId: args.xUserId,
-            handle: args.handle,
-            idUnknown: args.idUnknown,
-            firstActionAt: args.at,
-            lastActionAt: args.at,
-            blockCount: args.kind === "block" ? 1 : 0,
-            muteCount: args.kind === "mute" ? 1 : 0,
-            status,
-          });
-          return;
-        }
-        row.handle = args.at >= row.lastActionAt ? args.handle : row.handle;
-        row.idUnknown = row.idUnknown && args.idUnknown;
-        row.firstActionAt = Math.min(row.firstActionAt, args.at);
-        row.lastActionAt = Math.max(row.lastActionAt, args.at);
-        row.blockCount += args.kind === "block" ? 1 : 0;
-        row.muteCount += args.kind === "mute" ? 1 : 0;
-        row.status = status;
+        // The +1 operator: this action folded into the (possibly just-migrated) row.
+        const rollup = applyAccountRollup(row, {
+          handle: args.handle,
+          idUnknown: args.idUnknown,
+          xUserId: args.xUserId,
+          kind: args.kind,
+          at: args.at,
+        });
+        rows.set(args.xUserId, { ...rollup, xUserId: args.xUserId });
       },
       // Mirrors convex/blocked.ts recordActions: a batch is exactly the singles in order.
       recordActions(batch: RecordActionArgs[]): void {
@@ -770,11 +900,12 @@ describe("cloud round-trip parity", () => {
   });
 
   // Contract guard for the cloud handler in convex/blocked.ts (which runs in the Convex
-  // runtime and cannot be executed here): makeFakeCloud mirrors recordAction's arithmetic,
-  // and these pin the three operators that legitimately DIFFER and must not be conflated —
-  // a same-account upsert adds +1, an aliasKey fold SUMs two distinct rows, and (separately,
-  // on the pull side) foldAccountSnapshot takes the max. If convex/blocked.ts changes, update
-  // makeFakeCloud in lockstep; these tests force the new invariant to be made explicit.
+  // runtime and cannot be executed here): makeFakeCloud now drives the real
+  // applyAccountRollup/sumAccountRollups operators convex/blocked.ts imports (see
+  // docs/adr/0002-shared-ledger-algebra.md), so there is nothing left to keep "in
+  // lockstep" — these pin the three operators that legitimately DIFFER and must not be
+  // conflated: a same-account upsert adds +1, an aliasKey fold SUMs two distinct rows,
+  // and (separately, on the pull side) foldAccountSnapshot takes the max.
   test("BS-33 recordAction is idempotent on clientActionId", () => {
     const cloud = makeFakeCloud();
     const args: RecordActionArgs = {
@@ -883,41 +1014,6 @@ describe("cloud round-trip parity", () => {
     // A network retry of the whole chunk re-sends every item; clientActionId dedups.
     batched.recordActions(batch);
     expect(batched.listBlocked()).toEqual(single.listBlocked());
-  });
-});
-
-describe("outboxToRecordBatches (batched cloud push mapping)", () => {
-  const item = (actionId: string): OutboxItem => ({
-    accountKey: actionId,
-    xUserId: actionId,
-    handle: `user_${actionId}`,
-    idUnknown: false,
-    action: { actionId, kind: "block", at: 1, source: "reply-bar" },
-  });
-
-  test("BS-37 splits the outbox into chunks of at most `size`, preserving order", () => {
-    const items = [item("a"), item("b"), item("c"), item("d"), item("e")];
-    const batches = outboxToRecordBatches(items, 2);
-
-    expect(batches.map((batch) => batch.items.length)).toEqual([2, 2, 1]);
-    expect(batches.map((batch) => batch.actionIds)).toEqual([["a", "b"], ["c", "d"], ["e"]]);
-    // Each chunk's args are exactly the per-item mapping, in order.
-    expect(batches[0]!.args).toEqual([
-      outboxItemToRecordArgs(items[0]!),
-      outboxItemToRecordArgs(items[1]!),
-    ]);
-    expect(batches.flatMap((batch) => batch.items)).toEqual(items);
-  });
-
-  test("BS-38 an empty outbox maps to no batches", () => {
-    expect(outboxToRecordBatches([], 50)).toEqual([]);
-  });
-
-  test("BS-39 a degenerate chunk size clamps to 1 instead of looping forever", () => {
-    const items = [item("a"), item("b")];
-    expect(outboxToRecordBatches(items, 0).map((batch) => batch.actionIds)).toEqual([["a"], ["b"]]);
-    expect(outboxToRecordBatches(items, -3)).toHaveLength(2);
-    expect(outboxToRecordBatches(items, 1.9)).toHaveLength(2); // fraction truncates to 1
   });
 });
 

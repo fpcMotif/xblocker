@@ -6,7 +6,7 @@ import { computeRailY } from "../../entrypoints/content/position.ts";
 import { COLLAPSE_GRACE_MS, DWELL_MS, type ReplyRail } from "../../entrypoints/content/rail.ts";
 import { hooks } from "../helpers/content-hooks.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
-import { resetTestEnvironment, setWindowLocation } from "../setup.ts";
+import { resetTestEnvironment, setWindowLocation, storageFake } from "../setup.ts";
 
 const entrypoint = await import("../../entrypoints/content/index.ts");
 
@@ -163,6 +163,70 @@ describe("addButtons", () => {
 
     expect(counts).toEqual({ keydown: 1, mousemove: 1, scroll: 1 });
     expect(rail.getState().cursor).toEqual({ x: 33, y: 44 });
+  });
+
+  test("PL-22 forwards a real window resize event to the rail, reclamping a docked rail", async () => {
+    // Force handleResize's synchronous fallback path (mirrors rail-state.test.ts
+    // RS-28) so the clamp lands before we assert, with no rAF flushing needed.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- unset window.requestAnimationFrame at runtime, which the DOM typings don't allow.
+    const globals = window as unknown as Record<string, unknown>;
+    const originalRaf = window.requestAnimationFrame;
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    globals["requestAnimationFrame"] = undefined;
+    try {
+      storageFake.data["dockPosition"] = { x: 900, y: 200 };
+      hooks.addButtons();
+      const rail = mountedRail();
+      const fakeRect: DOMRect = {
+        bottom: 280,
+        height: 280,
+        left: 0,
+        right: 60,
+        toJSON: () => ({}),
+        top: 0,
+        width: 60,
+        x: 0,
+        y: 0,
+      };
+      rail.root.getBoundingClientRect = () => fakeRect;
+      Object.defineProperty(rail.root, "offsetWidth", { configurable: true, value: 60 });
+      Object.defineProperty(rail.root, "offsetHeight", { configurable: true, value: 280 });
+      await settleMicrotasks();
+      expect(rail.root.style.left).toBe("900px");
+      expect(rail.root.style.top).toBe("200px");
+
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: 500,
+        writable: true,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: 300,
+        writable: true,
+      });
+
+      // A real dispatched event, not a direct handleResize() call: this fails
+      // unless index.ts actually registers a window "resize" listener.
+      window.dispatchEvent(new Event("resize"));
+
+      // maxX = max(8, 500 - 60 - 8) = 432; maxY = max(8, 300 - 280 - 8) = 12
+      expect(rail.root.style.left).toBe("432px");
+      expect(rail.root.style.top).toBe("12px");
+    } finally {
+      globals["requestAnimationFrame"] = originalRaf;
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+        writable: true,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalHeight,
+        writable: true,
+      });
+    }
   });
 });
 

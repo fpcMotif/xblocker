@@ -79,6 +79,7 @@ export class ReplyRail {
   private lastArticle: Element | null = null;
   private lastArticleIsReply = false;
   private scrollRafId: number | null = null;
+  private resizeRafId: number | null = null;
   private blockButton: LabeledActionButton;
   private muteButton: LabeledActionButton;
   private sessionIndicator: HTMLSpanElement;
@@ -94,7 +95,10 @@ export class ReplyRail {
     this.root.dataset.xbSurface = "reply-rail";
     this.root.dataset.xbTheme = detectTheme();
     this.root.dataset.state = "collapsed";
-    this.root.setAttribute("role", "toolbar");
+    // "group" rather than "toolbar": the rail has no roving-tabindex arrow-key
+    // navigation between its buttons, so "toolbar" would overpromise a keyboard
+    // model the rail doesn't implement.
+    this.root.setAttribute("role", "group");
     this.root.setAttribute("aria-label", "XBlocker reply actions");
     this.root.style.right = "16px";
     this.root.style.top = "30%";
@@ -108,7 +112,16 @@ export class ReplyRail {
     const puckCount = document.createElement("span");
     puckCount.className = "xb-puck-count";
     puck.appendChild(puckCount);
-    this.attachDrag(puck);
+    this.attachDrag(puck, () => this.expandFromPuck());
+    puck.addEventListener("keydown", (event) => {
+      // The puck's pointer handlers only cover drag + click-to-expand; a
+      // keyboard user reaches the rail's actions through this handler alone.
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      this.expandFromPuck();
+    });
 
     // Expanded surface: header + labeled bulk actions + footer.
     const body = document.createElement("div");
@@ -216,6 +229,10 @@ export class ReplyRail {
     if (this.scrollRafId !== null && typeof window.cancelAnimationFrame === "function") {
       window.cancelAnimationFrame(this.scrollRafId);
       this.scrollRafId = null;
+    }
+    if (this.resizeRafId !== null && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(this.resizeRafId);
+      this.resizeRafId = null;
     }
     this.root.remove();
   }
@@ -340,7 +357,29 @@ export class ReplyRail {
     });
   }
 
+  /** Coalesced alongside handleScroll: a viewport resize can strand a dragged
+   *  (docked) rail off-screen on either axis, including while collapsed. */
+  handleResize(): void {
+    if (typeof window.requestAnimationFrame !== "function") {
+      this.clampToViewport();
+      return;
+    }
+    if (this.resizeRafId !== null) {
+      return;
+    }
+    this.resizeRafId = window.requestAnimationFrame(() => {
+      this.resizeRafId = null;
+      this.clampToViewport();
+    });
+  }
+
   private clampToViewport(): void {
+    // Re-clamping the dock position covers both axes and every state
+    // (including collapsed, where the puck itself can strand off-screen)
+    // by reusing the same bounds math applyPosition already does for drags.
+    if (this.homePos) {
+      this.applyPosition(this.homePos);
+    }
     if (this.state === "collapsed") {
       return;
     }
@@ -466,16 +505,20 @@ export class ReplyRail {
     this.root.style.top = `${y}px`;
   }
 
-  private attachDrag(handle: HTMLElement): void {
+  /** `onClick` fires on a pointerup that never moved past the jitter threshold — a
+   *  click, not a drag — so the puck can pass a keyboard-equivalent expand action. */
+  private attachDrag(handle: HTMLElement, onClick?: () => void): void {
     let dragging = false;
     let offsetX = 0;
     let offsetY = 0;
+    let downPoint: Point = { x: 0, y: 0 };
 
     handle.addEventListener("pointerdown", (event) => {
       if (dragging) {
         return;
       }
       dragging = true;
+      downPoint = { x: event.clientX, y: event.clientY };
       const rect = this.root.getBoundingClientRect();
       offsetX = event.clientX - rect.left;
       offsetY = event.clientY - rect.top;
@@ -502,9 +545,22 @@ export class ReplyRail {
       if (this.homePos) {
         saveDockPosition(this.homePos);
       }
+      // A cancelled gesture (e.g. the browser taking over the pointer) is never a click.
+      if (
+        onClick &&
+        event.type === "pointerup" &&
+        !exceedsJitter(downPoint, { x: event.clientX, y: event.clientY })
+      ) {
+        onClick();
+      }
     };
     handle.addEventListener("pointerup", finish);
     handle.addEventListener("pointercancel", finish);
+  }
+
+  private expandFromPuck(): void {
+    this.cancelCollapse();
+    this.settle();
   }
 
   private setState(state: RailStateName): void {

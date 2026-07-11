@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { createActionButton } from "../../entrypoints/content/buttons.ts";
 import { createIcon } from "../../entrypoints/content/icons.ts";
-import { showWhitelistModal } from "../../entrypoints/content/modal.ts";
+import { MODAL_EXIT_MS, showWhitelistModal } from "../../entrypoints/content/modal.ts";
 import { ensureStyles } from "../../entrypoints/content/styles.ts";
 import { applyTheme, detectTheme, observeThemeChanges } from "../../entrypoints/content/theme.ts";
 import { showToast } from "../../entrypoints/content/toast.ts";
@@ -448,6 +448,60 @@ describe("showToast", () => {
     showToast("Dark themed");
     expect(getToast("Dark themed").dataset.xbTheme).toBe("dark");
   });
+
+  test("TO-07 concurrent toasts stack inside one persistent region container", () => {
+    showToast("First one");
+    const region = document.querySelector<HTMLElement>(".xb-toast-region");
+    expect(region).not.toBeNull();
+    expect(region?.classList.contains("xb-root")).toBe(true);
+    expect(region?.parentElement).toBe(document.body);
+    expect(getToast("First one").parentElement).toBe(region);
+
+    showToast("Second one");
+    expect(document.querySelectorAll(".xb-toast-region")).toHaveLength(1);
+    expect(region?.querySelectorAll(".xb-toast")).toHaveLength(2);
+  });
+
+  test("TO-08 the warning type carries role=alert; other types carry role=status", () => {
+    showToast("Careful now", "warning");
+    expect(getToast("Careful now").getAttribute("role")).toBe("alert");
+
+    showToast("All good", "success");
+    expect(getToast("All good").getAttribute("role")).toBe("status");
+  });
+
+  test("TO-09 toasts are keyboard-focusable", () => {
+    showToast("Tab to me");
+    expect(getToast("Tab to me").tabIndex).toBe(0);
+  });
+
+  test("TO-10 Enter dismisses an open toast", async () => {
+    showToast("Enter dismiss");
+    const toast = getToast("Enter dismiss");
+    await nextAnimationFrame();
+    expect(toast.dataset.state).toBe("open");
+
+    toast.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(toast.dataset.state).toBe("closed");
+
+    timers?.flush();
+    expect(document.body.contains(toast)).toBe(false);
+  });
+
+  test("TO-11 Escape dismisses an open toast; other keys do not", async () => {
+    showToast("Escape dismiss");
+    const toast = getToast("Escape dismiss");
+    await nextAnimationFrame();
+
+    toast.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+    expect(toast.dataset.state).toBe("open");
+
+    toast.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(toast.dataset.state).toBe("closed");
+
+    timers?.flush();
+    expect(document.body.contains(toast)).toBe(false);
+  });
 });
 
 describe("showWhitelistModal", () => {
@@ -582,11 +636,11 @@ describe("showWhitelistModal", () => {
     }
     input.value = "enter_user";
 
-    input.dispatchEvent(new KeyboardEvent("keypress", { key: "a", bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
     await settleMicrotasks();
     expect(storageFake.setCalls).toHaveLength(0);
 
-    input.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await settleMicrotasks();
     expect(storageFake.data["whitelist"]).toEqual(["enter_user"]);
 
@@ -668,5 +722,155 @@ describe("showWhitelistModal", () => {
     const toast = getToast("Could not update the whitelist. Try again.");
     expect(toast.dataset.type).toBe("warning");
     expect(getModal().dataset.state).toBe("open");
+  });
+
+  test("MD-12 Tab from the last focusable element wraps back to the input", async () => {
+    showWhitelistModal();
+    await nextAnimationFrame();
+    const input = document.querySelector<HTMLInputElement>("#xb-username-input");
+    const confirm = document.querySelector<HTMLButtonElement>(".xb-modal-confirm");
+    expect(input).toBeTruthy();
+    expect(confirm).toBeTruthy();
+    if (!input || !confirm) {
+      return;
+    }
+
+    confirm.focus();
+    expect(document.activeElement).toBe(confirm);
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+    );
+
+    expect(document.activeElement).toBe(input);
+  });
+
+  test("MD-13 Shift+Tab from the input wraps focus to Confirm", async () => {
+    showWhitelistModal();
+    await nextAnimationFrame();
+    const input = document.querySelector<HTMLInputElement>("#xb-username-input");
+    const confirm = document.querySelector<HTMLButtonElement>(".xb-modal-confirm");
+    expect(input).toBeTruthy();
+    expect(confirm).toBeTruthy();
+    if (!input || !confirm) {
+      return;
+    }
+
+    input.focus();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }),
+    );
+
+    expect(document.activeElement).toBe(confirm);
+  });
+
+  test("MD-14 closing the modal restores focus to whatever opened it", async () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+
+    showWhitelistModal();
+    await nextAnimationFrame();
+    expect(document.activeElement).toBe(document.querySelector("#xb-username-input"));
+
+    const cancel = document.querySelector<HTMLButtonElement>(".xb-modal-cancel");
+    expect(cancel).toBeTruthy();
+    if (!cancel) {
+      return;
+    }
+    click(cancel);
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  test("MD-15 a second submit while addToWhitelist is pending is ignored", async () => {
+    storageFake.useManualDispatch();
+    showWhitelistModal();
+    const input = document.querySelector<HTMLInputElement>("#xb-username-input");
+    const confirm = document.querySelector<HTMLButtonElement>(".xb-modal-confirm");
+    expect(input).toBeTruthy();
+    expect(confirm).toBeTruthy();
+    if (!input || !confirm) {
+      return;
+    }
+    input.value = "guarded_user";
+
+    click(confirm);
+    await settleMicrotasks();
+    expect(storageFake.getCalls).toHaveLength(1);
+
+    // A second submit while the first is still in flight — via a click and via
+    // Enter on the (never-disabled) input — must not fire a second read/write.
+    click(confirm);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await settleMicrotasks();
+    expect(storageFake.getCalls).toHaveLength(1);
+
+    for (let round = 0; round < 6; round++) {
+      storageFake.flush();
+      await settleMicrotasks();
+    }
+
+    expect(storageFake.data["whitelist"]).toEqual(["guarded_user"]);
+    expect(storageFake.setCalls).toHaveLength(1);
+  });
+
+  test("MD-17 a submit that resolves after the modal was already dismissed does not steal focus back", async () => {
+    storageFake.useManualDispatch();
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    showWhitelistModal();
+    const input = document.querySelector<HTMLInputElement>("#xb-username-input");
+    const confirm = document.querySelector<HTMLButtonElement>(".xb-modal-confirm");
+    expect(input).toBeTruthy();
+    expect(confirm).toBeTruthy();
+    if (!input || !confirm) {
+      return;
+    }
+    input.value = "slow_user";
+
+    // Start a submit that will not resolve until storageFake is flushed below.
+    click(confirm);
+    await settleMicrotasks();
+    expect(storageFake.getCalls).toHaveLength(1);
+
+    // Dismiss via Escape while the submit is still in flight: focus returns
+    // to whatever opened the modal, as MD-14 already covers.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(getModal().dataset.state).toBe("closed");
+    expect(document.activeElement).toBe(trigger);
+
+    // The user moves focus elsewhere after dismissing.
+    const elsewhere = document.createElement("input");
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+    expect(document.activeElement).toBe(elsewhere);
+
+    // Now let the stale submit resolve and call closeModal() a second time.
+    for (let round = 0; round < 6; round++) {
+      storageFake.flush();
+      await settleMicrotasks();
+    }
+
+    expect(storageFake.data["whitelist"]).toEqual(["slow_user"]);
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  test("MD-16 close schedules node removal after the shared MODAL_EXIT_MS", () => {
+    showWhitelistModal();
+    const cancel = document.querySelector<HTMLButtonElement>(".xb-modal-cancel");
+    expect(cancel).toBeTruthy();
+    if (!cancel) {
+      return;
+    }
+
+    click(cancel);
+
+    expect(timers?.pendingDelays()).toEqual([MODAL_EXIT_MS]);
+    timers?.flush();
+    expect(document.getElementById("xblocker-modal")).toBeNull();
   });
 });

@@ -9,7 +9,7 @@
 // determinate fill) rather than a standalone ring.
 //
 // Contract pinned here:
-// - root: HTMLDivElement with data-xb-surface="reply-rail", role="toolbar"
+// - root: HTMLDivElement with data-xb-surface="reply-rail", role="group"
 // - incrementBlocked(by?: number), setProgress(BatchProgress | null),
 //   refreshReplyCounts() reading reply articles capped by settings.maxReplies
 // - bulk buttons are labeled (aria-label "Block all replies" / "Mute all replies")
@@ -135,7 +135,7 @@ describe("rail anatomy", () => {
     expect(root).toBe(mounted.root);
     expect(root.tagName).toBe("DIV");
     expect(root.dataset["xbSurface"]).toBe("reply-rail");
-    expect(root.getAttribute("role")).toBe("toolbar");
+    expect(root.getAttribute("role")).toBe("group");
     expect(root.getAttribute("aria-label")).toBe("XBlocker reply actions");
     expect(root.style.right).toBe("16px");
 

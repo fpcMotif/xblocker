@@ -1,42 +1,23 @@
+import {
+  XB_DARK_TOKENS,
+  XB_FONT_STACK,
+  XB_LIGHT_TOKENS,
+  XB_TONE_TOKENS,
+} from "../lib/design-tokens";
+import { MODAL_EXIT_MS } from "./modal";
+
 const STYLE_ID = "xblocker-styles";
 
 const SHEET = `
-.xb-root {
-	--xb-primary: oklch(0.63 0.16 246);
-	--xb-danger: oklch(0.601 0.212 21);
-	--xb-success: oklch(0.646 0.152 154);
-	--xb-warning: oklch(0.778 0.158 74);
-	--xb-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-	--xb-ease-icon: cubic-bezier(0.2, 0, 0, 1);
-	font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+.xb-root {${XB_TONE_TOKENS}	font-family: ${XB_FONT_STACK};
 	-webkit-font-smoothing: antialiased;
 	box-sizing: border-box;
 }
 .xb-root *, .xb-root *::before, .xb-root *::after {
 	box-sizing: border-box;
 }
-.xb-root[data-xb-theme="dark"] {
-	--xb-surface: oklch(0.2 0.022 259);
-	--xb-elevated: oklch(0.27 0.025 255);
-	--xb-ink: oklch(0.97 0.006 255);
-	--xb-ink-muted: oklch(0.72 0.02 255);
-	--xb-border: oklch(1 0 0 / 0.12);
-	--xb-track: oklch(1 0 0 / 0.14);
-	--xb-hero-bg: oklch(0.98 0 0);
-	--xb-hero-ink: oklch(0.2 0.02 259);
-	--xb-shadow: 0 8px 24px oklch(0 0 0 / 0.5), 0 0 0 0.5px oklch(1 0 0 / 0.06);
-}
-.xb-root[data-xb-theme="light"] {
-	--xb-surface: oklch(1 0 0);
-	--xb-elevated: oklch(0.984 0.003 248);
-	--xb-ink: oklch(0.24 0.023 251);
-	--xb-ink-muted: oklch(0.5 0.02 251);
-	--xb-border: oklch(0.906 0.015 251);
-	--xb-track: oklch(0.24 0.023 251 / 0.08);
-	--xb-hero-bg: oklch(0.2 0.02 251);
-	--xb-hero-ink: oklch(1 0 0);
-	--xb-shadow: 0 6px 20px oklch(0 0 0 / 0.12), 0 0 0 0.5px oklch(0 0 0 / 0.06);
-}
+.xb-root[data-xb-theme="dark"] {${XB_DARK_TOKENS}}
+.xb-root[data-xb-theme="light"] {${XB_LIGHT_TOKENS}}
 
 /* ---- Action buttons (shared icon-only base) ---- */
 .xb-btn {
@@ -61,7 +42,7 @@ const SHEET = `
 	inset: -3px;
 }
 .xb-btn:active { transform: scale(0.96); }
-.xb-btn:disabled { cursor: default; }
+.xb-btn:disabled { cursor: default; opacity: 0.45; }
 .xb-btn-labeled:disabled { opacity: 0.45; }
 .xb-btn:focus-visible {
 	outline: 2px solid var(--xb-primary);
@@ -184,7 +165,7 @@ const SHEET = `
 	gap: 7px;
 	width: 168px;
 	padding: 10px;
-	border-radius: 16px;
+	border-radius: 20px;
 	background: var(--xb-surface);
 	border: 1px solid var(--xb-border);
 	box-shadow: var(--xb-shadow);
@@ -254,6 +235,9 @@ const SHEET = `
 }
 .xb-puck:active { cursor: grabbing; transform: scale(0.96); }
 .xb-puck:focus-visible { outline: 2px solid var(--xb-primary); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+	.xb-puck:hover { border-color: var(--xb-primary); transform: scale(1.04); }
+}
 .xb-puck-count {
 	position: absolute;
 	top: -3px;
@@ -316,11 +300,19 @@ article[data-testid="tweet"]:hover .xb-console,
 }
 
 /* ---- Toast ---- */
-.xb-toast {
+.xb-toast-region {
 	position: fixed;
 	top: 24px;
 	right: 24px;
 	z-index: 10003;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	pointer-events: none;
+}
+.xb-toast {
+	position: static;
+	pointer-events: auto;
 	display: flex;
 	align-items: center;
 	gap: 8px;
@@ -338,6 +330,10 @@ article[data-testid="tweet"]:hover .xb-console,
 	opacity: 0;
 	transform: translateY(-8px);
 	transition: opacity 200ms var(--xb-ease-out), transform 200ms var(--xb-ease-out);
+}
+.xb-toast:focus-visible {
+	outline: 2px solid var(--xb-primary);
+	outline-offset: 2px;
 }
 .xb-toast[data-state="open"] {
 	opacity: 1;
@@ -369,7 +365,7 @@ article[data-testid="tweet"]:hover .xb-console,
 	background: oklch(0 0 0 / 0.4);
 	backdrop-filter: blur(8px);
 	opacity: 0;
-	transition: opacity 160ms var(--xb-ease-out);
+	transition: opacity ${MODAL_EXIT_MS}ms var(--xb-ease-out);
 }
 .xb-modal-backdrop[data-state="open"] { opacity: 1; }
 .xb-modal {
@@ -433,6 +429,8 @@ article[data-testid="tweet"]:hover .xb-console,
 	transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, transform 160ms var(--xb-ease-out);
 }
 .xb-modal-actions button:active { transform: scale(0.96); }
+.xb-modal-actions button:focus-visible { outline: 2px solid var(--xb-primary); outline-offset: 2px; }
+.xb-modal-actions button:disabled { opacity: 0.5; cursor: default; }
 .xb-modal-cancel {
 	background: transparent;
 	border-color: var(--xb-border);
@@ -441,6 +439,10 @@ article[data-testid="tweet"]:hover .xb-console,
 .xb-modal-confirm {
 	background: var(--xb-success);
 	color: oklch(1 0 0);
+}
+@media (hover: hover) and (pointer: fine) {
+	.xb-modal-cancel:hover { background: var(--xb-track); }
+	.xb-modal-confirm:hover { filter: brightness(1.08); }
 }
 
 /* ---- Blocked reply veil ---- */

@@ -15,13 +15,9 @@
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
-import {
-  outboxItemToRecordArgs,
-  outboxToRecordBatches,
-  type OutboxItem,
-  type RecordActionArgs,
-  type RemoteAccount,
-} from "./blocked-store";
+import { outboxItemToRecordArgs, outboxToRecordBatches, type RecordActionArgs } from "./cloud-wire";
+import type { OutboxItem, RemoteAccount } from "./blocked-store";
+import type { CloudAdapter } from "./sync-engine";
 
 // The Convex `listBlocked` query returns exactly the shape the local store's mergeRemote
 // consumes, so re-export the single definition rather than maintaining a twin here.
@@ -77,7 +73,7 @@ function isMissingFunctionError(error: unknown): boolean {
  *  Batches of PUSH_BATCH_SIZE go through one `recordActions` round-trip each (pushing
  *  item-by-item made sync latency scale linearly with the outbox: ~300ms per action).
  *  Falls back to per-item `recordAction` when the deployment lacks the batched
- *  mutation. The OutboxItem -> args mapping lives in blocked-store
+ *  mutation. The OutboxItem -> args mapping lives in cloud-wire
  *  (`outboxToRecordBatches`) so it is unit-tested; this is the thin live-Convex I/O
  *  wrapper around it. */
 export async function pushOutbox(items: OutboxItem[]): Promise<string[]> {
@@ -111,3 +107,11 @@ export async function pullBlocked(): Promise<RemoteAccount[]> {
 export async function clearCloud(): Promise<void> {
   await client().mutation(clearOwnerRef, {});
 }
+
+/** This adapter, wired to `sync-engine.ts`'s `CloudAdapter` seam: `runCloudSync` and
+ *  `runAutoCloudSync` lazily import this module and use `convexAdapter` by default. */
+export const convexAdapter = {
+  isConfigured: isCloudConfigured,
+  push: pushOutbox,
+  pull: pullBlocked,
+} satisfies CloudAdapter;

@@ -12,7 +12,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { batchState } from "../../entrypoints/content/actions.ts";
 import { FOLLOW_FACTOR, lerp, VIEWPORT_MARGIN } from "../../entrypoints/content/position.ts";
 import { COLLAPSE_GRACE_MS, DWELL_MS, ReplyRail } from "../../entrypoints/content/rail.ts";
-import { resetTestEnvironment } from "../setup.ts";
+import { settleMicrotasks } from "../helpers/timers.ts";
+import { resetTestEnvironment, storageFake } from "../setup.ts";
 
 // Deterministic clock origin for step(nowMs); any test that advances time
 // derives from this so dwell math is explicit.
@@ -27,6 +28,7 @@ let rail: ReplyRail | null = null;
 let timers: FakeTimers | null = null;
 let viewportOverridden = false;
 const DEFAULT_VIEWPORT_HEIGHT = window.innerHeight;
+const DEFAULT_VIEWPORT_WIDTH = window.innerWidth;
 
 // --- timers -----------------------------------------------------------------
 // Local fake timers instead of test/helpers/timers.ts: ManualTimers does not
@@ -155,6 +157,15 @@ function setViewportHeight(height: number): void {
   });
 }
 
+function setViewportWidth(width: number): void {
+  viewportOverridden = true;
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: width,
+    writable: true,
+  });
+}
+
 /** Dispatch a mousemove on `target` and feed the same event to the rail. */
 function moveOver(instance: ReplyRail, target: Element, x: number, y: number): void {
   const event = new MouseEvent("mousemove", { bubbles: true, clientX: x, clientY: y });
@@ -164,6 +175,20 @@ function moveOver(instance: ReplyRail, target: Element, x: number, y: number): v
 
 function pressKey(instance: ReplyRail, key: string): void {
   instance.handleKeydown(new KeyboardEvent("keydown", { key, bubbles: true }));
+}
+
+/** A MouseEvent standing in for a PointerEvent (happy-dom has no PointerEvent
+ *  constructor); rail.ts only reads clientX/clientY/pointerId off the event. */
+function pointerEvent(type: string, x: number, y: number): MouseEvent {
+  return new MouseEvent(type, { bubbles: true, clientX: x, clientY: y });
+}
+
+function getPuck(instance: ReplyRail): HTMLButtonElement {
+  const puck = instance.root.querySelector<HTMLButtonElement>(".xb-puck");
+  if (!puck) {
+    throw new Error("puck missing");
+  }
+  return puck;
 }
 
 /** Track, then settle by dwell: anchor at t0, settle at t0 + DWELL_MS. */
@@ -195,6 +220,7 @@ describe("ReplyRail state machine", () => {
     batchState.running = false;
     if (viewportOverridden) {
       setViewportHeight(DEFAULT_VIEWPORT_HEIGHT);
+      setViewportWidth(DEFAULT_VIEWPORT_WIDTH);
       viewportOverridden = false;
     }
   });
@@ -669,5 +695,108 @@ describe("ReplyRail state machine", () => {
     batchState.running = false;
     moveOver(instance, reply, 300, 650);
     expect(instance.getState().state).toBe("tracking");
+  });
+
+  test("RS-24 Enter on the collapsed puck expands the rail at its current dock position", () => {
+    const instance = setupRail();
+    const puck = getPuck(instance);
+    expect(instance.getState().state).toBe("collapsed");
+
+    puck.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+
+    expect(instance.getState().state).toBe("settled");
+    expect(instance.root.dataset["state"]).toBe("settled");
+  });
+
+  test("RS-25 Space on the puck also expands the rail; unrelated keys do nothing", () => {
+    const instance = setupRail();
+    const puck = getPuck(instance);
+
+    puck.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true }));
+    expect(instance.getState().state).toBe("collapsed");
+
+    puck.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    expect(instance.getState().state).toBe("settled");
+  });
+
+  test("RS-26 a pointerup on the puck within the jitter threshold expands it (a click, not a drag)", () => {
+    const instance = setupRail();
+    const puck = getPuck(instance);
+
+    puck.dispatchEvent(pointerEvent("pointerdown", 100, 100));
+    puck.dispatchEvent(pointerEvent("pointerup", 102, 101)); // ~2.2px, below the 4px threshold
+
+    expect(instance.getState().state).toBe("settled");
+    expect(instance.root.dataset["state"]).toBe("settled");
+  });
+
+  test("RS-27 a pointerup that moved past the jitter threshold is a drag, not a click", () => {
+    const instance = setupRail();
+    const puck = getPuck(instance);
+
+    puck.dispatchEvent(pointerEvent("pointerdown", 100, 100));
+    puck.dispatchEvent(pointerEvent("pointermove", 140, 150));
+    puck.dispatchEvent(pointerEvent("pointerup", 140, 150));
+
+    expect(instance.getState().state).toBe("collapsed");
+  });
+
+  test("RS-28 handleResize reclamps a docked rail on both axes when requestAnimationFrame is unavailable", async () => {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- unset window.requestAnimationFrame at runtime, which the DOM typings don't allow.
+    const globals = window as unknown as Record<string, unknown>;
+    const originalRaf = window.requestAnimationFrame;
+    globals["requestAnimationFrame"] = undefined;
+    try {
+      storageFake.data["dockPosition"] = { x: 900, y: 200 };
+      const instance = setupRail();
+      await settleMicrotasks();
+      expect(instance.root.style.left).toBe("900px");
+      expect(instance.root.style.top).toBe("200px");
+
+      setViewportWidth(500);
+      setViewportHeight(300);
+      instance.handleResize();
+
+      // maxX = max(8, 500 - 60 - 8) = 432; maxY = max(8, 300 - 280 - 8) = 12
+      expect(instance.root.style.left).toBe("432px");
+      expect(instance.root.style.top).toBe("12px");
+    } finally {
+      globals["requestAnimationFrame"] = originalRaf;
+    }
+  });
+
+  test("RS-29 resize coalesces to one clamp per frame; destroy cancels a still-pending frame", () => {
+    const callbacks: FrameRequestCallback[] = [];
+    const cancelled: number[] = [];
+    const originalRaf = window.requestAnimationFrame;
+    const originalCancel = window.cancelAnimationFrame;
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    };
+    window.cancelAnimationFrame = (id: number) => {
+      cancelled.push(id);
+    };
+    try {
+      const instance = setupRail();
+
+      instance.handleResize();
+      instance.handleResize(); // storms coalesce: still just one scheduled frame
+      expect(callbacks.length).toBe(1);
+
+      callbacks[0]?.(16);
+      expect(callbacks.length).toBe(1); // the frame ran; nothing left pending
+
+      instance.handleResize();
+      expect(callbacks.length).toBe(2);
+      const pendingId = callbacks.length;
+      instance.destroy();
+      expect(cancelled).toContain(pendingId);
+    } finally {
+      window.requestAnimationFrame = originalRaf;
+      window.cancelAnimationFrame = originalCancel;
+    }
   });
 });

@@ -89,7 +89,23 @@ export class FakeChromeStorageArea {
         callback?.();
         return;
       }
-      Object.assign(this.data, structuredClone(items));
+      for (const [key, value] of Object.entries(items)) {
+        // Real chrome.storage drops undefined values during serialization — the key
+        // keeps its old value. Mirroring that here keeps "clear via set-to-undefined"
+        // bugs visible in tests; clearing a key must go through remove().
+        if (value !== undefined) this.data[key] = structuredClone(value);
+      }
+      callback?.();
+    });
+  }
+
+  /** Mirrors chrome.storage.local.remove: deletes the key(s) outright — the only way
+   *  to clear a key, since set() drops undefined values. */
+  remove(keys: string | string[], callback?: () => void): void {
+    this.dispatch(() => {
+      for (const key of Array.isArray(keys) ? keys : [keys]) {
+        delete this.data[key];
+      }
       callback?.();
     });
   }
@@ -162,6 +178,8 @@ g.chrome = {
     local: {
       get: (keys: StorageGetKeys, callback: StorageGetCallback) => storageFake.get(keys, callback),
       set: (items: StorageItems, callback?: () => void) => storageFake.set(items, callback),
+      remove: (keys: string | string[], callback?: () => void) =>
+        storageFake.remove(keys, callback),
       clear: (callback?: () => void) => storageFake.clear(callback),
     },
   },
