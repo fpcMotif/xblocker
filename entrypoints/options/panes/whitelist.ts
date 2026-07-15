@@ -3,7 +3,7 @@
 // Handle + Remove only rather than fabricating a date the store never recorded.
 
 import { createIcon } from "../../lib/icons";
-import { normalizeUsername } from "../../lib/settings";
+import { normalizeSettings, normalizeUsername } from "../../lib/settings";
 import {
   addManyToWhitelist,
   addToWhitelist,
@@ -13,7 +13,6 @@ import {
 } from "../../lib/whitelist-store";
 import { storageGet, SETTINGS_KEY } from "../../lib/chrome-storage";
 import { downloadJson, type DownloadFn } from "../download";
-import { normalizeGeneralSettings } from "./general";
 
 export const WHITELIST_SEARCH_DEBOUNCE_MS = 120;
 export const WHITELIST_CONFIRM_WINDOW_MS = 3000;
@@ -71,7 +70,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     getWhitelist(),
     storageGet<unknown>(SETTINGS_KEY),
   ]);
-  const confirmRequired = normalizeGeneralSettings(storedSettings).confirmDestructiveActions;
+  const confirmRequired = normalizeSettings(storedSettings).confirmDestructiveActions;
   let entries = [...whitelist];
   let searchQuery = "";
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;

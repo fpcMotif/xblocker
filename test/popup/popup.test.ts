@@ -1,8 +1,10 @@
-// Catalog: PU-* (renderPopup shell, stat strip, toggles, footer, formatLastSync).
+// Catalog: PU-* (renderPopup shell, stat strip, toggles, footer). The sync-age formatter
+// moved to sync-engine (formatSyncAge, tested there as OC-01); the popup's sync-row
+// wiring lives in cloud-backup.test.ts (PU-CB-*).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { ANIMATE_MS, type LiveNumberClock } from "../../entrypoints/lib/live-number.ts";
-import { formatLastSync, mountPopupIfPresent, renderPopup } from "../../entrypoints/popup/main.ts";
+import { mountPopupIfPresent, renderPopup } from "../../entrypoints/popup/main.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 
 /** A fully injected fake clock (mirrors test/live-number.test.ts's): requestFrame/
@@ -90,7 +92,7 @@ describe("renderPopup structure", () => {
     expect(popup.textContent).toContain("Protect whitelist");
     expect(popup.textContent).toContain("Whitelisted handles are skipped during bulk actions.");
     expect(popup.textContent).toContain("Confirm destructive actions");
-    expect(popup.textContent).toContain("Ask before block or mute runs.");
+    expect(popup.textContent).toContain("Ask before removing whitelist entries.");
     expect(popup.textContent).toContain("Open settings");
   });
 
@@ -135,17 +137,6 @@ describe("renderPopup structure", () => {
     } finally {
       window.requestAnimationFrame = originalRaf;
     }
-  });
-});
-
-describe("formatLastSync", () => {
-  test("PU-06 formats never/just-now/minutes/hours/days", () => {
-    const now = 10 * 24 * 60 * 60_000;
-    expect(formatLastSync({}, now)).toBe("Never synced.");
-    expect(formatLastSync({ lastSyncAt: now - 10_000 }, now)).toBe("Synced just now.");
-    expect(formatLastSync({ lastSyncAt: now - 5 * 60_000 }, now)).toBe("Synced 5m ago.");
-    expect(formatLastSync({ lastSyncAt: now - 3 * 60 * 60_000 }, now)).toBe("Synced 3h ago.");
-    expect(formatLastSync({ lastSyncAt: now - 2 * 24 * 60 * 60_000 }, now)).toBe("Synced 2d ago.");
   });
 });
 

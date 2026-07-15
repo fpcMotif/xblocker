@@ -8,7 +8,7 @@
 // (old BULK-08) moved to dock behavior — see ui-rendering.test.ts.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { batchState } from "../../entrypoints/content/actions.ts";
+import { createReplyBatchRunner, isBatchRunning } from "../../entrypoints/content/actions.ts";
 import {
   appendDiscoverMoreSection,
   createAnonymousTweetArticle,
@@ -49,9 +49,9 @@ describe("blockReplies", () => {
     fetchStub = null;
     timers?.uninstall();
     timers = null;
-    // batchState is a module singleton; a test that parks a batch (BULK-15/16)
-    // must not leak running=true into siblings, where the guard would bail them.
-    batchState.running = false;
+    // No cross-test reset needed: BULK-15/16 park their OWN createReplyBatchRunner()
+    // instance, so a parked batch dies with the instance instead of leaking through a
+    // module-global flag into sibling tests.
   });
 
   test("BULK-01 returns null without any network traffic when not on a tweet page", async () => {
@@ -146,24 +146,27 @@ describe("blockReplies", () => {
     expect(failed?.dataset.xbBlocked).toBeUndefined();
   });
 
-  test("BULK-06 raises batchState.running for the duration of the run only", async () => {
+  test("BULK-06 raises the running flag for the duration of the run only", async () => {
     const observedDuringFetch: boolean[] = [];
     fetchStub = installFetchStub(() => {
-      observedDuringFetch.push(batchState.running);
+      observedDuringFetch.push(isBatchRunning());
       return { ok: true, status: 200 };
     });
     populateTweetPage(["reply_one", "reply_two"]);
 
-    expect(batchState.running).toBe(false);
+    expect(isBatchRunning()).toBe(false);
     await hooks.blockReplies();
 
     expect(observedDuringFetch).toEqual([true, true]);
-    expect(batchState.running).toBe(false);
+    expect(isBatchRunning()).toBe(false);
   });
 
   test("BULK-15 a second batch started while one is in flight returns null and acts on nothing", async () => {
-    // The first fetch hangs until released, so the first batch is parked mid-run
-    // with batchState.running already true. A concurrent invocation must bail.
+    // The first fetch hangs until released, so the first run is parked mid-batch with the
+    // runner's flag already raised. A concurrent run() on the SAME runner must bail. Using
+    // an instance-scoped runner (not the default) means the parked state dies with it — no
+    // cross-test reset of a module global.
+    const runner = createReplyBatchRunner();
     let releaseFirst: (() => void) | null = null;
     const original = globalThis.fetch;
     const globals = globalThis as Record<string, unknown>;
@@ -181,13 +184,13 @@ describe("blockReplies", () => {
     populateTweetPage(["reply_one", "reply_two"]);
 
     try {
-      const first = hooks.blockReplies();
+      const first = runner.run("block");
       // Let the first batch reach (and park on) its first fetch.
       await settleMicrotasks();
-      expect(batchState.running).toBe(true);
+      expect(runner.isRunning()).toBe(true);
       expect(seen).toHaveLength(1);
 
-      const second = await hooks.blockReplies();
+      const second = await runner.run("block");
       expect(second).toBeNull();
       // The guard returned before any await, so the second call hit no network.
       expect(seen).toHaveLength(1);
@@ -195,16 +198,17 @@ describe("blockReplies", () => {
       releaseFirst!();
       const summary = await first;
       expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
-      expect(batchState.running).toBe(false);
+      expect(runner.isRunning()).toBe(false);
     } finally {
       globals["fetch"] = original;
     }
   });
 
-  test("BULK-16 clears batchState.running when the run throws, so a later batch still proceeds", async () => {
-    // Force the batch's first storage read (getMaxReplies) to throw after
-    // batchState.running was raised. The finally must reset it — otherwise the
-    // re-entry guard would permanently reject every future batch (latent deadlock).
+  test("BULK-16 clears the running flag when the run throws, so a later batch still proceeds", async () => {
+    // Force the batch's first storage read (readSettings) to throw after the runner's flag
+    // was raised. The finally must reset it — otherwise the re-entry guard would
+    // permanently reject every future run on this instance (latent deadlock).
+    const runner = createReplyBatchRunner();
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage(["reply_one", "reply_two"]);
 
@@ -215,7 +219,7 @@ describe("blockReplies", () => {
 
     let threw = false;
     try {
-      await hooks.blockReplies();
+      await runner.run("block");
     } catch {
       threw = true;
     } finally {
@@ -223,10 +227,10 @@ describe("blockReplies", () => {
     }
 
     expect(threw).toBe(true);
-    expect(batchState.running).toBe(false);
+    expect(runner.isRunning()).toBe(false);
 
-    // The guard released cleanly: a fresh batch runs and acts on the replies.
-    const summary = await hooks.blockReplies();
+    // The guard released cleanly: a fresh run on the same instance acts on the replies.
+    const summary = await runner.run("block");
     expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
   });
 
@@ -242,7 +246,7 @@ describe("blockReplies", () => {
     expect(summary).toEqual({ acted: 0, skipped: 0, failed: 0 });
     expect(progress).toHaveLength(0);
     expect(fetchStub.calls).toHaveLength(0);
-    expect(batchState.running).toBe(false);
+    expect(isBatchRunning()).toBe(false);
   });
 
   test("BULK-08 caps the batch at the configured maxReplies setting", async () => {
@@ -328,6 +332,48 @@ describe("blockReplies", () => {
       expect(rec.dataset.xbBlocked).toBeUndefined();
     }
   });
+
+  test("BULK-20 with protectWhitelist off, a bulk run acts on a whitelisted author", async () => {
+    // The toggle scopes whitelist protection to bulk actions; off means the batch skips
+    // nobody, so a whitelisted handle is blocked like any other reply.
+    storageFake.data["settings"] = { protectWhitelist: false };
+    storageFake.data["whitelist"] = ["safe_user"];
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["safe_user", "good_one"]);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
+    expect(fetchStub.calls.map(requestBodyText)).toEqual([
+      "screen_name=safe_user",
+      "screen_name=good_one",
+    ]);
+  });
+
+  test("BULK-21 with no protectWhitelist setting stored, the whitelist still protects (default on)", async () => {
+    storageFake.data["whitelist"] = ["safe_user"];
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["safe_user", "good_one"]);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ acted: 1, skipped: 1, failed: 0 });
+    expect(fetchStub.calls.map(requestBodyText)).toEqual(["screen_name=good_one"]);
+  });
+
+  test("BULK-22 reads the settings blob exactly once per batch, not once per reply", async () => {
+    storageFake.data["settings"] = { maxReplies: 50, protectWhitelist: true };
+    storageFake.data["whitelist"] = ["safe_user"];
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["good_one", "safe_user", "good_two"]);
+
+    await hooks.blockReplies();
+
+    // The runner reads maxReplies + protectWhitelist from ONE readSettings(); a regression
+    // to a per-reply read would push several "settings" gets.
+    const settingsReads = storageFake.getCalls.filter((keys) => keys === "settings");
+    expect(settingsReads).toHaveLength(1);
+  });
 });
 
 describe("muteReplies", () => {
@@ -346,9 +392,6 @@ describe("muteReplies", () => {
     fetchStub = null;
     timers?.uninstall();
     timers = null;
-    // batchState is a module singleton; a test that parks a batch (BULK-15/16)
-    // must not leak running=true into siblings, where the guard would bail them.
-    batchState.running = false;
   });
 
   test("BULK-11 returns null without any network traffic when not on a tweet page", async () => {
@@ -405,6 +448,6 @@ describe("muteReplies", () => {
       "screen_name=bad_user",
       "screen_name=good_one",
     ]);
-    expect(batchState.running).toBe(false);
+    expect(isBatchRunning()).toBe(false);
   });
 });

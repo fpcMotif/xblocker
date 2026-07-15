@@ -81,3 +81,24 @@ and a fresh `lastSyncAt` now skips instead of running a full push+pull+merge. Ma
 - `blocked-store.ts` stops carrying Convex vocabulary; `cloud-wire.ts` is importable by
   tests and `convex-sync.ts` without pulling in storage or the SDK.
 - The popup test seam is deliberately deferred — do not "fix" it mid-redesign.
+
+## Update (2026-07-15) — deferred items landed
+
+The two consciously-deferred pieces above are done (architecture-deepening pass, Track B):
+
+- Both the popup and the settings cloud pane now take the transport as a
+  `loadAdapter: () => Promise<CloudAdapter>` port (default `loadConvexAdapter`, now
+  **exported** from `sync-engine.ts`). `mock.module` is gone from
+  `test/popup/cloud-backup.test.ts` and `test/options/cloud.test.ts`; both inject plain
+  object fakes, exactly like the engine tests — the "popup test seam is deferred" debt is
+  retired. The popup's open-time auto-sync flows through `runAutoCloudSync` (the single
+  gate) rather than a hand-rolled `shouldAutoSync` copy.
+- `CloudAdapter` gained `clear()`; `convexAdapter` wires it to `clearCloud`, and the
+  pane's wipe now calls `adapter.clear()` through the port instead of lazy-importing
+  convex-sync directly. `clearCloud` is now module-private (reached only via the port),
+  not the unwired export it used to be.
+- New `readCloudDisplayState()` is the one storage read (enabled / meta / pending) both
+  surfaces render their initial rows from. `readCloudStatus(loadAdapter?)` layers the
+  adapter's `configured` flag on top for the popup, which holds no adapter yet; the settings
+  pane loads its adapter up front (it needs it for the wipe) and reads `readCloudDisplayState`
+  directly, so it neither re-loads nor re-checks the adapter.

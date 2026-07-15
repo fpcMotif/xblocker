@@ -435,16 +435,49 @@ describe("whitelist and settings buttons", () => {
     expect(getRailButton("Whitelist").dataset["state"]).toBe("success");
   });
 
-  test("RA-11 settings button shows the popup-pointer toast", async () => {
-    getRailButton("Open XBlocker settings").dispatchEvent(
-      new MouseEvent("click", { bubbles: true }),
-    );
-    await settleMicrotasks();
+  test("RA-11 settings button asks the background worker to open the options page", async () => {
+    // A content script cannot call openOptionsPage; it messages the worker. sendMessage is
+    // absent from the shared chrome fake, so install a capturing one for this case.
+    const runtime = chrome.runtime as { sendMessage?: (message: unknown) => Promise<unknown> };
+    const messages: unknown[] = [];
+    runtime.sendMessage = (message) => {
+      messages.push(message);
+      return Promise.resolve();
+    };
+    try {
+      getRailButton("Open XBlocker settings").dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+      await settleMicrotasks();
 
-    const toast = queryToast();
-    expect(toast?.textContent).toContain("Use the XBlocker extension popup for settings.");
-    expect(toast?.dataset["type"]).toBe("info");
-    expect(getRailButton("Open XBlocker settings").dataset["state"]).toBe("success");
+      expect(messages).toEqual([{ type: "xb-open-options" }]);
+      // No fallback toast on the happy path; the button completes in its success state.
+      expect(queryToast()).toBeNull();
+      expect(getRailButton("Open XBlocker settings").dataset["state"]).toBe("success");
+    } finally {
+      delete runtime.sendMessage;
+    }
+  });
+
+  test("RA-19 settings button falls back to a toast when the worker is unreachable", async () => {
+    const runtime = chrome.runtime as { sendMessage?: (message: unknown) => Promise<unknown> };
+    runtime.sendMessage = () => Promise.reject(new Error("worker asleep"));
+    try {
+      getRailButton("Open XBlocker settings").dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+      await settleMicrotasks();
+
+      const toast = queryToast();
+      expect(toast?.textContent).toContain(
+        "Open XBlocker settings from your browser's extensions menu.",
+      );
+      expect(toast?.dataset["type"]).toBe("info");
+      // The send rejected, so the button honestly reflects the failure.
+      expect(getRailButton("Open XBlocker settings").dataset["state"]).toBe("error");
+    } finally {
+      delete runtime.sendMessage;
+    }
   });
 });
 

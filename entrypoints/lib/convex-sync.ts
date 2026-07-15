@@ -103,8 +103,9 @@ export async function pullBlocked(): Promise<RemoteAccount[]> {
   return client().query(listBlockedRef, {});
 }
 
-/** Delete every cloud row ("delete my cloud data"). */
-export async function clearCloud(): Promise<void> {
+/** Delete every cloud row ("delete my cloud data"). Reached only through the adapter's
+ *  `clear` port below — surfaces call `adapter.clear()`, never this directly. */
+async function clearCloud(): Promise<void> {
   await client().mutation(clearOwnerRef, {});
 }
 
@@ -114,4 +115,5 @@ export const convexAdapter = {
   isConfigured: isCloudConfigured,
   push: pushOutbox,
   pull: pullBlocked,
+  clear: clearCloud,
 } satisfies CloudAdapter;

@@ -1,14 +1,19 @@
-// Catalog: SE-* (the shared one-shot cloud sync used by the popup and background) and
-// AC-* (runAutoCloudSync, THE gate every automatic sync trigger flows through).
+// Catalog: SE-* (the shared one-shot cloud sync used by the popup and background),
+// AC-* (runAutoCloudSync, THE gate every automatic sync trigger flows through), RCS-*
+// (readCloudStatus, the one "read the cloud world for display" both surfaces render
+// from), and OC-01 (the shared formatSyncAge age-line formatter, which lives here now
+// that sync-engine owns SyncMeta).
 //
 // The cloud transport is injected via the `loadAdapter` param (see docs/adr/0003), so
-// these tests build plain CloudAdapter object fakes with call recording -- no bun
-// mock.module. (The popup's own cloud-backup suite still uses mock.module; that is
-// accepted debt tracked in the ADR, not something this file should imitate.)
+// every cloud suite -- this one, the popup sync-row suite, and the options cloud pane
+// suite -- builds plain CloudAdapter object fakes with call recording. No bun
+// module-path mocking anywhere (the ADR-0003 popup-seam debt was retired 2026-07-15).
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  formatSyncAge,
   getSyncMeta,
+  readCloudStatus,
   runAutoCloudSync,
   runCloudSync,
   shouldAutoSync,
@@ -17,6 +22,7 @@ import {
   type CloudAdapter,
 } from "../entrypoints/lib/sync-engine.ts";
 import type { OutboxItem, RemoteAccount } from "../entrypoints/lib/blocked-store.ts";
+import { CLOUD_BACKUP_KEY } from "../entrypoints/lib/chrome-storage.ts";
 import { resetTestEnvironment, storageFake } from "./setup.ts";
 
 const pendingItem = (actionId: string): OutboxItem => ({
@@ -51,6 +57,9 @@ function makeAdapter(
       calls.pull += 1;
       return overrides.pull ? overrides.pull() : [];
     },
+    // The engine paths under test (runCloudSync / runAutoCloudSync / readCloudStatus)
+    // never wipe, so clear is a satisfy-the-port no-op with nothing to record.
+    async clear() {},
   };
   return { adapter, calls };
 }
@@ -221,5 +230,112 @@ describe("runAutoCloudSync", () => {
       () => Promise.resolve(adapter),
     );
     expect(outcome).toEqual({ status: "unconfigured" });
+  });
+
+  test("AC-06 onWillSync fires exactly once when a sync is due, right before the run", async () => {
+    storageFake.data["blockedOutbox"] = [pendingItem("a1")]; // pending -> a sync is due
+    const { adapter } = makeAdapter();
+    let willSync = 0;
+
+    const outcome = await runAutoCloudSync(
+      true,
+      () => 1000,
+      () => Promise.resolve(adapter),
+      () => {
+        willSync += 1;
+      },
+    );
+    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 0, at: 1000 });
+    expect(willSync).toBe(1);
+  });
+
+  test("AC-07 onWillSync is NOT called on the skipped path (fresh meta, nothing pending)", async () => {
+    storageFake.data[SYNC_META_KEY] = { lastSyncAt: 1000 }; // fresh + nothing queued -> not due
+    const { adapter } = makeAdapter();
+    let willSync = 0;
+
+    const outcome = await runAutoCloudSync(
+      true,
+      () => 1000,
+      () => Promise.resolve(adapter),
+      () => {
+        willSync += 1;
+      },
+    );
+    expect(outcome).toEqual({ status: "skipped" });
+    expect(willSync).toBe(0);
+  });
+
+  test("AC-08 onWillSync is NOT called when disabled, even with a pending action", async () => {
+    storageFake.data["blockedOutbox"] = [pendingItem("a1")]; // would be due, but disabled wins
+    const { adapter } = makeAdapter();
+    let willSync = 0;
+
+    const outcome = await runAutoCloudSync(
+      false,
+      () => 1000,
+      () => Promise.resolve(adapter),
+      () => {
+        willSync += 1;
+      },
+    );
+    expect(outcome).toEqual({ status: "skipped" });
+    expect(willSync).toBe(0);
+  });
+});
+
+describe("readCloudStatus", () => {
+  test("RCS-01 reports configured + enabled + meta + pending from the adapter and storage", async () => {
+    storageFake.data[CLOUD_BACKUP_KEY] = true;
+    storageFake.data[SYNC_META_KEY] = { lastSyncAt: 42 };
+    storageFake.data["blockedOutbox"] = [pendingItem("a1"), pendingItem("a2")];
+    const { adapter } = makeAdapter({ configured: true });
+
+    expect(await readCloudStatus(() => Promise.resolve(adapter))).toEqual({
+      configured: true,
+      enabled: true,
+      meta: { lastSyncAt: 42 },
+      pendingCount: 2,
+    });
+  });
+
+  test("RCS-02 reports unconfigured + disabled defaults against an empty store", async () => {
+    const { adapter } = makeAdapter({ configured: false });
+    expect(await readCloudStatus(() => Promise.resolve(adapter))).toEqual({
+      configured: false,
+      enabled: false,
+      meta: {},
+      pendingCount: 0,
+    });
+  });
+
+  test("RCS-03 treats any non-true cloudBackup value as disabled", async () => {
+    storageFake.data[CLOUD_BACKUP_KEY] = "yes"; // truthy but not === true
+    const { adapter } = makeAdapter();
+    expect((await readCloudStatus(() => Promise.resolve(adapter))).enabled).toBe(false);
+  });
+
+  test("RCS-04 the default loadAdapter falls back to the real convex-sync module (unconfigured, no network)", async () => {
+    // No explicit loadAdapter -> exercises the default `loadConvexAdapter`. Force the
+    // deployment URL unset so the real adapter's isConfigured() is false and the read
+    // returns before any network I/O (mirrors SE-08).
+    const originalUrl = process.env["VITE_CONVEX_URL"];
+    delete process.env["VITE_CONVEX_URL"];
+    try {
+      expect((await readCloudStatus()).configured).toBe(false);
+    } finally {
+      if (originalUrl !== undefined) process.env["VITE_CONVEX_URL"] = originalUrl;
+    }
+  });
+});
+
+describe("formatSyncAge", () => {
+  test("OC-01 formats never/just-now/minutes/hours/days", () => {
+    const now = 10 * 24 * 60 * 60_000;
+    expect(formatSyncAge({}, now)).toBe("Never synced.");
+    expect(formatSyncAge({ lastSyncAt: now - 10_000 }, now)).toBe("Synced just now.");
+    expect(formatSyncAge({ lastSyncAt: now - 5 * 60_000 }, now)).toBe("Synced 5m ago.");
+    expect(formatSyncAge({ lastSyncAt: now - 3 * 60 * 60_000 }, now)).toBe("Synced 3h ago.");
+    expect(formatSyncAge({ lastSyncAt: now - 2 * 24 * 60 * 60_000 }, now)).toBe("Synced 2d ago.");
   });
 });

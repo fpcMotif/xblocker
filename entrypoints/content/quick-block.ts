@@ -21,6 +21,9 @@ import {
 import { createActionButton } from "./buttons";
 import { detectTheme } from "./theme";
 import { showToast } from "./toast";
+// X's DOM vocabulary (the confirmation-sheet confirm selector + block/mute intent
+// classification) lives in one module so it can never drift per surface.
+import { CONFIRMATION_SHEET_CONFIRM_SELECTOR, intentFromClick } from "./x-dom";
 
 export type QuickBlockMode = "inline" | "auto-confirm" | "off";
 
@@ -42,34 +45,6 @@ const CONSOLE_CLASS = "xb-console";
 // leave an intent armed that then auto-confirms a later destructive sheet (delete, log
 // out). The short window is only a backstop for the rare no-intervening-click case.
 const AUTO_CONFIRM_WINDOW_MS = 2000;
-
-// X localizes its menu labels and does not put a stable testid on every menu item, so
-// detect the Block/Mute item by testid first, then fall back to the menu item's accessible
-// text in the locales we support (English + the zh-Hant/zh-Hans UIs). Matching is
-// substring + case-insensitive against aria-label and text content.
-const BLOCK_LABELS = ["block", "封鎖", "封锁", "屏蔽"];
-const MUTE_LABELS = ["mute", "靜音", "静音"];
-
-function intentFromClick(target: Element): DirectActionType | null {
-  if (target.closest('[data-testid="block"]')) {
-    return "block";
-  }
-  if (target.closest('[data-testid="mute"]')) {
-    return "mute";
-  }
-  const item = target.closest('[role="menuitem"]');
-  if (!item) {
-    return null;
-  }
-  const label = `${item.getAttribute("aria-label") ?? ""} ${item.textContent ?? ""}`.toLowerCase();
-  if (BLOCK_LABELS.some((term) => label.includes(term))) {
-    return "block";
-  }
-  if (MUTE_LABELS.some((term) => label.includes(term))) {
-    return "mute";
-  }
-  return null;
-}
 
 /** Validate an arbitrary flag value, falling back to the default mode. */
 export function normalizeQuickBlockMode(raw: unknown): QuickBlockMode {
@@ -109,7 +84,7 @@ export class QuickBlock {
     if (intent) {
       this.pendingNativeAction = { kind: intent, at: this.now() };
       this.startSheetWatch();
-    } else if (!target.closest('[data-testid="confirmationSheetConfirm"]')) {
+    } else if (!target.closest(CONFIRMATION_SHEET_CONFIRM_SELECTOR)) {
       // Any other click -- cancelling the sheet, opening a different menu, or a
       // sheet-less mute followed by some unrelated action -- means the user moved on.
       // Drop the intent so it can never auto-confirm a later, foreign sheet (delete
@@ -287,7 +262,7 @@ export class QuickBlock {
   }
 
   private tryAutoConfirm(): void {
-    const confirm = document.querySelector('[data-testid="confirmationSheetConfirm"]');
+    const confirm = document.querySelector(CONFIRMATION_SHEET_CONFIRM_SELECTOR);
     if (!(confirm instanceof HTMLElement) || confirm.dataset.xbAutoConfirmed === "true") {
       return;
     }

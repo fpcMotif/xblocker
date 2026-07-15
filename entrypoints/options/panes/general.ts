@@ -2,43 +2,26 @@
 // persisted under the popup's existing 4-key settings blob (SETTINGS_KEY) so this page and
 // the popup read/write the exact same storage shape.
 
-import { storageGet, storageSet, SETTINGS_KEY } from "../../lib/chrome-storage";
-import { clampMaxReplies, DEFAULT_MAX_REPLIES, MAX_REPLIES_LIMIT } from "../../lib/settings";
+import { storageSet, SETTINGS_KEY } from "../../lib/chrome-storage";
+import {
+  clampMaxReplies,
+  MAX_REPLIES_LIMIT,
+  normalizeSettings,
+  readSettings,
+  type Settings,
+} from "../../lib/settings";
 import { watchStorage } from "../storage-watch";
-
-export type GeneralSettings = {
-  protectWhitelist: boolean;
-  confirmDestructiveActions: boolean;
-  keyboardMode: boolean;
-  maxReplies: number;
-};
-
-const DEFAULT_SETTINGS: GeneralSettings = {
-  protectWhitelist: true,
-  confirmDestructiveActions: true,
-  keyboardMode: false,
-  maxReplies: DEFAULT_MAX_REPLIES,
-};
 
 type BooleanSettingKey = "protectWhitelist" | "confirmDestructiveActions" | "keyboardMode";
 
-/** Merge a raw storage value onto the defaults, same spread-then-clamp shape popup/main.ts
- *  uses, so both surfaces normalize a partial/garbage blob identically. */
-export function normalizeGeneralSettings(stored: unknown): GeneralSettings {
-  const partial = typeof stored === "object" && stored !== null ? stored : {};
-  const merged = { ...DEFAULT_SETTINGS, ...partial } as GeneralSettings;
-  merged.maxReplies = clampMaxReplies(merged.maxReplies);
-  return merged;
-}
-
-function saveSettings(settings: GeneralSettings): void {
+function saveSettings(settings: Settings): void {
   void storageSet({ [SETTINGS_KEY]: settings });
 }
 
 type PaneHandle = { destroy(): void };
 
 export async function renderGeneralPane(container: HTMLElement): Promise<PaneHandle> {
-  const settings = normalizeGeneralSettings(await storageGet<unknown>(SETTINGS_KEY));
+  const settings = await readSettings();
 
   const wrapper = document.createElement("div");
   wrapper.className = "xb-opt-pane-form";
@@ -62,7 +45,11 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
       "Protect whitelist",
       "Whitelisted handles are skipped during bulk actions.",
     ],
-    ["confirmDestructiveActions", "Confirm destructive actions", "Ask before block or mute runs."],
+    [
+      "confirmDestructiveActions",
+      "Confirm destructive actions",
+      "Ask before removing whitelist entries.",
+    ],
     ["keyboardMode", "Keyboard mode", "Reserved for upcoming j/k navigation in the reply rail."],
   ];
 
@@ -154,7 +141,7 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
     if (areaName !== "local") return;
     const change = changes[SETTINGS_KEY];
     if (!change) return;
-    const next = normalizeGeneralSettings(change.newValue);
+    const next = normalizeSettings(change.newValue);
     settings.protectWhitelist = next.protectWhitelist;
     settings.confirmDestructiveActions = next.confirmDestructiveActions;
     settings.keyboardMode = next.keyboardMode;
