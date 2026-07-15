@@ -4,41 +4,51 @@
 // settings page); it only ever observes the stored `cloudBackup` flag and offers the one
 // action that is actually available for the state it finds.
 //
-// convex-sync talks to a live Convex deployment (see its header) and is intentionally
-// excluded from unit tests. We mock it at the popup boundary so the popup's sync wiring
-// is exercised without pulling in the real adapter. There is no auth in this flow.
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+// The popup takes the cloud transport as a `loadAdapter` port (ADR-0003), so these tests
+// inject a plain CloudAdapter fake with call recording instead of the live Convex module —
+// no bun module-path mocking. There is no auth in this flow.
+import { beforeEach, describe, expect, test } from "bun:test";
 
-type OutboxLike = { action: { actionId: string } };
+import type { OutboxItem, RemoteAccount } from "../../entrypoints/lib/blocked-store.ts";
+import type { CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
+import { renderPopup, type RenderPopupOptions } from "../../entrypoints/popup/main.ts";
+import { resetTestEnvironment, storageFake } from "../setup.ts";
 
-let configured: boolean;
-let pushOutboxImpl: (items: OutboxLike[]) => Promise<string[]>;
-let pullBlockedImpl: () => Promise<unknown[]>;
-let calls: { push: number; pull: number };
-
-await mock.module("../../entrypoints/lib/convex-sync", () => {
-  const isCloudConfigured = () => configured;
-  const pushOutbox = async (items: OutboxLike[]) => {
-    calls.push += 1;
-    return pushOutboxImpl(items);
+/** A plain CloudAdapter fake with per-method call counts and swappable impls, standing in
+ *  for the popup's `loadAdapter` port (what the old module-path mock used to fake). */
+function makeFakeAdapter() {
+  const calls = { push: 0, pull: 0, clear: 0 };
+  const state = {
+    configured: true,
+    push: async (items: OutboxItem[]): Promise<string[]> =>
+      items.map((item) => item.action.actionId),
+    pull: async (): Promise<RemoteAccount[]> => [],
+    clear: async (): Promise<void> => {},
   };
-  const pullBlocked = async () => {
-    calls.pull += 1;
-    return pullBlockedImpl();
+  const adapter: CloudAdapter = {
+    isConfigured: () => state.configured,
+    push: async (items) => {
+      calls.push += 1;
+      return state.push(items);
+    },
+    pull: async () => {
+      calls.pull += 1;
+      return state.pull();
+    },
+    clear: async () => {
+      calls.clear += 1;
+      return state.clear();
+    },
   };
-  return {
-    isCloudConfigured,
-    pushOutbox,
-    pullBlocked,
-    // Mirror the real module's adapter export: sync-engine's default loadAdapter
-    // destructures `convexAdapter`, and this mock is process-global, so a full-suite
-    // run must expose the same shape or that path crashes (see docs/adr/0003).
-    convexAdapter: { isConfigured: isCloudConfigured, push: pushOutbox, pull: pullBlocked },
-  };
-});
+  return { adapter, calls, state };
+}
 
-const { renderPopup } = await import("../../entrypoints/popup/main.ts");
-const { resetTestEnvironment, storageFake } = await import("../setup.ts");
+let fake: ReturnType<typeof makeFakeAdapter>;
+
+/** Render the popup with the fake adapter injected as its cloud port. */
+function render(opts: Omit<RenderPopupOptions, "loadAdapter"> = {}): Promise<void> {
+  return renderPopup(document.body, { ...opts, loadAdapter: async () => fake.adapter });
+}
 
 /** Drain the microtask/macrotask queue so the fire-and-forget mount-time sync handler
  *  (and any click-triggered one) settles before assertions run. */
@@ -87,30 +97,21 @@ function outboxItem(actionId: string): unknown {
   };
 }
 
-// mock.module is process-global; restore it so a later test file that triggers sync
-// binds to the real adapter rather than this fake.
-afterAll(() => {
-  mock.restore();
-});
-
 describe("popup cloud sync row", () => {
   beforeEach(() => {
     resetTestEnvironment();
-    configured = true;
-    pushOutboxImpl = async (items) => items.map((item) => item.action.actionId);
-    pullBlockedImpl = async () => [];
-    calls = { push: 0, pull: 0 };
+    fake = makeFakeAdapter();
   });
 
   test("PU-CB-01 backup on with a queued outbox auto-syncs on open, draining the outbox", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["blockedOutbox"] = [outboxItem("a1")];
 
-    await renderPopup(document.body);
+    await render();
     await flush();
 
-    expect(calls.push).toBe(1);
-    expect(calls.pull).toBe(1);
+    expect(fake.calls.push).toBe(1);
+    expect(fake.calls.pull).toBe(1);
     expect(storageFake.data["blockedOutbox"]).toEqual([]);
     expect(telltaleState()).toBe("idle");
     expect(syncTitle()).toBe("Backup on");
@@ -124,11 +125,11 @@ describe("popup cloud sync row", () => {
       opened += 1;
     };
 
-    await renderPopup(document.body);
+    await render();
     await flush();
 
-    expect(calls.push).toBe(0);
-    expect(calls.pull).toBe(0);
+    expect(fake.calls.push).toBe(0);
+    expect(fake.calls.pull).toBe(0);
     expect(telltaleState()).toBe("off");
     expect(syncTitle()).toBe("Backup off");
     expect(syncDetail()).toBe("Turn on in settings.");
@@ -138,8 +139,8 @@ describe("popup cloud sync row", () => {
     turnOnLink()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     expect(opened).toBe(1);
-    expect(calls.push).toBe(0);
-    expect(calls.pull).toBe(0);
+    expect(fake.calls.push).toBe(0);
+    expect(fake.calls.pull).toBe(0);
 
     delete (chrome.runtime as { openOptionsPage?: () => void }).openOptionsPage;
   });
@@ -148,11 +149,11 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
 
-    await renderPopup(document.body);
+    await render();
     await flush();
 
-    expect(calls.push).toBe(0);
-    expect(calls.pull).toBe(0);
+    expect(fake.calls.push).toBe(0);
+    expect(fake.calls.pull).toBe(0);
     expect(telltaleState()).toBe("idle");
     expect(syncTitle()).toBe("Backup on");
     expect(syncDetail()).toBe("Synced just now.");
@@ -161,41 +162,41 @@ describe("popup cloud sync row", () => {
   test("PU-CB-04 clicking 'Sync now' pushes and pulls, then reports the fresh sync", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
-    await renderPopup(document.body);
+    await render();
     await flush();
 
     syncButton()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
-    expect(calls.push).toBe(0); // nothing queued -> no push round-trip
-    expect(calls.pull).toBe(1);
+    expect(fake.calls.push).toBe(0); // nothing queued -> no push round-trip
+    expect(fake.calls.pull).toBe(1);
     expect(telltaleState()).toBe("idle");
     expect(syncDetail()).toBe("Synced just now.");
   });
 
   test("PU-CB-05 an unconfigured build shows plain 'Not configured' text and never syncs", async () => {
-    configured = false;
+    fake.state.configured = false;
     storageFake.data["cloudBackup"] = true;
     storageFake.data["blockedOutbox"] = [outboxItem("a1")];
 
-    await renderPopup(document.body);
+    await render();
     await flush();
 
     expect(telltaleState()).toBe("unconfigured");
     expect(unconfiguredNote()?.textContent).toBe("Not configured");
     expect(syncButton()).toBeNull();
     expect(turnOnLink()).toBeNull();
-    expect(calls.push).toBe(0);
-    expect(calls.pull).toBe(0);
+    expect(fake.calls.push).toBe(0);
+    expect(fake.calls.pull).toBe(0);
   });
 
   test("PU-CB-06 a 'Sync now' failure surfaces the error telltale and retry copy", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
-    await renderPopup(document.body);
+    await render();
     await flush();
 
-    pullBlockedImpl = async () => {
+    fake.state.pull = async () => {
       throw new Error("button boom");
     };
     syncButton()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -212,11 +213,11 @@ describe("popup cloud sync row", () => {
   test("PU-CB-07 an auto-sync failure on open surfaces as the error state", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["blockedOutbox"] = [outboxItem("a1")];
-    pullBlockedImpl = async () => {
+    fake.state.pull = async () => {
       throw new Error("open boom");
     };
 
-    await renderPopup(document.body);
+    await render();
     await flush();
 
     expect(telltaleState()).toBe("error");
@@ -228,22 +229,22 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() - 16 * 60_000 };
 
-    await renderPopup(document.body);
+    await render();
     await flush();
 
-    expect(calls.push).toBe(0); // nothing queued -> no push round-trip
-    expect(calls.pull).toBe(1);
+    expect(fake.calls.push).toBe(0); // nothing queued -> no push round-trip
+    expect(fake.calls.pull).toBe(1);
     expect(telltaleState()).toBe("idle");
   });
 
   test("PU-CB-09 the telltale dot carries a live 'syncing' state mid-flight, then resolves", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
-    await renderPopup(document.body);
+    await render();
     await flush();
 
-    let resolvePull: ((rows: unknown[]) => void) | undefined;
-    pullBlockedImpl = () =>
+    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
+    fake.state.pull = () =>
       new Promise((resolve) => {
         resolvePull = resolve;
       });
@@ -277,10 +278,10 @@ describe("popup cloud sync row", () => {
     // honest state rather than claiming success.
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
-    await renderPopup(document.body);
+    await render();
     await flush();
 
-    configured = false;
+    fake.state.configured = false;
     syncButton()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
@@ -295,26 +296,26 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
 
-    let resolvePull: ((rows: unknown[]) => void) | undefined;
-    pullBlockedImpl = () =>
+    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
+    fake.state.pull = () =>
       new Promise((resolve) => {
         resolvePull = resolve;
       });
 
     // No flush() here on purpose: renderPopup's own promise resolves once the row is
     // built (its mount-time auto-sync IIFE is fire-and-forget and still in flight,
-    // suspended on its dynamic convex-sync import) — the "Sync now" button already
-    // exists and is enabled at this point.
-    await renderPopup(document.body);
+    // suspended on its readCloudStatus read) — the "Sync now" button already exists and
+    // is enabled at this point.
+    await render();
 
     syncButton()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     // setState("syncing") runs synchronously in the click handler, same as PU-CB-09.
     expect(telltaleState()).toBe("syncing");
 
-    // Let the mount IIFE run to completion: dynamic import -> isCloudConfigured ->
-    // blockedStore.pending()/getSyncMeta() -> shouldAutoSync() false -> its idle
-    // branch. The manual sync (blocked on our controlled pull) is still mid-flight.
+    // Let the mount IIFE run to completion: readCloudStatus -> configured + enabled ->
+    // runAutoCloudSync() reports nothing due (skipped) -> its idle branch. The manual
+    // sync (blocked on our controlled pull) is still mid-flight and owns the row.
     await flush();
 
     expect(telltaleState()).toBe("syncing");
@@ -333,7 +334,7 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
 
-    await renderPopup(document.body);
+    await render();
     await flush();
 
     const copy = syncRow().querySelector<HTMLElement>(".xb-sync-copy");
@@ -341,5 +342,66 @@ describe("popup cloud sync row", () => {
     expect(copy?.getAttribute("aria-atomic")).toBe("true");
     // The telltale dot itself stays a purely decorative signal.
     expect(syncRow().querySelector(".xb-telltale")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  test("PU-CB-13 an auto-sync whose adapter goes unconfigured between the status read and the sync lands on unconfigured", async () => {
+    // Auto-path twin of PU-CB-10: the mount-time readCloudStatus sees a configured build
+    // (so it proceeds past the gate), but runAutoCloudSync -> runCloudSync re-checks the
+    // adapter's own isConfigured() and finds it gone. The row must land on the honest
+    // unconfigured state, not silently claim an idle sync.
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["blockedOutbox"] = [outboxItem("a1")]; // a pending action makes a sync due
+
+    let checks = 0;
+    const racyAdapter: CloudAdapter = {
+      ...fake.adapter,
+      isConfigured: () => {
+        checks += 1;
+        return checks === 1; // configured for the mount read, gone by sync time
+      },
+    };
+
+    await renderPopup(document.body, { loadAdapter: async () => racyAdapter });
+    await flush();
+
+    expect(telltaleState()).toBe("unconfigured");
+    expect(unconfiguredNote()?.textContent).toBe("Not configured");
+    expect(syncButton()).toBeNull();
+    expect(fake.calls.push).toBe(0);
+    expect(fake.calls.pull).toBe(0);
+  });
+
+  test("PU-CB-14 a genuinely-due open-time auto-sync shows the busy state mid-flight, then resolves idle", async () => {
+    // Regression guard: with backup on and an action queued, the mount IIFE's
+    // runAutoCloudSync gate finds a sync due and — via its onWillSync hook — flips the row
+    // to "syncing" the instant the real run starts, disabling "Sync now". Before the hook,
+    // this window rendered the stale optimistic "idle" state with the button still enabled.
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["blockedOutbox"] = [outboxItem("a1")]; // pending -> a sync is due
+
+    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
+    fake.state.pull = () =>
+      new Promise((resolve) => {
+        resolvePull = resolve;
+      });
+
+    await render();
+    // Let the IIFE run through readCloudStatus -> runAutoCloudSync (onWillSync fires
+    // "syncing") -> runCloudSync push, then block on our deferred pull.
+    await flush();
+
+    expect(telltaleState()).toBe("syncing");
+    expect(syncTitle()).toBe("Backup on");
+    expect(syncDetail()).toBe("Syncing…");
+    expect(syncButton()!.disabled).toBe(true);
+    expect(syncButton()!.textContent).toContain("Syncing…");
+
+    resolvePull?.([]);
+    await flush();
+
+    expect(telltaleState()).toBe("idle");
+    expect(syncDetail()).toBe("Synced just now.");
+    expect(syncButton()!.disabled).toBe(false);
+    expect(syncButton()!.textContent).toContain("Sync now");
   });
 });

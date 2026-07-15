@@ -114,4 +114,5 @@ export const convexAdapter = {
   isConfigured: isCloudConfigured,
   push: pushOutbox,
   pull: pullBlocked,
+  clear: clearCloud,
 } satisfies CloudAdapter;

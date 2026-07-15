@@ -45,7 +45,11 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
       "Protect whitelist",
       "Whitelisted handles are skipped during bulk actions.",
     ],
-    ["confirmDestructiveActions", "Confirm destructive actions", "Ask before block or mute runs."],
+    [
+      "confirmDestructiveActions",
+      "Confirm destructive actions",
+      "Ask before removing whitelist entries.",
+    ],
     ["keyboardMode", "Keyboard mode", "Reserved for upcoming j/k navigation in the reply rail."],
   ];
 
