@@ -13,35 +13,14 @@ import {
 } from "../lib/design-tokens";
 import { createIcon } from "../lib/icons";
 import { createLiveNumber, type LiveNumber, type LiveNumberClock } from "../lib/live-number";
-import { clampMaxReplies, DEFAULT_MAX_REPLIES } from "../lib/settings";
+import { readSettings, type Settings } from "../lib/settings";
 import { getSyncMeta, runCloudSync, shouldAutoSync, type SyncMeta } from "../lib/sync-engine";
 import { getWhitelist } from "../lib/whitelist-store";
 
-type PopupSettings = {
-  confirmDestructiveActions: boolean;
-  keyboardMode: boolean;
-  maxReplies: number;
-  protectWhitelist: boolean;
-};
-
-// keyboardMode and maxReplies have no row in this popup (keyboardMode is reserved for
-// future j/k navigation; maxReplies moved to the settings page) but both stay in the
-// schema so the stored settings blob shape is unchanged for other readers.
-const DEFAULT_SETTINGS: PopupSettings = {
-  confirmDestructiveActions: true,
-  keyboardMode: false,
-  maxReplies: DEFAULT_MAX_REPLIES,
-  protectWhitelist: true,
-};
-
-async function getStoredSettings(): Promise<PopupSettings> {
-  const stored = await storageGet<Partial<PopupSettings>>(SETTINGS_KEY);
-  const settings: PopupSettings = { ...DEFAULT_SETTINGS, ...stored };
-  settings.maxReplies = clampMaxReplies(settings.maxReplies);
-  return settings;
-}
-
-function saveSettings(settings: PopupSettings): void {
+// The popup renders rows for only two of the four settings keys (keyboardMode is reserved
+// for future j/k navigation; maxReplies lives on the settings page) but always round-trips
+// the whole Settings blob, so a save here never drops the fields other readers depend on.
+function saveSettings(settings: Settings): void {
   void storageSet({ [SETTINGS_KEY]: settings });
 }
 
@@ -591,7 +570,7 @@ function buildToggleRow(
   return row;
 }
 
-function buildToggles(settings: PopupSettings): HTMLElement {
+function buildToggles(settings: Settings): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "xb-region xb-toggles";
 
@@ -782,7 +761,7 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
   ensurePopupStyles();
 
   const [settings, whitelist, cloudBackupEnabled, stats] = await Promise.all([
-    getStoredSettings(),
+    readSettings(),
     getWhitelist(),
     storageGet<boolean>(CLOUD_BACKUP_KEY).then((value) => value === true),
     blockedStore.stats(),

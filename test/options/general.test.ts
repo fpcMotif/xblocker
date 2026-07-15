@@ -1,10 +1,8 @@
 // Catalog: OG-* (General pane: switches, max-replies slider/number pair, live storage sync).
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  normalizeGeneralSettings,
-  renderGeneralPane,
-} from "../../entrypoints/options/panes/general.ts";
+import { renderGeneralPane } from "../../entrypoints/options/panes/general.ts";
+import { normalizeSettings } from "../../entrypoints/lib/settings.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 
 function switchInput(index: number): HTMLInputElement {
@@ -64,16 +62,16 @@ function installFakeOnChanged(): {
   };
 }
 
-describe("normalizeGeneralSettings", () => {
+describe("normalizeSettings", () => {
   test("OG-01 merges a partial/garbage stored value onto the defaults and clamps maxReplies", () => {
-    expect(normalizeGeneralSettings(undefined)).toEqual({
+    expect(normalizeSettings(undefined)).toEqual({
       protectWhitelist: true,
       confirmDestructiveActions: true,
       keyboardMode: false,
       maxReplies: 50,
     });
-    expect(normalizeGeneralSettings({ maxReplies: 99999 }).maxReplies).toBe(200);
-    expect(normalizeGeneralSettings("garbage")).toEqual({
+    expect(normalizeSettings({ maxReplies: 99999 }).maxReplies).toBe(200);
+    expect(normalizeSettings("garbage")).toEqual({
       protectWhitelist: true,
       confirmDestructiveActions: true,
       keyboardMode: false,
