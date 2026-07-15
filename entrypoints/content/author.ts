@@ -3,6 +3,10 @@
 // same reply <article> markup: extraction resolves who a reply is from, the boundary
 // decides which articles are genuine replies at all.
 import { normalizeUsername } from "../lib/settings";
+// The reply-<article> selector is shared X vocabulary (x-dom.ts); the tweetText / quote /
+// socialContext selectors below stay module-private — they are author-extraction region
+// policy, not vocabulary other surfaces match against.
+import { TWEET_ARTICLE_SELECTOR } from "./x-dom";
 
 // One reply <article> holds several handle-shaped links, so the old "first
 // /handle link wins" scan mis-attributes the author: a "<x> reposted"
@@ -125,7 +129,7 @@ function isBeforeDiscoverMore(node: Element, boundary: Element | null): boolean 
  *  injection) compute the set once instead of re-scanning per article. */
 export function getConversationReplies(): Element[] {
   const boundary = findDiscoverMoreBoundary();
-  const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+  const articles = Array.from(document.querySelectorAll(TWEET_ARTICLE_SELECTOR));
   return articles.slice(1).filter((article) => isBeforeDiscoverMore(article, boundary));
 }
 
@@ -136,10 +140,10 @@ export function countConversationReplies(): number {
 }
 
 export function isReplyArticle(article: Element): boolean {
-  if (!article.matches('article[data-testid="tweet"]')) {
+  if (!article.matches(TWEET_ARTICLE_SELECTOR)) {
     return false;
   }
-  const articles = document.querySelectorAll('article[data-testid="tweet"]');
+  const articles = document.querySelectorAll(TWEET_ARTICLE_SELECTOR);
   if (articles.length === 0 || articles[0] === article) {
     return false;
   }

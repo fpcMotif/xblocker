@@ -16,6 +16,18 @@ import {
 } from "./lib/background-sync";
 import { runAutoCloudSync } from "./lib/sync-engine";
 
+// The reply rail's settings button lives in a content script, which cannot call
+// chrome.runtime.openOptionsPage; it posts this message and the worker opens the page.
+const OPEN_OPTIONS_MESSAGE_TYPE = "xb-open-options";
+
+function isOpenOptionsMessage(message: unknown): boolean {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    Reflect.get(message, "type") === OPEN_OPTIONS_MESSAGE_TYPE
+  );
+}
+
 export function startBackgroundSync(): void {
   const scheduler = createBackgroundSyncScheduler({
     isEnabled: readCloudBackupEnabled,
@@ -31,6 +43,13 @@ export function startBackgroundSync(): void {
   void chrome.alarms?.create(PERIODIC_SYNC_ALARM, { periodInMinutes: PERIODIC_SYNC_MINUTES });
   chrome.alarms?.onAlarm.addListener((alarm) => {
     scheduler.onAlarm(alarm.name);
+  });
+
+  // The content-script rail cannot open the options page itself, so it asks the worker to.
+  chrome.runtime.onMessage.addListener((message: unknown) => {
+    if (isOpenOptionsMessage(message)) {
+      void chrome.runtime.openOptionsPage();
+    }
   });
 }
 

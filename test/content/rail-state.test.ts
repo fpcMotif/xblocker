@@ -9,9 +9,13 @@
 // §§ States, Motion, Reply-mode detection.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { batchState } from "../../entrypoints/content/actions.ts";
 import { FOLLOW_FACTOR, lerp, VIEWPORT_MARGIN } from "../../entrypoints/content/position.ts";
-import { COLLAPSE_GRACE_MS, DWELL_MS, ReplyRail } from "../../entrypoints/content/rail.ts";
+import {
+  COLLAPSE_GRACE_MS,
+  DWELL_MS,
+  ReplyRail,
+  type ReplyRailOptions,
+} from "../../entrypoints/content/rail.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 
@@ -133,8 +137,8 @@ function stubRailSize(root: HTMLElement): void {
   Object.defineProperty(root, "offsetHeight", { configurable: true, value: RAIL_HEIGHT });
 }
 
-function setupRail(): ReplyRail {
-  const instance = new ReplyRail();
+function setupRail(options?: ReplyRailOptions): ReplyRail {
+  const instance = new ReplyRail(options);
   stubRailSize(instance.root);
   instance.mount();
   rail = instance;
@@ -217,7 +221,6 @@ describe("ReplyRail state machine", () => {
     rail = null;
     timers?.uninstall();
     timers = null;
-    batchState.running = false;
     if (viewportOverridden) {
       setViewportHeight(DEFAULT_VIEWPORT_HEIGHT);
       setViewportWidth(DEFAULT_VIEWPORT_WIDTH);
@@ -678,13 +681,17 @@ describe("ReplyRail state machine", () => {
   });
 
   test("RS-20 a running batch pins the rail settled until the batch ends", () => {
-    const instance = setupRail();
+    // Inject the batch-running flag rather than forcing a module global: the rail reads
+    // isBatchRunning() on every mousemove, so flipping this closure variable drives the
+    // pinned branch without a live batch (and nothing leaks into sibling tests).
+    let batchRunning = false;
+    const instance = setupRail({ isBatchRunning: () => batchRunning });
     const reply = mountReply("alice");
 
     moveOver(instance, reply, 300, 400);
     expect(instance.getState().state).toBe("tracking");
 
-    batchState.running = true;
+    batchRunning = true;
     moveOver(instance, reply, 300, 500);
     expect(instance.getState().state).toBe("settled");
     expect(instance.root.dataset["state"]).toBe("settled");
@@ -692,7 +699,7 @@ describe("ReplyRail state machine", () => {
     moveOver(instance, reply, 300, 600); // still pinned mid-batch
     expect(instance.getState().state).toBe("settled");
 
-    batchState.running = false;
+    batchRunning = false;
     moveOver(instance, reply, 300, 650);
     expect(instance.getState().state).toBe("tracking");
   });

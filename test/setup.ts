@@ -173,7 +173,15 @@ export class FakeChromeStorageArea {
 export const storageFake = new FakeChromeStorageArea();
 
 g.chrome = {
-  runtime: { lastError: undefined },
+  // onMessage is a no-op by default so the background worker's message wiring
+  // (startBackgroundSync) can register without a stub; tests that assert on it install
+  // their own capturing fake. openOptionsPage/sendMessage are intentionally ABSENT here —
+  // the popup probes openOptionsPage's absence (PU-17) and rail/background tests install
+  // their own per-case.
+  runtime: {
+    lastError: undefined,
+    onMessage: { addListener: () => {}, removeListener: () => {} },
+  },
   storage: {
     local: {
       get: (keys: StorageGetKeys, callback: StorageGetCallback) => storageFake.get(keys, callback),
