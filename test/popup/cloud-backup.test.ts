@@ -376,4 +376,21 @@ describe("popup cloud sync row", () => {
     expect(syncButton()!.disabled).toBe(false);
     expect(syncButton()!.textContent).toContain("Sync now");
   });
+
+  test("PU-CB-15 opening the popup reads the outbox and sync meta from storage exactly once", async () => {
+    // Regression guard for the snapshot threading: readCloudStatus's one read of
+    // pending + meta is handed to runAutoCloudSync as its pre-read snapshot, so the
+    // open path must not read either key again for the gate (it used to read each
+    // twice — once for display, once inside the gate).
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() }; // fresh -> no sync due
+
+    await render();
+    await flush();
+
+    const readsOf = (key: string): number =>
+      storageFake.getCalls.filter((keys) => keys === key).length;
+    expect(readsOf("blockedOutbox")).toBe(1);
+    expect(readsOf("cloudSyncMeta")).toBe(1);
+  });
 });

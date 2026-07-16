@@ -38,6 +38,19 @@ export const SYNC_STALE_MS = 15 * 60 * 1000;
 
 export type SyncMeta = { lastSyncAt?: number };
 
+/**
+ * One point-in-time read of the sync inputs (pending outbox + last-sync meta).
+ * `runAutoCloudSync` accepts it pre-read so a surface that just fetched both for display
+ * (the popup, via `readCloudStatus`) doesn't pay the same storage reads again; anything
+ * recorded after the snapshot simply stays pending and rides the next trigger.
+ */
+export type SyncSnapshot = { pending: OutboxItem[]; meta: SyncMeta };
+
+async function readSyncSnapshot(): Promise<SyncSnapshot> {
+  const [pending, meta] = await Promise.all([blockedStore.pending(), getSyncMeta()]);
+  return { pending, meta };
+}
+
 export type SyncOutcome =
   | { status: "unconfigured" }
   | { status: "synced"; pushed: number; pulled: number; at: number };
@@ -71,17 +84,26 @@ export function shouldAutoSync(
   return typeof meta.lastSyncAt !== "number" || now - meta.lastSyncAt > SYNC_STALE_MS;
 }
 
-/** Push pending outbox actions, pull + merge remote accounts, stamp lastSyncAt. */
+/**
+ * Push pending outbox actions, pull + merge remote accounts, stamp lastSyncAt.
+ *
+ * `preReadPending` lets a caller that already holds a just-read outbox (the auto-sync
+ * gate below) hand it over instead of forcing a second storage read here. Pass it only
+ * when freshly read: `markSynced` drops entries by action id, so a slightly-stale list
+ * can never corrupt the outbox — an action recorded in between just waits for the next
+ * trigger. Manual "Sync now" paths omit it and read fresh at click time.
+ */
 export async function runCloudSync(
   now: () => number = Date.now,
   loadAdapter: () => Promise<CloudAdapter> = loadConvexAdapter,
+  preReadPending?: OutboxItem[],
 ): Promise<SyncOutcome> {
   const adapter = await loadAdapter();
   if (!adapter.isConfigured()) {
     return { status: "unconfigured" };
   }
 
-  const pending = await blockedStore.pending();
+  const pending = preReadPending ?? (await blockedStore.pending());
   if (pending.length > 0) {
     const synced = await adapter.push(pending);
     await blockedStore.markSynced(synced);
@@ -108,19 +130,27 @@ export async function runCloudSync(
  * policy the gate already owns. It fires *before* the adapter loads, so the run may still
  * resolve `unconfigured`; it never fires on the `skipped` path (and so trivially cannot
  * fire when the outcome is skipped-because-disabled).
+ *
+ * `snapshot` is the pre-read escape hatch: the popup already read pending + meta for its
+ * initial render (`readCloudStatus`) and passes them straight in, so opening the popup
+ * costs one storage read of each, not two. Callers without a fresh read (the background
+ * worker) omit it and the gate reads for itself. Either way the gate's pending list is
+ * threaded through to `runCloudSync`, which therefore never re-reads the outbox on an
+ * automatic sync.
  */
 export async function runAutoCloudSync(
   enabled: boolean,
   now: () => number = Date.now,
   loadAdapter: () => Promise<CloudAdapter> = loadConvexAdapter,
   onWillSync?: () => void,
+  snapshot?: SyncSnapshot,
 ): Promise<SyncOutcome | { status: "skipped" }> {
-  const [pending, meta] = await Promise.all([blockedStore.pending(), getSyncMeta()]);
+  const { pending, meta } = snapshot ?? (await readSyncSnapshot());
   if (!shouldAutoSync(enabled, pending.length, meta, now())) {
     return { status: "skipped" };
   }
   onWillSync?.();
-  return runCloudSync(now, loadAdapter);
+  return runCloudSync(now, loadAdapter, pending);
 }
 
 /**
@@ -141,35 +171,33 @@ export function formatSyncAge(meta: SyncMeta, now: number): string {
 
 /**
  * The storage half of a surface's cloud display: whether backup is switched on
- * (`CLOUD_BACKUP_KEY === true`), the last-sync meta, and the pending-outbox depth. Reads no
- * adapter, so a surface that already holds a configured adapter (the settings pane, which
- * must load it up front for the wipe action) reuses this without re-loading or re-checking
- * it. `readCloudStatus` layers the adapter's `configured` on top for surfaces that don't.
+ * (`CLOUD_BACKUP_KEY === true`) plus the `SyncSnapshot` (last-sync meta + pending outbox —
+ * the items themselves, so the same read can be counted for display AND handed to
+ * `runAutoCloudSync` as its pre-read snapshot). Reads no adapter, so a surface that already
+ * holds a configured adapter (the settings pane, which must load it up front for the wipe
+ * action) reuses this without re-loading or re-checking it. `readCloudStatus` layers the
+ * adapter's `configured` on top for surfaces that don't.
  */
-export async function readCloudDisplayState(): Promise<{
-  enabled: boolean;
-  meta: SyncMeta;
-  pendingCount: number;
-}> {
-  const [enabled, meta, pending] = await Promise.all([
+export async function readCloudDisplayState(): Promise<{ enabled: boolean } & SyncSnapshot> {
+  const [enabled, snapshot] = await Promise.all([
     storageGet<boolean>(CLOUD_BACKUP_KEY),
-    getSyncMeta(),
-    blockedStore.pending(),
+    readSyncSnapshot(),
   ]);
-  return { enabled: enabled === true, meta, pendingCount: pending.length };
+  return { enabled: enabled === true, ...snapshot };
 }
 
 /**
  * One read of "the cloud world" for a surface's initial render: whether the build is
  * configured (loads the adapter to ask) plus the `readCloudDisplayState` fields. The popup
- * renders from this single read (it holds no adapter yet); the settings pane, which already
- * loaded a configured adapter, reads `readCloudDisplayState` directly. When unconfigured the
- * storage fields are still real — the caller decides whether to render them or fall back to
- * an "unconfigured" state.
+ * renders from this single read (it holds no adapter yet) and then passes the embedded
+ * `SyncSnapshot` to its open-time `runAutoCloudSync`, so the whole open path reads
+ * pending/meta exactly once. The settings pane, which already loaded a configured adapter,
+ * reads `readCloudDisplayState` directly. When unconfigured the storage fields are still
+ * real — the caller decides whether to render them or fall back to an "unconfigured" state.
  */
 export async function readCloudStatus(
   loadAdapter: () => Promise<CloudAdapter> = loadConvexAdapter,
-): Promise<{ configured: boolean; enabled: boolean; meta: SyncMeta; pendingCount: number }> {
+): Promise<{ configured: boolean; enabled: boolean } & SyncSnapshot> {
   const [adapter, display] = await Promise.all([loadAdapter(), readCloudDisplayState()]);
   return { configured: adapter.isConfigured(), ...display };
 }

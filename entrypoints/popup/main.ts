@@ -846,9 +846,15 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
       // Open-time sync is an automatic trigger, so it flows through runAutoCloudSync —
       // ADR-0003's single policy gate. It runs a full push+pull only when a sync is due;
       // a "skipped" result means nothing was due, so we just refresh the idle "last
-      // synced" copy from the meta readCloudStatus already handed us.
-      const outcome = await runAutoCloudSync(status.enabled, Date.now, loadAdapter, () =>
-        syncRow.setState("syncing", ""),
+      // synced" copy from the meta readCloudStatus already handed us. `status` doubles as
+      // the gate's pre-read snapshot (pending + meta), so opening the popup reads each
+      // from storage exactly once instead of once for display and again for the gate.
+      const outcome = await runAutoCloudSync(
+        status.enabled,
+        Date.now,
+        loadAdapter,
+        () => syncRow.setState("syncing", ""),
+        status,
       );
       if (outcome.status === "synced") {
         syncRow.setState("idle", formatSyncAge({ lastSyncAt: outcome.at }, Date.now()));

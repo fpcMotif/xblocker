@@ -158,6 +158,32 @@ describe("runCloudSync", () => {
       if (originalUrl !== undefined) process.env["VITE_CONVEX_URL"] = originalUrl;
     }
   });
+
+  test("SE-09 a pre-read pending list is pushed as-is, without re-reading the outbox", async () => {
+    // Storage holds TWO queued actions but the caller hands over a pre-read list of one
+    // (the auto-sync gate threading its own read through). The push must carry exactly
+    // the pre-read item — proof the store was not consulted again — and markSynced drops
+    // only that item's id, leaving the other safely queued for the next trigger.
+    storageFake.data["blockedOutbox"] = [pendingItem("a1"), pendingItem("a2")];
+    let pushedIds: string[] = [];
+    const { adapter, calls } = makeAdapter({
+      push: async (items) => {
+        pushedIds = items.map((item) => item.action.actionId);
+        return pushedIds;
+      },
+    });
+
+    const outcome = await runCloudSync(
+      () => 500,
+      () => Promise.resolve(adapter),
+      [pendingItem("a1")],
+    );
+
+    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 0, at: 500 });
+    expect(calls.push).toBe(1);
+    expect(pushedIds).toEqual(["a1"]);
+    expect(storageFake.data["blockedOutbox"]).toEqual([pendingItem("a2")]);
+  });
 });
 
 describe("runAutoCloudSync", () => {
@@ -282,6 +308,52 @@ describe("runAutoCloudSync", () => {
     expect(outcome).toEqual({ status: "skipped" });
     expect(willSync).toBe(0);
   });
+
+  test("AC-09 a pre-read snapshot is trusted over storage for the due-or-not decision", async () => {
+    // Storage screams "sync due" (a queued action, no meta) but the caller's snapshot
+    // says nothing pending + fresh meta. The gate must decide from the snapshot alone:
+    // skipped, adapter never loaded, and no pending/meta storage reads of its own.
+    storageFake.data["blockedOutbox"] = [pendingItem("a1")];
+    const { adapter } = makeAdapter();
+    let loaderCalls = 0;
+    const loadAdapter = () => {
+      loaderCalls += 1;
+      return Promise.resolve(adapter);
+    };
+    storageFake.getCalls = [];
+
+    const outcome = await runAutoCloudSync(true, () => 1000, loadAdapter, undefined, {
+      pending: [],
+      meta: { lastSyncAt: 1000 },
+    });
+
+    expect(outcome).toEqual({ status: "skipped" });
+    expect(loaderCalls).toBe(0);
+    expect(storageFake.getCalls).toEqual([]);
+  });
+
+  test("AC-10 a due snapshot's pending list is threaded through to the push untouched", async () => {
+    // The snapshot carries a pending action that storage does NOT have — if the run
+    // pushed exactly that item, neither the gate nor runCloudSync re-read the outbox.
+    let pushedIds: string[] = [];
+    const { adapter } = makeAdapter({
+      push: async (items) => {
+        pushedIds = items.map((item) => item.action.actionId);
+        return pushedIds;
+      },
+    });
+
+    const outcome = await runAutoCloudSync(
+      true,
+      () => 1000,
+      () => Promise.resolve(adapter),
+      undefined,
+      { pending: [pendingItem("snap-1")], meta: { lastSyncAt: 1000 } },
+    );
+
+    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 0, at: 1000 });
+    expect(pushedIds).toEqual(["snap-1"]);
+  });
 });
 
 describe("readCloudStatus", () => {
@@ -295,7 +367,9 @@ describe("readCloudStatus", () => {
       configured: true,
       enabled: true,
       meta: { lastSyncAt: 42 },
-      pendingCount: 2,
+      // The pending ITEMS, not a count: the popup threads this same read into its
+      // open-time runAutoCloudSync as the pre-read snapshot.
+      pending: [pendingItem("a1"), pendingItem("a2")],
     });
   });
 
@@ -305,7 +379,7 @@ describe("readCloudStatus", () => {
       configured: false,
       enabled: false,
       meta: {},
-      pendingCount: 0,
+      pending: [],
     });
   });
 
