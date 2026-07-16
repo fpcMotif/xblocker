@@ -1,0 +1,21 @@
+# The same gate developers run locally: `bun run check` = typecheck (tsgo),
+# lint (oxlint --type-aware), format:check (oxfmt), bun test (100% line+function
+# coverage enforced via bunfig.toml), and the wxt production build.
+# convex/_generated is committed, so no Convex CLI or deployment is needed here.
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install --frozen-lockfile
+      - run: bun run check
