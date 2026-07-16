@@ -69,14 +69,37 @@ export const DEFAULT_SETTINGS: Settings = {
   maxReplies: DEFAULT_MAX_REPLIES,
 };
 
-/** Merge a raw stored value onto the defaults — a partial blob, or outright garbage (a
- *  string, null), normalizes identically for every surface — then clamp maxReplies into
- *  range so a stale/hand-edited value can never escape [1, MAX_REPLIES_LIMIT]. */
+// Cast-free narrowing for the stored blob — a type predicate, not an `as` assertion,
+// so the lint gate's no-unsafe-type-assertion rule holds even here.
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+type BooleanSettingsKey = {
+  [K in keyof Settings]: Settings[K] extends boolean ? K : never;
+}[keyof Settings];
+
+/** Normalize a raw stored value into a well-formed Settings blob field by field: a
+ *  partial blob, or outright garbage (a string, null, an unrelated object), normalizes
+ *  identically for every surface. Each of the 4 known fields is validated on its own —
+ *  a wrong-typed field falls back to its default rather than poisoning the whole blob —
+ *  and the result is built solely from those fields, so unknown keys (e.g. a stray
+ *  `evil` a hand-edited or stale blob might carry) are stripped rather than persisted
+ *  back on the next save. */
 export function normalizeSettings(raw: unknown): Settings {
-  const partial = typeof raw === "object" && raw !== null ? raw : {};
-  const merged = { ...DEFAULT_SETTINGS, ...partial } as Settings;
-  merged.maxReplies = clampMaxReplies(merged.maxReplies);
-  return merged;
+  const partial: Record<string, unknown> = isRecord(raw) ? raw : {};
+
+  const boolField = (key: BooleanSettingsKey): boolean => {
+    const value = partial[key];
+    return typeof value === "boolean" ? value : DEFAULT_SETTINGS[key];
+  };
+
+  return {
+    protectWhitelist: boolField("protectWhitelist"),
+    confirmDestructiveActions: boolField("confirmDestructiveActions"),
+    keyboardMode: boolField("keyboardMode"),
+    maxReplies: clampMaxReplies(partial["maxReplies"]),
+  };
 }
 
 /** Read + normalize the settings blob in one call — the storageGet(SETTINGS_KEY) +

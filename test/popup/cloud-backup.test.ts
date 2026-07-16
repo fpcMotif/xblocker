@@ -6,11 +6,16 @@
 //
 // The popup takes the cloud transport as a `loadAdapter` port (ADR-0003), so these tests
 // inject a plain CloudAdapter fake with call recording instead of the live Convex module —
-// no bun module-path mocking. There is no auth in this flow.
+// no bun module-path mocking. There is no auth in this flow. The one exception is PU-CB-15,
+// which pins the popup's `opts.loadAdapter ?? loadConvexAdapter` default itself -- see that
+// test for why it diffs two mounts instead of asserting a fixed configured/unconfigured
+// value (this file's other bare `renderPopup(document.body)` calls already real-import
+// convex-sync too, and which VITE_CONVEX_URL that import freezes on is a cross-file race,
+// same landmine noted in options/shell.test.ts).
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { RemoteAccount } from "../../entrypoints/lib/blocked-store.ts";
-import type { CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
+import { loadConvexAdapter, type CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
 import { renderPopup, type RenderPopupOptions } from "../../entrypoints/popup/main.ts";
 import { makeCloudAdapterFake } from "../helpers/cloud-adapter-fake.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
@@ -375,5 +380,35 @@ describe("popup cloud sync row", () => {
     expect(syncDetail()).toBe("Synced just now.");
     expect(syncButton()!.disabled).toBe(false);
     expect(syncButton()!.textContent).toContain("Sync now");
+  });
+
+  test("PU-CB-15 the default loadAdapter is the real loadConvexAdapter, not a different fallback", async () => {
+    // No other case in this file exercises popup/main.ts's actual
+    // `opts.loadAdapter ?? loadConvexAdapter` default -- render() always injects the fake.
+    // Pinning it against a fixed "configured"/"unconfigured" expectation would be racy:
+    // loadConvexAdapter really does `import("./convex-sync")` (see its header), and whether
+    // that reports configured depends on this environment's VITE_CONVEX_URL, which gets
+    // frozen by whichever test file's unguarded default-adapter call resolves it first in
+    // the shared module registry (this file's own bare `renderPopup(document.body)` calls
+    // above already do this, harmlessly, since they all keep cloudBackup off).
+    //
+    // So instead of asserting a value, this diffs two mounts -- one taking the default, one
+    // with `loadConvexAdapter` passed explicitly -- into separate detached roots. Whatever
+    // convex-sync reports, a correct default produces the identical outcome; a default that
+    // fell back to any other function (e.g. a hardcoded-configured stub) would diverge from
+    // the explicit-real run. cloudBackup is off in both, so neither can ever reach the
+    // push/pull path regardless of what isConfigured() returns -- no network write is
+    // possible here, only the synchronous, side-effect-free isConfigured() check.
+    const defaultRoot = document.createElement("div");
+    const explicitRoot = document.createElement("div");
+    const telltaleOf = (root: HTMLElement): string | undefined =>
+      root.querySelector<HTMLElement>(".xb-telltale")?.dataset["state"];
+
+    await renderPopup(defaultRoot);
+    await renderPopup(explicitRoot, { loadAdapter: loadConvexAdapter });
+    await flush();
+
+    expect(telltaleOf(defaultRoot)).not.toBeUndefined();
+    expect(telltaleOf(defaultRoot)).toBe(telltaleOf(explicitRoot));
   });
 });

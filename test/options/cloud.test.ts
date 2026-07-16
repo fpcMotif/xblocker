@@ -5,11 +5,16 @@
 // The pane takes the cloud transport as a `loadAdapter` port (ADR-0003), so these tests
 // inject a plain CloudAdapter fake with call recording — the same seam the popup sync-row
 // suite and the engine tests use. No bun module-path mocking: convex-sync (which talks to
-// a live Convex deployment, see its header) is never loaded here.
+// a live Convex deployment, see its header) is never loaded here, with one exception --
+// OC-13, which pins the pane's own `opts.loadAdapter ?? loadConvexAdapter` default. That
+// mount path never reaches push/pull on its own (only the Sync now / wipe-confirm click
+// handlers do, neither of which OC-13 fires), so letting the real adapter resolve there is
+// safe regardless of whether this environment's VITE_CONVEX_URL happens to be configured.
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { renderCloudPane, WIPE_CONFIRM_WORD } from "../../entrypoints/options/panes/cloud.ts";
 import { renderOptions } from "../../entrypoints/options/main.ts";
+import { loadConvexAdapter } from "../../entrypoints/lib/sync-engine.ts";
 import { makeCloudAdapterFake } from "../helpers/cloud-adapter-fake.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
@@ -257,5 +262,43 @@ describe("Cloud route via the full options shell", () => {
     await settleMicrotasks(50);
 
     expect(document.querySelector(".xb-opt-content h1")?.textContent).toBe("Cloud backup");
+  });
+});
+
+describe("Cloud backup pane (default loadAdapter)", () => {
+  beforeEach(() => {
+    resetTestEnvironment();
+  });
+
+  test("OC-13 the default loadAdapter is the real loadConvexAdapter, not a different fallback", async () => {
+    // No other case in this file exercises the pane's actual
+    // `opts.loadAdapter ?? loadConvexAdapter` default -- renderPane() always injects the
+    // fake. Pinning it against a fixed configured/unconfigured expectation would be racy:
+    // loadConvexAdapter really does `import("./convex-sync")` (see its header), and whether
+    // that reports configured depends on this environment's VITE_CONVEX_URL, which gets
+    // frozen by whichever test's unguarded default-adapter call resolves it first in the
+    // shared module registry (mirrors sync-engine's RCS-04 and popup's PU-CB-15).
+    //
+    // So instead of asserting a value, this diffs two mounts into separate detached
+    // containers -- one taking the default, one with `loadConvexAdapter` passed explicitly.
+    // Whatever convex-sync reports, a correct default renders identically to the explicit
+    // one; a default that fell back to any other function (e.g. a hardcoded stub) would
+    // diverge. Mounting never reaches push/pull on its own here (only the Sync now / wipe
+    // click handlers do, and neither is fired), so this is safe regardless of what
+    // isConfigured() actually returns.
+    const defaultContainer = document.createElement("div");
+    const explicitContainer = document.createElement("div");
+    const isConfiguredRender = (container: HTMLElement): boolean =>
+      container.querySelector(".xb-opt-switch") !== null;
+
+    const [defaultHandle, explicitHandle] = await Promise.all([
+      renderCloudPane(defaultContainer),
+      renderCloudPane(explicitContainer, { loadAdapter: loadConvexAdapter }),
+    ]);
+
+    expect(isConfiguredRender(defaultContainer)).toBe(isConfiguredRender(explicitContainer));
+
+    defaultHandle.destroy();
+    explicitHandle.destroy();
   });
 });

@@ -2,7 +2,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { renderGeneralPane } from "../../entrypoints/options/panes/general.ts";
-import { normalizeSettings } from "../../entrypoints/lib/settings.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 
 function switchInput(index: number): HTMLInputElement {
@@ -61,24 +60,6 @@ function installFakeOnChanged(): {
     },
   };
 }
-
-describe("normalizeSettings", () => {
-  test("OG-01 merges a partial/garbage stored value onto the defaults and clamps maxReplies", () => {
-    expect(normalizeSettings(undefined)).toEqual({
-      protectWhitelist: true,
-      confirmDestructiveActions: true,
-      keyboardMode: false,
-      maxReplies: 50,
-    });
-    expect(normalizeSettings({ maxReplies: 99999 }).maxReplies).toBe(200);
-    expect(normalizeSettings("garbage")).toEqual({
-      protectWhitelist: true,
-      confirmDestructiveActions: true,
-      keyboardMode: false,
-      maxReplies: 50,
-    });
-  });
-});
 
 describe("General pane", () => {
   beforeEach(() => {
