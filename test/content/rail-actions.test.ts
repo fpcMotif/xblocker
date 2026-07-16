@@ -409,6 +409,33 @@ describe("rail batch actions", () => {
     expect(fetchStub.calls).toHaveLength(3);
     expect(fetchStub.calls.every((call) => call.url.includes("/blocks/create.json"))).toBe(true);
   });
+
+  test("RA-20 the default isBatchRunning pins the rail on the real actions-module flag, not an injected fake", async () => {
+    // mountRail() builds this instance via `new ReplyRail()` with no `isBatchRunning`
+    // override, so this exercises rail.ts's actual `options.isBatchRunning ?? isBatchRunning`
+    // default -- wired to the real shared batch runner in actions.ts. RS-20
+    // (rail-state.test.ts) covers the pin's mechanics with an injected flag; this pins the
+    // DEFAULT wiring itself, which a coverage-blind `?? (() => false)` mutation would slip
+    // past unnoticed (the line still runs on every mousemove either way).
+    const [reply] = populateTweetPage(["alice", "bob"]);
+    if (!reply) throw new Error("reply missing");
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+
+    getRailButton("Block all replies").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    // The shared runner's `running` flag flips synchronously, before its first await, so
+    // the default isBatchRunning() already observes it here -- no settle needed.
+    const hover = new MouseEvent("mousemove", { bubbles: true, clientX: 300, clientY: 400 });
+    reply.dispatchEvent(hover);
+    rail!.handleMouseMove(hover);
+
+    // A real batch is mid-flight. If the default fell back to a stub reporting "never
+    // running", this hover over a genuine reply article would expand the rail to
+    // "tracking"; the real default pins it collapsed instead.
+    expect(rail!.getState().state).toBe("collapsed");
+
+    await driveBatch(manual!);
+    expect(getSessionCount()).toBe("2");
+  });
 });
 
 describe("whitelist and settings buttons", () => {
