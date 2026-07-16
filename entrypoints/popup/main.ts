@@ -13,35 +13,21 @@ import {
 } from "../lib/design-tokens";
 import { createIcon } from "../lib/icons";
 import { createLiveNumber, type LiveNumber, type LiveNumberClock } from "../lib/live-number";
-import { clampMaxReplies, DEFAULT_MAX_REPLIES } from "../lib/settings";
-import { getSyncMeta, runCloudSync, shouldAutoSync, type SyncMeta } from "../lib/sync-engine";
+import { readSettings, type Settings } from "../lib/settings";
+import {
+  type CloudAdapter,
+  formatSyncAge,
+  loadConvexAdapter,
+  readCloudStatus,
+  runAutoCloudSync,
+  runCloudSync,
+} from "../lib/sync-engine";
 import { getWhitelist } from "../lib/whitelist-store";
 
-type PopupSettings = {
-  confirmDestructiveActions: boolean;
-  keyboardMode: boolean;
-  maxReplies: number;
-  protectWhitelist: boolean;
-};
-
-// keyboardMode and maxReplies have no row in this popup (keyboardMode is reserved for
-// future j/k navigation; maxReplies moved to the settings page) but both stay in the
-// schema so the stored settings blob shape is unchanged for other readers.
-const DEFAULT_SETTINGS: PopupSettings = {
-  confirmDestructiveActions: true,
-  keyboardMode: false,
-  maxReplies: DEFAULT_MAX_REPLIES,
-  protectWhitelist: true,
-};
-
-async function getStoredSettings(): Promise<PopupSettings> {
-  const stored = await storageGet<Partial<PopupSettings>>(SETTINGS_KEY);
-  const settings: PopupSettings = { ...DEFAULT_SETTINGS, ...stored };
-  settings.maxReplies = clampMaxReplies(settings.maxReplies);
-  return settings;
-}
-
-function saveSettings(settings: PopupSettings): void {
+// The popup renders rows for only two of the four settings keys (keyboardMode is reserved
+// for future j/k navigation; maxReplies lives on the settings page) but always round-trips
+// the whole Settings blob, so a save here never drops the fields other readers depend on.
+function saveSettings(settings: Settings): void {
   void storageSet({ [SETTINGS_KEY]: settings });
 }
 
@@ -591,7 +577,7 @@ function buildToggleRow(
   return row;
 }
 
-function buildToggles(settings: PopupSettings): HTMLElement {
+function buildToggles(settings: Settings): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "xb-region xb-toggles";
 
@@ -610,7 +596,7 @@ function buildToggles(settings: PopupSettings): HTMLElement {
   wrap.appendChild(
     buildToggleRow(
       "Confirm destructive actions",
-      "Ask before block or mute runs.",
+      "Ask before removing whitelist entries.",
       settings.confirmDestructiveActions,
       (checked) => {
         settings.confirmDestructiveActions = checked;
@@ -623,18 +609,6 @@ function buildToggles(settings: PopupSettings): HTMLElement {
 }
 
 export type SyncRowState = "error" | "idle" | "off" | "syncing" | "unconfigured";
-
-/** Human "how long ago" for the sync row's idle detail line; coarse on purpose. */
-export function formatLastSync(meta: SyncMeta, now: number): string {
-  const at = meta.lastSyncAt;
-  if (typeof at !== "number") return "Never synced.";
-  const mins = Math.max(0, Math.round((now - at) / 60_000));
-  if (mins < 1) return "Synced just now.";
-  if (mins < 60) return `Synced ${mins}m ago.`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `Synced ${hours}h ago.`;
-  return `Synced ${Math.round(hours / 24)}d ago.`;
-}
 
 function syncRowCopy(state: SyncRowState, idleDetail: string): { title: string; detail: string } {
   switch (state) {
@@ -776,13 +750,19 @@ export type RenderPopupOptions = {
    * never pass this, so the popup always animates on the real clock.
    */
   clock?: Partial<LiveNumberClock>;
+  /**
+   * The cloud transport port (defaults to the lazy Convex loader). Injecting a plain
+   * fake here is how the sync-row tests exercise the sync wiring without the live Convex
+   * module — the same seam ADR-0003 gave the settings pane and background worker.
+   */
+  loadAdapter?: () => Promise<CloudAdapter>;
 };
 
 export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = {}): Promise<void> {
   ensurePopupStyles();
 
   const [settings, whitelist, cloudBackupEnabled, stats] = await Promise.all([
-    getStoredSettings(),
+    readSettings(),
     getWhitelist(),
     storageGet<boolean>(CLOUD_BACKUP_KEY).then((value) => value === true),
     blockedStore.stats(),
@@ -814,21 +794,27 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
     statStrip.mutedLive.set(next.muted);
   });
 
-  // Best guess before the lazy configured-check below resolves: "off" needs no Convex
+  const loadAdapter = opts.loadAdapter ?? loadConvexAdapter;
+
+  // Best guess before the port's configured-check below resolves: "off" needs no Convex
   // knowledge at all, and "idle" is the common case for an already-configured, already
-  // enabled build. Never import convex-sync eagerly — see loadConvexAdapter in
+  // enabled build. Never load the adapter eagerly — see loadConvexAdapter in
   // sync-engine.ts for why.
   syncRow.setState(cloudBackupEnabled ? "idle" : "off", "Never synced.");
 
+  // One in-flight guard shared by the manual "Sync now" button and the mount-time
+  // auto-sync below: at most one sync runs at a time, and whichever claims the row first
+  // owns its telltale/copy until it settles — the other bows out rather than clobbering
+  // it back to idle (PU-CB-11).
   let syncInFlight = false;
   const runGuardedSync = async (): Promise<void> => {
     if (syncInFlight) return;
     syncInFlight = true;
     syncRow.setState("syncing", "");
     try {
-      const outcome = await runCloudSync();
+      const outcome = await runCloudSync(Date.now, loadAdapter);
       if (outcome.status === "synced") {
-        syncRow.setState("idle", formatLastSync({ lastSyncAt: outcome.at }, Date.now()));
+        syncRow.setState("idle", formatSyncAge({ lastSyncAt: outcome.at }, Date.now()));
       } else {
         syncRow.setState("unconfigured", "");
       }
@@ -843,23 +829,38 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
   };
 
   void (async () => {
-    const { isCloudConfigured } = await import("../lib/convex-sync");
-    if (!isCloudConfigured()) {
+    const status = await readCloudStatus(loadAdapter);
+    if (!status.configured) {
       syncRow.setState("unconfigured", "");
       return;
     }
-    if (!cloudBackupEnabled) {
+    if (!status.enabled) {
       syncRow.setState("off", "");
       return;
     }
-    const [pending, meta] = await Promise.all([blockedStore.pending(), getSyncMeta()]);
-    if (shouldAutoSync(true, pending.length, meta, Date.now())) {
-      await runGuardedSync();
-    } else if (!syncInFlight) {
-      // Re-read after the awaits above: a manual "Sync now" click may have started
-      // and is now owning the row (syncing/error/idle-from-its-own-result) — never
-      // clobber it back to idle out from under a concurrently-running sync.
-      syncRow.setState("idle", formatLastSync(meta, Date.now()));
+    // A manual "Sync now" the user started while this read was resolving already owns the
+    // row — leave it be (PU-CB-11).
+    if (syncInFlight) return;
+    syncInFlight = true;
+    try {
+      // Open-time sync is an automatic trigger, so it flows through runAutoCloudSync —
+      // ADR-0003's single policy gate. It runs a full push+pull only when a sync is due;
+      // a "skipped" result means nothing was due, so we just refresh the idle "last
+      // synced" copy from the meta readCloudStatus already handed us.
+      const outcome = await runAutoCloudSync(status.enabled, Date.now, loadAdapter, () =>
+        syncRow.setState("syncing", ""),
+      );
+      if (outcome.status === "synced") {
+        syncRow.setState("idle", formatSyncAge({ lastSyncAt: outcome.at }, Date.now()));
+      } else if (outcome.status === "unconfigured") {
+        syncRow.setState("unconfigured", "");
+      } else {
+        syncRow.setState("idle", formatSyncAge(status.meta, Date.now()));
+      }
+    } catch {
+      syncRow.setState("error", "");
+    } finally {
+      syncInFlight = false;
     }
   })();
 }

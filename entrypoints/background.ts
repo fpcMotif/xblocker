@@ -14,6 +14,7 @@ import {
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
 } from "./lib/background-sync";
+import { isOpenOptionsMessage } from "./lib/messaging";
 import { runAutoCloudSync } from "./lib/sync-engine";
 
 export function startBackgroundSync(): void {
@@ -31,6 +32,13 @@ export function startBackgroundSync(): void {
   void chrome.alarms?.create(PERIODIC_SYNC_ALARM, { periodInMinutes: PERIODIC_SYNC_MINUTES });
   chrome.alarms?.onAlarm.addListener((alarm) => {
     scheduler.onAlarm(alarm.name);
+  });
+
+  // The content-script rail cannot open the options page itself, so it asks the worker to.
+  chrome.runtime.onMessage.addListener((message: unknown) => {
+    if (isOpenOptionsMessage(message)) {
+      void chrome.runtime.openOptionsPage();
+    }
   });
 }
 

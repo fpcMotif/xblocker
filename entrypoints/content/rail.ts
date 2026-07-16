@@ -1,15 +1,17 @@
 import {
-  batchState,
   blockReplies,
   countConversationReplies,
   getMaxReplies,
+  isBatchRunning,
   isReplyArticle,
   muteReplies,
   type BatchProgress,
 } from "./actions";
 import { createActionButton, createLabeledActionButton, type LabeledActionButton } from "./buttons";
 import { createIcon } from "./icons";
+import { OPEN_OPTIONS_MESSAGE_TYPE } from "../lib/messaging";
 import { showWhitelistModal } from "./modal";
+import { TWEET_ARTICLE_SELECTOR } from "./x-dom";
 import {
   computeRailY,
   exceedsJitter,
@@ -31,6 +33,13 @@ const FALLBACK_HEIGHT = 280;
 
 export type RailStateName = "collapsed" | "tracking" | "settled";
 export type RailState = { state: RailStateName; rendered: Point; cursor: Point };
+
+export type ReplyRailOptions = {
+  // The rail pins itself settled while a bulk batch runs so its motion never fights the
+  // batch. Injectable so a test can drive the pinned branch without a live batch; defaults
+  // to the shared actions runner's flag.
+  isBatchRunning?: () => boolean;
+};
 
 type DockPosition = Point;
 
@@ -87,8 +96,10 @@ export class ReplyRail {
   private puck: HTMLButtonElement;
   private puckCount: HTMLSpanElement;
   private activeButton: LabeledActionButton | null = null;
+  private readonly isBatchRunning: () => boolean;
 
-  constructor() {
+  constructor(options: ReplyRailOptions = {}) {
+    this.isBatchRunning = options.isBatchRunning ?? isBatchRunning;
     this.root = document.createElement("div");
     this.root.id = "xblocker-reply-rail";
     this.root.className = "xb-root xb-rail";
@@ -175,8 +186,17 @@ export class ReplyRail {
       action: "settings",
       icon: "settings",
       label: "Open XBlocker settings",
-      onClick: () => {
-        showToast("Use the XBlocker extension popup for settings.", "info");
+      onClick: async () => {
+        // A content script cannot call chrome.runtime.openOptionsPage itself, so ask the
+        // background worker to. If the worker is asleep or the channel is gone the send
+        // rejects — degrade to a toast that points at the settings page (honest about the
+        // failure) and let the button flip to its error state.
+        try {
+          await chrome.runtime.sendMessage({ type: OPEN_OPTIONS_MESSAGE_TYPE });
+        } catch (error) {
+          showToast("Open XBlocker settings from your browser's extensions menu.", "info");
+          throw error;
+        }
       },
     });
     footerActions.append(whitelistButton, settingsButton);
@@ -289,7 +309,7 @@ export class ReplyRail {
       return;
     }
 
-    if (batchState.running) {
+    if (this.isBatchRunning()) {
       if (this.state !== "collapsed") {
         this.cancelCollapse();
         this.settle();
@@ -297,7 +317,7 @@ export class ReplyRail {
       return;
     }
 
-    const article = target.closest('article[data-testid="tweet"]');
+    const article = target.closest(TWEET_ARTICLE_SELECTOR);
     if (article && this.isReplyArticleCached(article)) {
       // A page-level modal the cursor is not inside still owns the page: never
       // expand beneath it. This is the only per-move document-wide query left,
@@ -443,7 +463,7 @@ export class ReplyRail {
 
   private async runBatch(kind: "block" | "mute", button: LabeledActionButton): Promise<void> {
     // Block-all and Mute-all act on the same reply set, so a second bulk click while one
-    // batch is in flight would hit the actions-layer batchState guard, return null, and
+    // batch is in flight would hit the actions-layer runner's re-entry guard, return null, and
     // (1) paint a false success check on the second button and (2) null activeButton, freezing
     // the running batch's progress. Disable the sibling synchronously here — before the first
     // await closes the re-entry window — and restore it in the finally so the early-return and

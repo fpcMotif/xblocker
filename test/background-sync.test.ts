@@ -361,4 +361,53 @@ describe("background entrypoint wiring", () => {
       chromeAny["alarms"] = originalAlarms;
     }
   });
+
+  test("BG-16 an xb-open-options message opens the options page; other messages do not", async () => {
+    const messageListeners: ((message: unknown) => void)[] = [];
+    let openOptionsCalls = 0;
+
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- install runtime alarms fakes the static chrome typings don't model.
+    const chromeAny = chrome as unknown as Record<string, unknown>;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same runtime-fake escape hatch for the storage namespace.
+    const chromeStorage = chrome.storage as unknown as Record<string, unknown>;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same for the runtime namespace's message + options APIs.
+    const chromeRuntime = chrome.runtime as unknown as Record<string, unknown>;
+    const originalOnChanged = chromeStorage["onChanged"];
+    const originalAlarms = chromeAny["alarms"];
+    const originalOnMessage = chromeRuntime["onMessage"];
+    // The worker also wires storage/alarms on boot; no-op them so main() doesn't throw.
+    chromeStorage["onChanged"] = { addListener: () => {}, removeListener: () => {} };
+    chromeAny["alarms"] = { create: () => {}, onAlarm: { addListener: () => {} } };
+    chromeRuntime["onMessage"] = {
+      addListener: (fn: (message: unknown) => void) => messageListeners.push(fn),
+      removeListener: () => {},
+    };
+    chromeRuntime["openOptionsPage"] = () => {
+      openOptionsCalls += 1;
+      return Promise.resolve();
+    };
+
+    try {
+      const background = await import("../entrypoints/background.ts");
+      background.default.main();
+
+      expect(messageListeners).toHaveLength(1);
+      const notify = messageListeners[0]!;
+
+      // Foreign, non-object, and string messages never open the options page.
+      notify({ type: "something-else" });
+      notify(null);
+      notify("xb-open-options");
+      expect(openOptionsCalls).toBe(0);
+
+      // The rail's message opens the real options page.
+      notify({ type: "xb-open-options" });
+      expect(openOptionsCalls).toBe(1);
+    } finally {
+      chromeStorage["onChanged"] = originalOnChanged;
+      chromeAny["alarms"] = originalAlarms;
+      chromeRuntime["onMessage"] = originalOnMessage;
+      delete chromeRuntime["openOptionsPage"];
+    }
+  });
 });

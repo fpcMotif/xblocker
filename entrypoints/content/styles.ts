@@ -5,6 +5,7 @@ import {
   XB_TONE_TOKENS,
 } from "../lib/design-tokens";
 import { MODAL_EXIT_MS } from "./modal";
+import { TWEET_ARTICLE_SELECTOR } from "./x-dom";
 
 const STYLE_ID = "xblocker-styles";
 
@@ -280,7 +281,7 @@ const SHEET = `
 	pointer-events: none;
 	transition: opacity 160ms var(--xb-ease-out), transform 160ms var(--xb-ease-out);
 }
-article[data-testid="tweet"]:hover .xb-console,
+${TWEET_ARTICLE_SELECTOR}:hover .xb-console,
 .xb-console:hover,
 .xb-console:focus-within {
 	opacity: 1;
