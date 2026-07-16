@@ -102,3 +102,23 @@ The two consciously-deferred pieces above are done (architecture-deepening pass,
   adapter's `configured` flag on top for the popup, which holds no adapter yet; the settings
   pane loads its adapter up front (it needs it for the wipe) and reads `readCloudDisplayState`
   directly, so it neither re-loads nor re-checks the adapter.
+
+## Update (2026-07-16) — pre-read snapshot threading
+
+The popup's open path used to read the same two keys (pending outbox + sync meta) two to
+three times: once in `readCloudStatus` for display, again inside `runAutoCloudSync`'s
+gate, and a third time in `runCloudSync` when a sync was actually due. The reads are now
+threaded instead of repeated:
+
+- `SyncSnapshot` (`{ pending, meta }`) names one point-in-time read of the sync inputs.
+  `readCloudDisplayState` / `readCloudStatus` return the pending **items** (callers count
+  them for display), so the same read doubles as the snapshot.
+- `runAutoCloudSync` accepts an optional pre-read `snapshot`; the popup passes the
+  `readCloudStatus` result straight in, so opening the popup reads pending/meta exactly
+  once. Callers without a fresh read (the background worker) omit it and the gate reads
+  for itself, as before.
+- The gate threads whichever pending list it decided on into `runCloudSync`
+  (optional `preReadPending`), which therefore never re-reads the outbox on an automatic
+  sync. Manual "Sync now" still omits it and reads fresh at click time. A stale-list race
+  is harmless by construction: `markSynced` drops entries by action id, so an action
+  recorded after the snapshot just stays queued for the next trigger.

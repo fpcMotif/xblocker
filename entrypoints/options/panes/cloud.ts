@@ -134,7 +134,7 @@ export async function renderCloudPane(
   statusCard.append(toggleRow, statusRow, lastSyncedRow, pendingRow, syncRow);
 
   let currentMeta: SyncMeta = display.meta;
-  let currentPendingCount = display.pendingCount;
+  let currentPendingCount = display.pending.length;
 
   function refreshMetaRows(): void {
     statusValue.textContent = enabled ? "On" : "Off";
