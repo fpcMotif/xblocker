@@ -14,8 +14,9 @@ import {
   muteUserDirectly,
   normalizeUsername,
 } from "./actions";
+import { createQuickBlockService, type QuickBlockService } from "./create-quick-block-service";
 import { computeRailY } from "./position";
-import { QuickBlock, resolveQuickBlockMode, type QuickBlockMode } from "./quick-block";
+import { resolveQuickBlockMode, type QuickBlockMode } from "./quick-block-mode";
 import { COLLAPSE_GRACE_MS, DWELL_MS, ReplyRail } from "./rail";
 import { ensureStyles } from "./styles";
 import { applyTheme, observeThemeChanges } from "./theme";
@@ -38,7 +39,7 @@ type XBlockerTestHooks = {
   extractUsernameFromTweet: typeof extractUsernameFromTweet;
   getCookieValue: typeof getCookieValue;
   getMaxReplies: typeof getMaxReplies;
-  getQuickBlock: () => QuickBlock | null;
+  getQuickBlock: () => QuickBlockService | null;
   getRail: () => ReplyRail | null;
   initializeXBlocker: typeof initializeXBlocker;
   isTweetPageUrl: typeof isTweetPageUrl;
@@ -58,7 +59,7 @@ declare global {
 }
 
 let rail: ReplyRail | null = null;
-let quickBlock: QuickBlock | null = null;
+let quickBlock: QuickBlockService | null = null;
 let listenersAttached = false;
 
 function attachGlobalListeners(): void {
@@ -125,8 +126,9 @@ function removeSurfaces(): void {
 function mountQuickBlock(mode: QuickBlockMode = resolveQuickBlockMode()): void {
   quickBlock?.destroy();
   ensureStyles();
-  quickBlock = new QuickBlock({
+  quickBlock = createQuickBlockService({
     mode,
+    // Candidate A moves and covers this transitional rail wiring in ContentSession.
     onActed: (kind) => {
       if (kind === "block") {
         rail?.incrementBlocked(1);

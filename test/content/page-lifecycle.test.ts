@@ -1,6 +1,6 @@
 // Catalog: PL-* (checkPageAndAddButton / addButtons / observeThemeChanges /
 // initializeXBlocker / runContentScript / content-script default export / test hooks).
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { computeRailY } from "../../entrypoints/content/position.ts";
 import { COLLAPSE_GRACE_MS, DWELL_MS, type ReplyRail } from "../../entrypoints/content/rail.ts";
@@ -9,6 +9,10 @@ import { settleMicrotasks } from "../helpers/timers.ts";
 import { resetTestEnvironment, setWindowLocation, storageFake } from "../setup.ts";
 
 const entrypoint = await import("../../entrypoints/content/index.ts");
+
+afterEach(() => {
+  hooks.getQuickBlock()?.destroy();
+});
 
 const RAIL_SURFACE_SELECTOR = '[data-xb-surface="reply-rail"]';
 const LEGACY_SURFACE_SELECTOR =

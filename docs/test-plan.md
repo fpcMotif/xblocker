@@ -24,11 +24,13 @@ here is the extension's only persistence and network surface:
 | File | Purpose |
 | --- | --- |
 | `test/setup.ts` | happy-dom globals, stateful `chrome.storage` fake, `setWindowLocation`/`setDocumentCookie`/`resetTestEnvironment` |
-| `test/helpers/content-hooks.ts` | Loads `content/index.ts` once in `__XB_TEST__` mode, exposes internals + DOM/fetch builders |
+| `test/helpers/content-hooks.ts` | Loads `content/index.ts` once in `__XB_TEST__` mode for legacy lifecycle suites; also provides DOM/fetch builders |
 | `test/helpers/timers.ts` | Manual / immediate `setTimeout` control + microtask draining |
 
 `content/index.ts` exposes its internals via `globalThis.__xblockerTestHooks` only when
-`__XB_TEST__` is set — the production bundle never installs them.
+`__XB_TEST__` is set — the production bundle never installs them. Quick-block module
+tests do not use those hooks. They import production modules directly and drive only
+`mount()` / `destroy()`, DOM clicks, and mutations.
 
 ## Coverage map (file → suites)
 
@@ -43,9 +45,13 @@ here is the extension's only persistence and network surface:
 | `computeRailY`, `exceedsJitter`, `lerp` (pure geometry) | `content/position.test.ts` | RAIL/JIT/LERP/CONST |
 | `ReplyRail` state machine (collapsed/tracking/settled, dwell, grace, suppression, follow loop) | `content/rail-state.test.ts` | RS-01..21 |
 | `ReplyRail` actions (bulk batches, counts, ring, drag persistence, session badge) | `content/rail-actions.test.ts` | RA-01..15 |
+| `QuickBlockMode`, `CursorConsole`, `NativeAutoConfirm`, `createQuickBlockService` | `content/quick-block.test.ts` | QB-01..03, QB-10..29, QB-32..37 |
 | `isReplyArticle` classification + coverage attribution warm-up | `content/misc-coverage.test.ts` | MC-01..05 |
 | `checkPageAndAddButton`, `addButtons`, `observeThemeChanges`, `initializeXBlocker`, test hooks | `content/page-lifecycle.test.ts` | PL-01..21 |
 | `renderPopup`, popup whitelist form, settings toggles, `normalizeUsername` | `popup/popup.test.ts` | PU-01..13 |
+
+QB-30/31 are deferred to Candidate A. They will return as `ContentSession`
+integration tests for rail-count wiring and session-long quick-block lifecycle.
 
 ## Adversarial cases & pinned bugs
 
