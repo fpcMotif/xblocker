@@ -5,6 +5,7 @@
 import type { BlockedStats } from "../lib/blocked-merge";
 import { blockedStore } from "../lib/blocked-store";
 import { CLOUD_BACKUP_KEY, SETTINGS_KEY, storageGet, storageSet } from "../lib/chrome-storage";
+import { createCloudSyncSession, formatSyncAge, type CloudSyncDeps } from "../lib/cloud-session";
 import {
   XB_DARK_TOKENS,
   XB_FONT_STACK,
@@ -14,7 +15,6 @@ import {
 import { createIcon } from "../lib/icons";
 import { createLiveNumber, type LiveNumber, type LiveNumberClock } from "../lib/live-number";
 import { clampMaxReplies, DEFAULT_MAX_REPLIES } from "../lib/settings";
-import { getSyncMeta, runCloudSync, shouldAutoSync, type SyncMeta } from "../lib/sync-engine";
 import { getWhitelist } from "../lib/whitelist-store";
 
 type PopupSettings = {
@@ -624,17 +624,7 @@ function buildToggles(settings: PopupSettings): HTMLElement {
 
 export type SyncRowState = "error" | "idle" | "off" | "syncing" | "unconfigured";
 
-/** Human "how long ago" for the sync row's idle detail line; coarse on purpose. */
-export function formatLastSync(meta: SyncMeta, now: number): string {
-  const at = meta.lastSyncAt;
-  if (typeof at !== "number") return "Never synced.";
-  const mins = Math.max(0, Math.round((now - at) / 60_000));
-  if (mins < 1) return "Synced just now.";
-  if (mins < 60) return `Synced ${mins}m ago.`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `Synced ${hours}h ago.`;
-  return `Synced ${Math.round(hours / 24)}d ago.`;
-}
+export const formatLastSync = formatSyncAge;
 
 function syncRowCopy(state: SyncRowState, idleDetail: string): { title: string; detail: string } {
   switch (state) {
@@ -767,7 +757,7 @@ function buildFooter(): HTMLElement {
   return footer;
 }
 
-export type RenderPopupOptions = {
+export type RenderPopupOptions = Pick<CloudSyncDeps, "loadAdapter" | "now" | "probeConfigured"> & {
   /**
    * Test-only seam: inject a deterministic clock for the stat strip's live-number
    * primitive so a storage-driven delta (see the `blockedStore.onChange` wiring below)
@@ -797,6 +787,7 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
   const toggles = buildToggles(settings);
   const syncTrigger: { run?: () => void } = {};
   const syncRow = buildSyncRow(syncTrigger);
+  const syncSession = createCloudSyncSession(opts);
   const footer = buildFooter();
 
   popup.append(header, statStrip.element, toggles, syncRow.element, footer);
@@ -816,35 +807,25 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
 
   // Best guess before the lazy configured-check below resolves: "off" needs no Convex
   // knowledge at all, and "idle" is the common case for an already-configured, already
-  // enabled build. Never import convex-sync eagerly — see loadConvexAdapter in
-  // sync-engine.ts for why.
+  // enabled build. The session keeps the transport lazy.
   syncRow.setState(cloudBackupEnabled ? "idle" : "off", "Never synced.");
 
-  let syncInFlight = false;
-  const runGuardedSync = async (): Promise<void> => {
-    if (syncInFlight) return;
-    syncInFlight = true;
+  const runManualSync = async (): Promise<void> => {
+    if (syncSession.isInFlight()) return;
     syncRow.setState("syncing", "");
     try {
-      const outcome = await runCloudSync();
-      if (outcome.status === "synced") {
-        syncRow.setState("idle", formatLastSync({ lastSyncAt: outcome.at }, Date.now()));
-      } else {
-        syncRow.setState("unconfigured", "");
-      }
+      const result = await syncSession.runManual();
+      if (result) syncRow.setState(result.state, result.detail);
     } catch {
       syncRow.setState("error", "");
-    } finally {
-      syncInFlight = false;
     }
   };
   syncTrigger.run = () => {
-    void runGuardedSync();
+    void runManualSync();
   };
 
   void (async () => {
-    const { isCloudConfigured } = await import("../lib/convex-sync");
-    if (!isCloudConfigured()) {
+    if (!(await syncSession.isBuildConfigured())) {
       syncRow.setState("unconfigured", "");
       return;
     }
@@ -852,22 +833,17 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
       syncRow.setState("off", "");
       return;
     }
-    const [pending, meta] = await Promise.all([blockedStore.pending(), getSyncMeta()]);
-    if (shouldAutoSync(true, pending.length, meta, Date.now())) {
-      await runGuardedSync();
-    } else if (!syncInFlight) {
-      // Re-read after the awaits above: a manual "Sync now" click may have started
-      // and is now owning the row (syncing/error/idle-from-its-own-result) — never
-      // clobber it back to idle out from under a concurrently-running sync.
-      syncRow.setState("idle", formatLastSync(meta, Date.now()));
-    }
+    const result = await syncSession.runAutoOnOpen(true, {
+      onSyncStart: () => syncRow.setState("syncing", ""),
+    });
+    if (!syncSession.isInFlight()) syncRow.setState(result.state, result.detail);
   })();
 }
 
-export function mountPopupIfPresent(): void {
+export function mountPopupIfPresent(opts: RenderPopupOptions = {}): void {
   const appRoot = document.getElementById("app");
   if (appRoot) {
-    void renderPopup(appRoot);
+    void renderPopup(appRoot, opts);
   }
 }
 

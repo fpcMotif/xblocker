@@ -2,8 +2,27 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { ANIMATE_MS, type LiveNumberClock } from "../../entrypoints/lib/live-number.ts";
-import { formatLastSync, mountPopupIfPresent, renderPopup } from "../../entrypoints/popup/main.ts";
+import {
+  formatLastSync,
+  mountPopupIfPresent,
+  renderPopup as renderPopupBase,
+  type RenderPopupOptions,
+} from "../../entrypoints/popup/main.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
+
+function cloudTestOptions(overrides: RenderPopupOptions = {}): RenderPopupOptions {
+  return {
+    probeConfigured: async () => false,
+    loadAdapter: async () => {
+      throw new Error("test must not load the cloud adapter");
+    },
+    ...overrides,
+  };
+}
+
+function renderPopup(root: HTMLElement, opts: RenderPopupOptions = {}): Promise<void> {
+  return renderPopupBase(root, cloudTestOptions(opts));
+}
 
 /** A fully injected fake clock (mirrors test/live-number.test.ts's): requestFrame/
  *  setTimeout just queue callbacks for the test to fire explicitly, so a storage-driven
@@ -324,14 +343,14 @@ describe("mountPopupIfPresent", () => {
     app.id = "app";
     document.body.appendChild(app);
 
-    mountPopupIfPresent();
+    mountPopupIfPresent(cloudTestOptions());
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(app.querySelector('[data-xb-surface="popup"]')).toBeTruthy();
   });
 
   test("PU-19 does nothing when #app is absent", () => {
-    expect(() => mountPopupIfPresent()).not.toThrow();
+    expect(() => mountPopupIfPresent(cloudTestOptions())).not.toThrow();
     expect(document.querySelector('[data-xb-surface="popup"]')).toBeNull();
   });
 });

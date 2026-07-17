@@ -1,10 +1,8 @@
 // Catalog: SE-* (the shared one-shot cloud sync used by the popup and background) and
 // AC-* (runAutoCloudSync, THE gate every automatic sync trigger flows through).
 //
-// The cloud transport is injected via the `loadAdapter` param (see docs/adr/0003), so
-// these tests build plain CloudAdapter object fakes with call recording -- no bun
-// mock.module. (The popup's own cloud-backup suite still uses mock.module; that is
-// accepted debt tracked in the ADR, not something this file should imitate.)
+// The cloud transport is injected via `loadAdapter` (see ADR-0003). Tests use plain
+// CloudAdapter fakes with call recording.
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {

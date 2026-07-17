@@ -4,41 +4,46 @@
 // settings page); it only ever observes the stored `cloudBackup` flag and offers the one
 // action that is actually available for the state it finds.
 //
-// convex-sync talks to a live Convex deployment (see its header) and is intentionally
-// excluded from unit tests. We mock it at the popup boundary so the popup's sync wiring
-// is exercised without pulling in the real adapter. There is no auth in this flow.
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import type { RemoteAccount } from "../../entrypoints/lib/blocked-store.ts";
+import type { CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
+import { renderPopup } from "../../entrypoints/popup/main.ts";
+import { resetTestEnvironment, storageFake } from "../setup.ts";
 
 type OutboxLike = { action: { actionId: string } };
 
 let configured: boolean;
 let pushOutboxImpl: (items: OutboxLike[]) => Promise<string[]>;
-let pullBlockedImpl: () => Promise<unknown[]>;
+let pullBlockedImpl: () => Promise<RemoteAccount[]>;
 let calls: { push: number; pull: number };
+let probeCalls: number;
+let autoGateLoadAdapterCalls: number;
 
-await mock.module("../../entrypoints/lib/convex-sync", () => {
-  const isCloudConfigured = () => configured;
-  const pushOutbox = async (items: OutboxLike[]) => {
+const adapter: CloudAdapter = {
+  isConfigured: () => configured,
+  async push(items) {
     calls.push += 1;
     return pushOutboxImpl(items);
-  };
-  const pullBlocked = async () => {
+  },
+  async pull() {
     calls.pull += 1;
     return pullBlockedImpl();
-  };
-  return {
-    isCloudConfigured,
-    pushOutbox,
-    pullBlocked,
-    // Mirror the real module's adapter export: sync-engine's default loadAdapter
-    // destructures `convexAdapter`, and this mock is process-global, so a full-suite
-    // run must expose the same shape or that path crashes (see docs/adr/0003).
-    convexAdapter: { isConfigured: isCloudConfigured, push: pushOutbox, pull: pullBlocked },
-  };
-});
+  },
+};
 
-const { renderPopup } = await import("../../entrypoints/popup/main.ts");
-const { resetTestEnvironment, storageFake } = await import("../setup.ts");
+function cloudOptions() {
+  return {
+    probeConfigured: async () => {
+      probeCalls += 1;
+      return configured;
+    },
+    loadAdapter: async () => {
+      autoGateLoadAdapterCalls += 1;
+      return adapter;
+    },
+  };
+}
 
 /** Drain the microtask/macrotask queue so the fire-and-forget mount-time sync handler
  *  (and any click-triggered one) settles before assertions run. */
@@ -87,12 +92,6 @@ function outboxItem(actionId: string): unknown {
   };
 }
 
-// mock.module is process-global; restore it so a later test file that triggers sync
-// binds to the real adapter rather than this fake.
-afterAll(() => {
-  mock.restore();
-});
-
 describe("popup cloud sync row", () => {
   beforeEach(() => {
     resetTestEnvironment();
@@ -100,13 +99,15 @@ describe("popup cloud sync row", () => {
     pushOutboxImpl = async (items) => items.map((item) => item.action.actionId);
     pullBlockedImpl = async () => [];
     calls = { push: 0, pull: 0 };
+    probeCalls = 0;
+    autoGateLoadAdapterCalls = 0;
   });
 
   test("PU-CB-01 backup on with a queued outbox auto-syncs on open, draining the outbox", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["blockedOutbox"] = [outboxItem("a1")];
 
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     expect(calls.push).toBe(1);
@@ -124,7 +125,7 @@ describe("popup cloud sync row", () => {
       opened += 1;
     };
 
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     expect(calls.push).toBe(0);
@@ -148,11 +149,13 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
 
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     expect(calls.push).toBe(0);
     expect(calls.pull).toBe(0);
+    expect(probeCalls).toBe(1);
+    expect(autoGateLoadAdapterCalls).toBe(0);
     expect(telltaleState()).toBe("idle");
     expect(syncTitle()).toBe("Backup on");
     expect(syncDetail()).toBe("Synced just now.");
@@ -161,7 +164,7 @@ describe("popup cloud sync row", () => {
   test("PU-CB-04 clicking 'Sync now' pushes and pulls, then reports the fresh sync", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     syncButton()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -178,7 +181,7 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["blockedOutbox"] = [outboxItem("a1")];
 
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     expect(telltaleState()).toBe("unconfigured");
@@ -192,7 +195,7 @@ describe("popup cloud sync row", () => {
   test("PU-CB-06 a 'Sync now' failure surfaces the error telltale and retry copy", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     pullBlockedImpl = async () => {
@@ -216,7 +219,7 @@ describe("popup cloud sync row", () => {
       throw new Error("open boom");
     };
 
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     expect(telltaleState()).toBe("error");
@@ -228,7 +231,7 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() - 16 * 60_000 };
 
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     expect(calls.push).toBe(0); // nothing queued -> no push round-trip
@@ -239,10 +242,10 @@ describe("popup cloud sync row", () => {
   test("PU-CB-09 the telltale dot carries a live 'syncing' state mid-flight, then resolves", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
-    let resolvePull: ((rows: unknown[]) => void) | undefined;
+    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
     pullBlockedImpl = () =>
       new Promise((resolve) => {
         resolvePull = resolve;
@@ -277,7 +280,7 @@ describe("popup cloud sync row", () => {
     // honest state rather than claiming success.
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     configured = false;
@@ -295,7 +298,7 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
 
-    let resolvePull: ((rows: unknown[]) => void) | undefined;
+    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
     pullBlockedImpl = () =>
       new Promise((resolve) => {
         resolvePull = resolve;
@@ -305,7 +308,7 @@ describe("popup cloud sync row", () => {
     // built (its mount-time auto-sync IIFE is fire-and-forget and still in flight,
     // suspended on its dynamic convex-sync import) — the "Sync now" button already
     // exists and is enabled at this point.
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
 
     syncButton()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
@@ -333,7 +336,7 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
 
-    await renderPopup(document.body);
+    await renderPopup(document.body, cloudOptions());
     await flush();
 
     const copy = syncRow().querySelector<HTMLElement>(".xb-sync-copy");
