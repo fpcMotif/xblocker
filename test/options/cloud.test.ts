@@ -2,55 +2,56 @@
 // and the WIPE danger zone).
 //
 // convex-sync talks to a live Convex deployment and is intentionally excluded from unit
-// tests (see its header) — mocked here at the same boundary test/popup/cloud-backup.test.ts
-// uses, and for the same reason: a full-suite run must expose the exact `convexAdapter`
-// shape sync-engine.ts's default loadAdapter destructures (see docs/adr/0003), or a later
-// test file's unmocked import breaks. mock.module is process-global, hence afterAll restore.
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+// tests (see its header) — the transport, the configured probe, and the wipe port are
+// injected through renderCloudPane's cloud-session seams (loadAdapter / probeConfigured
+// / clearCloud) as plain fakes. The old process-global module-path mock of convex-sync
+// is gone (see docs/adr/0003's implementation-status note), so this suite is
+// order-independent with the rest of the run.
+import { beforeEach, describe, expect, test } from "bun:test";
 
-type OutboxLike = { action: { actionId: string } };
+import type { OutboxItem, RemoteAccount } from "../../entrypoints/lib/blocked-store.ts";
+import type { CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
+import { renderOptions } from "../../entrypoints/options/main.ts";
+import {
+  formatSyncAge,
+  renderCloudPane,
+  type RenderCloudPaneOptions,
+  WIPE_CONFIRM_WORD,
+} from "../../entrypoints/options/panes/cloud.ts";
+import { settleMicrotasks } from "../helpers/timers.ts";
+import { resetTestEnvironment, storageFake } from "../setup.ts";
 
 let configured: boolean;
-let pushOutboxImpl: (items: OutboxLike[]) => Promise<string[]>;
-let pullBlockedImpl: () => Promise<unknown[]>;
+let pushOutboxImpl: (items: OutboxItem[]) => Promise<string[]>;
+let pullBlockedImpl: () => Promise<RemoteAccount[]>;
 let clearCloudImpl: () => Promise<void>;
 let calls: { push: number; pull: number; clear: number };
 
-await mock.module("../../entrypoints/lib/convex-sync", () => {
-  const isCloudConfigured = () => configured;
-  const pushOutbox = async (items: OutboxLike[]) => {
+const adapter: CloudAdapter = {
+  isConfigured: () => configured,
+  push: async (items) => {
     calls.push += 1;
     return pushOutboxImpl(items);
-  };
-  const pullBlocked = async () => {
+  },
+  pull: async () => {
     calls.pull += 1;
     return pullBlockedImpl();
-  };
-  const clearCloud = async () => {
-    calls.clear += 1;
-    return clearCloudImpl();
-  };
+  },
+};
+
+/** Cloud-session seams for renderCloudPane — this pane owns the wipe UI, so unlike the
+ *  popup's suite it also injects a clearCloud port. */
+function cloudOpts(overrides: RenderCloudPaneOptions = {}): RenderCloudPaneOptions {
   return {
-    isCloudConfigured,
-    pushOutbox,
-    pullBlocked,
-    clearCloud,
-    // Mirror the real module's adapter export: sync-engine's default loadAdapter
-    // destructures `convexAdapter`, and this mock is process-global, so a full-suite
-    // run must expose the same shape (see docs/adr/0003).
-    convexAdapter: { isConfigured: isCloudConfigured, push: pushOutbox, pull: pullBlocked },
+    probeConfigured: async () => configured,
+    loadAdapter: async () => adapter,
+    clearCloud: async () => {
+      calls.clear += 1;
+      return clearCloudImpl();
+    },
+    ...overrides,
   };
-});
-
-const { formatSyncAge, renderCloudPane, WIPE_CONFIRM_WORD } =
-  await import("../../entrypoints/options/panes/cloud.ts");
-const { renderOptions } = await import("../../entrypoints/options/main.ts");
-const { settleMicrotasks } = await import("../helpers/timers.ts");
-const { resetTestEnvironment, storageFake } = await import("../setup.ts");
-
-afterAll(() => {
-  mock.restore();
-});
+}
 
 function byText(tag: string, text: string): HTMLElement {
   const el = Array.from(document.querySelectorAll<HTMLElement>(tag)).find(
@@ -93,10 +94,11 @@ describe("Cloud backup pane (unconfigured build)", () => {
   beforeEach(() => {
     resetTestEnvironment();
     configured = false;
+    calls = { push: 0, pull: 0, clear: 0 };
   });
 
   test("OC-02 renders a single explained-disabled state with no live controls", async () => {
-    const handle = await renderCloudPane(document.body);
+    const handle = await renderCloudPane(document.body, cloudOpts());
 
     expect(document.querySelector("h1")?.textContent).toBe("Cloud backup");
     expect(document.body.textContent).toContain("Cloud backup isn't configured for this build.");
@@ -117,14 +119,14 @@ describe("Cloud backup pane (configured)", () => {
   });
 
   test("OC-03 backup off by default: Off / Never synced. / 0 pending", async () => {
-    const handle = await renderCloudPane(document.body, { now: () => 1_000_000 });
+    const handle = await renderCloudPane(document.body, cloudOpts({ now: () => 1_000_000 }));
     expect(document.querySelector<HTMLInputElement>(".xb-opt-switch")?.checked).toBe(false);
     expect(rowValues()).toEqual(["Off", "Never synced.", "0"]);
     expect(() => handle.destroy()).not.toThrow();
   });
 
   test("OC-04 toggling on persists cloudBackup immediately, without triggering a sync", async () => {
-    await renderCloudPane(document.body);
+    await renderCloudPane(document.body, cloudOpts());
     const toggle = document.querySelector<HTMLInputElement>(".xb-opt-switch")!;
     toggle.checked = true;
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
@@ -150,7 +152,7 @@ describe("Cloud backup pane (configured)", () => {
     ];
     storageFake.data["cloudBackup"] = true;
 
-    await renderCloudPane(document.body, { now: () => 999 });
+    await renderCloudPane(document.body, cloudOpts({ now: () => 999 }));
     const syncButton = byButtonText("Sync now");
 
     syncButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -172,7 +174,7 @@ describe("Cloud backup pane (configured)", () => {
     pullBlockedImpl = async () => {
       throw new Error("network boom");
     };
-    await renderCloudPane(document.body);
+    await renderCloudPane(document.body, cloudOpts());
     const syncButton = byButtonText("Sync now");
 
     syncButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -184,7 +186,7 @@ describe("Cloud backup pane (configured)", () => {
   });
 
   test("OC-07 the wipe gate stays disabled until the trimmed, case-insensitive word matches", async () => {
-    await renderCloudPane(document.body);
+    await renderCloudPane(document.body, cloudOpts());
     byText("button", "Wipe cloud data").dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     const input = document.querySelector<HTMLInputElement>('[aria-label="Type WIPE to confirm"]')!;
@@ -203,7 +205,7 @@ describe("Cloud backup pane (configured)", () => {
 
   test("OC-08 confirming the wipe clears the cloud, resets sync meta, and closes the panel", async () => {
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: 12345 };
-    await renderCloudPane(document.body, { now: () => 999 });
+    await renderCloudPane(document.body, cloudOpts({ now: () => 999 }));
     byText("button", "Wipe cloud data").dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     const input = document.querySelector<HTMLInputElement>('[aria-label="Type WIPE to confirm"]')!;
@@ -220,7 +222,7 @@ describe("Cloud backup pane (configured)", () => {
   });
 
   test("OC-09 Cancel closes the panel and clears the input without wiping anything", async () => {
-    await renderCloudPane(document.body);
+    await renderCloudPane(document.body, cloudOpts());
     byText("button", "Wipe cloud data").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const input = document.querySelector<HTMLInputElement>('[aria-label="Type WIPE to confirm"]')!;
     input.value = WIPE_CONFIRM_WORD;
@@ -243,7 +245,7 @@ describe("Cloud backup pane (configured)", () => {
         action: { actionId: "a1", kind: "block", at: 1, source: "reply-bar" },
       },
     ];
-    await renderCloudPane(document.body, { now: () => 999 });
+    await renderCloudPane(document.body, cloudOpts({ now: () => 999 }));
     expect(rowValues()).toEqual(["On", "Never synced.", "1"]);
 
     byText("button", "Wipe cloud data").dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -270,7 +272,7 @@ describe("Cloud backup pane (configured)", () => {
     clearCloudImpl = async () => {
       throw new Error("wipe boom");
     };
-    await renderCloudPane(document.body);
+    await renderCloudPane(document.body, cloudOpts());
     byText("button", "Wipe cloud data").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const input = document.querySelector<HTMLInputElement>('[aria-label="Type WIPE to confirm"]')!;
     input.value = WIPE_CONFIRM_WORD;
@@ -291,18 +293,19 @@ describe("Cloud backup pane (configured)", () => {
 describe("Cloud route via the full options shell", () => {
   beforeEach(() => {
     resetTestEnvironment();
-    configured = true;
-    pushOutboxImpl = async () => [];
-    pullBlockedImpl = async () => [];
-    clearCloudImpl = async () => {};
-    calls = { push: 0, pull: 0, clear: 0 };
   });
 
   test("OC-11 navigating to Cloud backup from the rail mounts this pane", async () => {
+    // The shell mounts the pane with no injected seams, so the default probe runs (a
+    // real lazy convex-sync import). With no VITE_CONVEX_URL in the test env it reports
+    // unconfigured — the pane's header renders either way, and nothing syncs on mount.
     await renderOptions(document.body);
     document
       .querySelector<HTMLAnchorElement>('.xb-opt-nav-item[data-route="cloud"]')!
       .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    // The default probe's lazy convex-sync import can resolve off the macrotask queue
+    // on a cold module cache — hop it once before draining microtasks.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await settleMicrotasks(50);
 
     expect(document.querySelector(".xb-opt-content h1")?.textContent).toBe("Cloud backup");

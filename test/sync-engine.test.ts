@@ -3,8 +3,8 @@
 //
 // The cloud transport is injected via the `loadAdapter` param (see docs/adr/0003), so
 // these tests build plain CloudAdapter object fakes with call recording -- no bun
-// mock.module. (The popup's own cloud-backup suite still uses mock.module; that is
-// accepted debt tracked in the ADR, not something this file should imitate.)
+// module-path mocking. The popup/options cloud suites now follow the same pattern
+// through cloud-session's injectable ports (see the ADR's implementation-status note).
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {

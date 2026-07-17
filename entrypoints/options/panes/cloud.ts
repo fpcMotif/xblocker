@@ -1,34 +1,26 @@
 // Cloud backup pane. convex-sync.ts is never statically imported (an unconfigured build
-// should not pay for the Convex bundle at all) — both the "is this build configured"
-// check and the wipe action reach it through a lazy import(), same discipline
-// lib/sync-engine.ts already uses for push/pull.
+// should not pay for the Convex bundle at all) — the configured probe, the sync
+// transport, and the wipe action all reach it through cloud-session's lazy default
+// ports, same discipline lib/sync-engine.ts already uses for push/pull. This pane owns
+// only presentation (toggle, meta rows, WIPE panel); sync/wipe behavior lives in
+// lib/cloud-session.ts, shared with the popup.
 
 import { blockedStore } from "../../lib/blocked-store";
 import { CLOUD_BACKUP_KEY, storageGet, storageSet } from "../../lib/chrome-storage";
-import { getSyncMeta, runCloudSync, SYNC_META_KEY, type SyncMeta } from "../../lib/sync-engine";
+import {
+  type ClearCloudPort,
+  createCloudSyncSession,
+  formatSyncAge,
+  type LoadCloudAdapter,
+  type ProbeConfiguredPort,
+} from "../../lib/cloud-session";
+import { getSyncMeta, type SyncMeta } from "../../lib/sync-engine";
 
 export const WIPE_CONFIRM_WORD = "WIPE";
 
-async function loadConvexSync(): Promise<{
-  isCloudConfigured: () => boolean;
-  clearCloud: () => Promise<void>;
-}> {
-  return import("../../lib/convex-sync");
-}
-
-/** "Never synced." / "Synced just now." / "Synced 4m ago." — coarse, matching the popup's
- *  own phrasing but kept as a local, independent implementation (this pane must not
- *  depend on entrypoints/popup/main.ts, which is a different surface under active work). */
-export function formatSyncAge(meta: SyncMeta, now: number): string {
-  const at = meta.lastSyncAt;
-  if (typeof at !== "number") return "Never synced.";
-  const minutes = Math.max(0, Math.round((now - at) / 60_000));
-  if (minutes < 1) return "Synced just now.";
-  if (minutes < 60) return `Synced ${minutes}m ago.`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `Synced ${hours}h ago.`;
-  return `Synced ${Math.round(hours / 24)}d ago.`;
-}
+// The coarse "Synced 4m ago." strings now have exactly one copy, in cloud-session;
+// re-exported here for this pane's existing consumers.
+export { formatSyncAge };
 
 type PaneHandle = { destroy(): void };
 
@@ -54,14 +46,28 @@ function renderUnconfigured(container: HTMLElement): void {
   container.replaceChildren(wrapper);
 }
 
+export type RenderCloudPaneOptions = {
+  now?: () => number;
+  /** Cloud-session test seams. Unlike the popup, this pane owns the wipe UI, so it is
+   *  the one surface that forwards a clearCloud port. */
+  loadAdapter?: LoadCloudAdapter;
+  probeConfigured?: ProbeConfiguredPort;
+  clearCloud?: ClearCloudPort;
+};
+
 export async function renderCloudPane(
   container: HTMLElement,
-  opts: { now?: () => number } = {},
+  opts: RenderCloudPaneOptions = {},
 ): Promise<PaneHandle> {
   const now = opts.now ?? Date.now;
-  const { isCloudConfigured, clearCloud } = await loadConvexSync();
+  const session = createCloudSyncSession({
+    loadAdapter: opts.loadAdapter,
+    probeConfigured: opts.probeConfigured,
+    clearCloud: opts.clearCloud,
+    now: opts.now,
+  });
 
-  if (!isCloudConfigured()) {
+  if (!(await session.isBuildConfigured())) {
     renderUnconfigured(container);
     return { destroy() {} };
   }
@@ -164,9 +170,9 @@ export async function renderCloudPane(
     syncButton.disabled = true;
     syncButton.textContent = "Syncing…";
     try {
-      const outcome = await runCloudSync();
-      if (outcome.status === "synced") {
-        currentMeta = { lastSyncAt: outcome.at };
+      const result = await session.runManual();
+      if (result?.outcome.status === "synced") {
+        currentMeta = { lastSyncAt: result.outcome.at };
         currentPendingCount = (await blockedStore.pending()).length;
       }
       // Only the success/unconfigured path refreshes from currentMeta/currentPendingCount
@@ -257,22 +263,13 @@ export async function renderCloudPane(
     confirmButton.disabled = true;
     cancelButton.disabled = true;
     try {
-      const { clearCloud: clear } = { clearCloud };
-      await clear();
-      // The cloud rows are gone, so the queued outbox actions that produced them must
-      // never re-push (that would silently repopulate the cloud the user just wiped) —
-      // drain the outbox by marking every pending item synced.
-      const drained = await blockedStore.pending();
-      if (drained.length > 0) {
-        await blockedStore.markSynced(drained.map((item) => item.action.actionId));
-      }
-      // A wiped cloud with backup left on would just refill on the next auto-sync, so
-      // the wipe also turns cloud backup off.
-      await storageSet({ [SYNC_META_KEY]: {}, [CLOUD_BACKUP_KEY]: false });
+      // The full side-effect sequence (clear cloud rows, drain the outbox so nothing
+      // re-pushes, clear sync meta, turn cloud backup off) lives in cloud-session.
+      const { pendingCount } = await session.wipeCloud();
       enabled = false;
       toggleInput.checked = false;
       currentMeta = {};
-      currentPendingCount = (await blockedStore.pending()).length;
+      currentPendingCount = pendingCount;
       refreshMetaRows();
       closeWipePanel();
     } catch (error) {
