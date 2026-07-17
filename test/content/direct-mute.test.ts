@@ -1,13 +1,16 @@
 // Catalog: DM-* (createDirectMuteRequest / muteUserDirectly / muteTweet direct mute flow).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { muteTweet } from "../../entrypoints/content/reply-actions.ts";
+import { createDirectMuteRequest, muteUserDirectly } from "../../entrypoints/content/x-api.ts";
 import {
   createTweetArticle,
-  hooks,
   installFetchStub,
   installRejectingFetch,
-} from "../helpers/content-hooks.ts";
+} from "../helpers/content-dom.ts";
 import { resetTestEnvironment, setDocumentCookie, storageFake } from "../setup.ts";
+
+const api = { createDirectMuteRequest, muteTweet, muteUserDirectly };
 
 describe("direct mute flow", () => {
   let fetchStub: ReturnType<typeof installFetchStub> | null = null;
@@ -23,7 +26,7 @@ describe("direct mute flow", () => {
   });
 
   test("DM-01 creates a session-authenticated direct mute request by screen name", () => {
-    const request = hooks.createDirectMuteRequest("@test_user");
+    const request = api.createDirectMuteRequest("@test_user");
 
     expect(request.url).toBe("https://api.x.com/1.1/mutes/users/create.json");
     expect(request.options.method).toBe("POST");
@@ -41,7 +44,7 @@ describe("direct mute flow", () => {
     const { moreButton, tweetArticle } = createTweetArticle("direct_user");
     document.body.appendChild(tweetArticle);
 
-    const result = await hooks.muteTweet(tweetArticle);
+    const result = await api.muteTweet(tweetArticle);
 
     expect(result).toEqual({ status: "muted", username: "direct_user" });
     expect(fetchStub.calls).toHaveLength(1);
@@ -57,7 +60,7 @@ describe("direct mute flow", () => {
     const { moreButton, tweetArticle } = createTweetArticle("safe_user");
     document.body.appendChild(tweetArticle);
 
-    const result = await hooks.muteTweet(tweetArticle);
+    const result = await api.muteTweet(tweetArticle);
 
     expect(result).toEqual({ status: "skipped", username: "safe_user" });
     expect(fetchStub.calls).toHaveLength(0);
@@ -69,7 +72,7 @@ describe("direct mute flow", () => {
     const { tweetArticle } = createTweetArticle("rejected_user");
     document.body.appendChild(tweetArticle);
 
-    const result = await hooks.muteTweet(tweetArticle);
+    const result = await api.muteTweet(tweetArticle);
 
     expect(result.status).toBe("failed");
     expect(result.username).toBe("rejected_user");
@@ -81,7 +84,7 @@ describe("direct mute flow", () => {
   test("DM-05 fails early when the X csrf cookie is unavailable", () => {
     setDocumentCookie("");
 
-    expect(() => hooks.createDirectMuteRequest("test_user")).toThrow("Missing X CSRF token");
+    expect(() => api.createDirectMuteRequest("test_user")).toThrow("Missing X CSRF token");
   });
 });
 
@@ -101,7 +104,7 @@ describe("muteUserDirectly", () => {
   test("DM-06 performs exactly one POST to the mute endpoint and resolves on HTTP 200", async () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
 
-    const response = await hooks.muteUserDirectly("direct_user");
+    const response = await api.muteUserDirectly("direct_user");
 
     expect(response.status).toBe(200);
     expect(fetchStub.calls).toHaveLength(1);
@@ -113,7 +116,7 @@ describe("muteUserDirectly", () => {
 
   test("DM-07 throws with the HTTP status when the mute API rejects", async () => {
     fetchStub = installFetchStub(() => ({ ok: false, status: 403 }));
-    await hooks.muteUserDirectly("direct_user").then(
+    await api.muteUserDirectly("direct_user").then(
       () => {
         throw new Error("Expected direct mute to reject");
       },
@@ -126,7 +129,7 @@ describe("muteUserDirectly", () => {
   test("DM-08 propagates network-level fetch rejections", async () => {
     const rejecting = installRejectingFetch("connection reset");
     try {
-      await hooks.muteUserDirectly("direct_user").then(
+      await api.muteUserDirectly("direct_user").then(
         () => {
           throw new Error("Expected direct mute to reject");
         },
@@ -143,7 +146,7 @@ describe("muteUserDirectly", () => {
   test("DM-09 never calls fetch when the CSRF cookie is missing", async () => {
     setDocumentCookie("");
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    await hooks.muteUserDirectly("direct_user").then(
+    await api.muteUserDirectly("direct_user").then(
       () => {
         throw new Error("Expected direct mute to reject");
       },

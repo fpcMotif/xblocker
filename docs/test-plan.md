@@ -24,13 +24,11 @@ here is the extension's only persistence and network surface:
 | File | Purpose |
 | --- | --- |
 | `test/setup.ts` | happy-dom globals, stateful `chrome.storage` fake, `setWindowLocation`/`setDocumentCookie`/`resetTestEnvironment` |
-| `test/helpers/content-hooks.ts` | Loads `content/index.ts` once in `__XB_TEST__` mode for legacy lifecycle suites; also provides DOM/fetch builders |
+| `test/helpers/content-dom.ts` | DOM and fetch builders with no production bootstrap side effects |
 | `test/helpers/timers.ts` | Manual / immediate `setTimeout` control + microtask draining |
 
-`content/index.ts` exposes its internals via `globalThis.__xblockerTestHooks` only when
-`__XB_TEST__` is set — the production bundle never installs them. Quick-block module
-tests do not use those hooks. They import production modules directly and drive only
-`mount()` / `destroy()`, DOM clicks, and mutations.
+Tests import production modules directly. Lifecycle tests construct `ContentSession`
+with injected factories and URL observers. Integration tests still use real DOM clicks.
 
 ## Coverage map (file → suites)
 
@@ -39,19 +37,19 @@ tests do not use those hooks. They import production modules directly and drive 
 | `normalizeUsername`, `extractUsernameFromTweet` | `content/username.test.ts` | UN-01..15, EX-01..10 |
 | `isTweetPageUrl`, `getCookieValue` | `content/url-and-cookies.test.ts` | URL-01..07, CK-01..08 |
 | `createDirectBlockRequest`, `blockUserDirectly`, `blockTweet` | `content/direct-block.test.ts` | DB-01..11, BT-01..07 |
-| `blockFirst20CommentTweets`, `muteFirst50CommentTweets`, `muteTweet` | `content/bulk-actions.test.ts` | BULK-01..13 |
-| `getWhitelist`, `saveWhitelist`, `addToWhitelist` | `content/whitelist-storage.test.ts` | WL-01..12 |
+| `blockReplies`, `muteReplies`, `muteTweet` | `content/bulk-actions.test.ts` | BULK-01..19 |
+| `getWhitelist`, `isWhitelisted`, `addToWhitelist`, `removeFromWhitelist` | `content/whitelist-storage.test.ts` | WL-01..20 |
 | `detectTheme`, `applyTheme`, `ensureStyles`, `createIcon`, `createActionButton`, `showToast`, `showWhitelistModal` | `content/ui-rendering.test.ts` | TH/ST/IC/BT/TO/MD |
 | `computeRailY`, `exceedsJitter`, `lerp` (pure geometry) | `content/position.test.ts` | RAIL/JIT/LERP/CONST |
 | `ReplyRail` state machine (collapsed/tracking/settled, dwell, grace, suppression, follow loop) | `content/rail-state.test.ts` | RS-01..21 |
 | `ReplyRail` actions (bulk batches, counts, ring, drag persistence, session badge) | `content/rail-actions.test.ts` | RA-01..15 |
-| `QuickBlockMode`, `CursorConsole`, `NativeAutoConfirm`, `createQuickBlockService` | `content/quick-block.test.ts` | QB-01..03, QB-10..29, QB-32..37 |
+| `QuickBlockMode`, `CursorConsole`, `NativeAutoConfirm`, `createQuickBlockService`, session integration | `content/quick-block.test.ts` | QB-01..03, QB-10..37 |
 | `isReplyArticle` classification + coverage attribution warm-up | `content/misc-coverage.test.ts` | MC-01..05 |
-| `checkPageAndAddButton`, `addButtons`, `observeThemeChanges`, `initializeXBlocker`, test hooks | `content/page-lifecycle.test.ts` | PL-01..21 |
+| `ContentSession` navigation, listeners, cleanup, and bootstrap | `content/page-lifecycle.test.ts` | PL-01..10, PL-17, PL-19, PL-23 |
 | `renderPopup`, popup whitelist form, settings toggles, `normalizeUsername` | `popup/popup.test.ts` | PU-01..13 |
 
-QB-30/31 are deferred to Candidate A. They will return as `ContentSession`
-integration tests for rail-count wiring and session-long quick-block lifecycle.
+QB-30/31 cover rail-count wiring and session-long quick-block lifecycle through
+`ContentSession`.
 
 ## Adversarial cases & pinned bugs
 

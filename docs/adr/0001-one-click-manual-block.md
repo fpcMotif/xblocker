@@ -7,7 +7,7 @@
 
 XBlocker can already block/mute **all replies** in one click via the reply rail. The
 bulk path calls X's internal web API directly (`blockUserDirectly` / `muteUserDirectly`
-in `entrypoints/content/actions.ts`) — instant, no confirmation dialog.
+in `entrypoints/content/x-api.ts`) — instant, no confirmation dialog.
 
 There was no equivalent for blocking **one specific person**. To remove a single
 account the user fell back to X's native ••• menu → Block, which shows a confirmation
@@ -67,9 +67,9 @@ site-wide.
 
 - Flag: `VITE_QUICK_BLOCK_MODE` ∈ `auto-confirm` (B, default) | `inline` (A) | `off`.
   Read via `import.meta.env` (same convention as `VITE_CONVEX_URL`); resolved in
-  `entrypoints/content/quick-block.ts`. Set it in `.env` and rebuild to switch modes.
+  `entrypoints/content/quick-block-mode.ts`. Set it in `.env` and rebuild to switch modes.
 - B is the scoped auto-confirm observer described above. It mounts **once for the whole
-  session** in `entrypoints/content/index.ts` (`mountQuickBlock`), independent of the reply
+  session** through `entrypoints/content/content-session.ts`, independent of the reply
   rail's per-surface lifecycle, so it bypasses the native "Block @user?" dialog on every
   surface (profile, timeline, search, status) and for both the mouse and keyboard paths
   into the ••• → Block / Mute menu items.

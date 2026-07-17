@@ -1,34 +1,9 @@
 import { storageGet, SETTINGS_KEY } from "../lib/chrome-storage";
 import { blockedStore } from "../lib/blocked-store";
-import {
-  clampMaxReplies,
-  normalizeUsername,
-  DEFAULT_MAX_REPLIES,
-  MAX_REPLIES_LIMIT,
-} from "../lib/settings";
-// Whitelist persistence lives in ../lib/whitelist-store (verified behavior-identical to
-// the implementation this module used to carry).
+import { clampMaxReplies } from "../lib/settings";
 import { getWhitelist, isWhitelisted } from "../lib/whitelist-store";
-// Direct X API request/response layer and DOM author-extraction + Discover-more boundary
-// detection were split out into their own modules.
 import { performDirectAction, readBlockOutcome, type DirectActionType } from "./x-api";
 import { getConversationReplies, extractUsernameFromTweet } from "./author";
-
-// Every symbol the modules above used to export from here is re-exported so no existing
-// import path (or test) — modal.ts, quick-block.ts, rail.ts, index.ts hooks — has to change.
-export {
-  addToWhitelist,
-  getWhitelist,
-  isWhitelisted,
-  removeFromWhitelist,
-  type WhitelistAddResult,
-} from "../lib/whitelist-store";
-export * from "./x-api";
-export * from "./author";
-
-// Re-exported so existing importers (modal.ts, index.ts hooks, tests) keep their
-// `from "./actions"` path while the single definition lives in ../lib/settings.
-export { normalizeUsername, DEFAULT_MAX_REPLIES, MAX_REPLIES_LIMIT };
 
 export type ReplyActionResult =
   | { status: "blocked" | "muted" | "skipped"; username: string }
@@ -39,7 +14,6 @@ export type BatchSummary = { acted: number; skipped: number; failed: number };
 
 const DIRECT_ACTION_DELAY_MS = 250;
 const TWEET_PAGE_URL_PATTERN = new RegExp(String.raw`https?://(www\.)?x\.com/[^/]+/status/\d+`);
-const LOCAL_TEST_PAGE_PATTERN = new RegExp(String.raw`^https?://(localhost|127\.0\.0\.1)`);
 
 export const batchState = { running: false };
 
@@ -48,12 +22,7 @@ export function waitFor(ms: number): Promise<void> {
 }
 
 export function isTweetPageUrl(url: string): boolean {
-  const isLocalTestPage =
-    typeof globalThis !== "undefined" &&
-    globalThis.__XB_TEST__ &&
-    LOCAL_TEST_PAGE_PATTERN.test(url);
-
-  return TWEET_PAGE_URL_PATTERN.test(url) || !!isLocalTestPage;
+  return TWEET_PAGE_URL_PATTERN.test(url);
 }
 
 function readMaxRepliesSetting(settings: unknown): unknown {

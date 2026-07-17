@@ -1,6 +1,3 @@
-// Unified whitelist persistence, ported from content/actions.ts (that copy stays put
-// until its owner re-points its imports here).
-//
 // readWhitelist below reads via a raw chrome.storage.local.get rather than
 // chrome-storage.ts's storageGet: storageGet's tolerant contract collapses "the key was
 // never set" and "the get itself failed" into the same `undefined`, but

@@ -1,9 +1,6 @@
 // Catalog: WL-* (getWhitelist / isWhitelisted / addToWhitelist / removeFromWhitelist).
 // saveWhitelist is module-private now; persistence is asserted through the
-// public API plus storageFake.data/setCalls. Load the test-hooks helper first
-// so __XB_TEST__ is set before any entrypoints module evaluates.
-// oxlint-disable-next-line import/no-unassigned-import -- side-effect import keeps __XB_TEST__ ordering correct.
-import "../helpers/content-hooks.ts";
+// public API plus storageFake.data/setCalls.
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -12,7 +9,7 @@ import {
   getWhitelist,
   isWhitelisted,
   removeFromWhitelist,
-} from "../../entrypoints/content/actions.ts";
+} from "../../entrypoints/lib/whitelist-store.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 

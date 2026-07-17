@@ -1,8 +1,7 @@
 // Catalog: RAIL-* (computeRailY), JIT-* (exceedsJitter), LERP-* (lerp),
 // CONST-* (exported constants).
 //
-// position.ts is pure math, so these tests import it directly instead of going
-// through the content-script hooks.
+// position.ts is pure math, so these tests import it directly.
 import { describe, expect, test } from "bun:test";
 
 import {

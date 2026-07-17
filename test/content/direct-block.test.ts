@@ -1,19 +1,22 @@
 // Catalog: DB-* (createDirectBlockRequest / blockUserDirectly) and BT-* (blockTweet).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { blockTweet } from "../../entrypoints/content/reply-actions.ts";
+import { blockUserDirectly, createDirectBlockRequest } from "../../entrypoints/content/x-api.ts";
 import {
   createAnonymousTweetArticle,
   createTweetArticle,
-  hooks,
   installFetchStub,
   installRejectingFetch,
-} from "../helpers/content-hooks.ts";
+} from "../helpers/content-dom.ts";
 import {
   resetTestEnvironment,
   setDocumentCookie,
   setWindowLocation,
   storageFake,
 } from "../setup.ts";
+
+const api = { blockTweet, blockUserDirectly, createDirectBlockRequest };
 
 describe("createDirectBlockRequest", () => {
   beforeEach(() => {
@@ -22,7 +25,7 @@ describe("createDirectBlockRequest", () => {
   });
 
   test("DB-01 builds the full session-authenticated request", () => {
-    const request = hooks.createDirectBlockRequest("test_user");
+    const request = api.createDirectBlockRequest("test_user");
 
     expect(request.url).toBe("https://api.x.com/1.1/blocks/create.json");
     expect(request.options.method).toBe("POST");
@@ -36,30 +39,30 @@ describe("createDirectBlockRequest", () => {
   });
 
   test("DB-02 normalizes an @-prefixed handle before sending", () => {
-    const request = hooks.createDirectBlockRequest("@test_user");
+    const request = api.createDirectBlockRequest("@test_user");
     expect(request.options.body).toBe("screen_name=test_user");
   });
 
   test("DB-03 targets api.twitter.com when browsing twitter.com", () => {
     setWindowLocation("https://twitter.com/user/status/1");
-    const request = hooks.createDirectBlockRequest("test_user");
+    const request = api.createDirectBlockRequest("test_user");
     expect(request.url).toBe("https://api.twitter.com/1.1/blocks/create.json");
   });
 
   test("DB-04 throws on an invalid username before any cookie work", () => {
-    expect(() => hooks.createDirectBlockRequest("not a handle")).toThrow("Missing valid username");
-    expect(() => hooks.createDirectBlockRequest("")).toThrow("Missing valid username");
-    expect(() => hooks.createDirectBlockRequest("home")).toThrow("Missing valid username");
+    expect(() => api.createDirectBlockRequest("not a handle")).toThrow("Missing valid username");
+    expect(() => api.createDirectBlockRequest("")).toThrow("Missing valid username");
+    expect(() => api.createDirectBlockRequest("home")).toThrow("Missing valid username");
   });
 
   test("DB-05 throws when the ct0 CSRF cookie is missing", () => {
     setDocumentCookie("auth_token=session-token");
-    expect(() => hooks.createDirectBlockRequest("test_user")).toThrow("Missing X CSRF token");
+    expect(() => api.createDirectBlockRequest("test_user")).toThrow("Missing X CSRF token");
   });
 
   test("DB-06 throws when ct0 exists but is empty", () => {
     setDocumentCookie("ct0=; auth_token=session-token");
-    expect(() => hooks.createDirectBlockRequest("test_user")).toThrow("Missing X CSRF token");
+    expect(() => api.createDirectBlockRequest("test_user")).toThrow("Missing X CSRF token");
   });
 });
 
@@ -79,7 +82,7 @@ describe("blockUserDirectly", () => {
   test("DB-07 performs exactly one POST and resolves on HTTP 200", async () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
 
-    const response = await hooks.blockUserDirectly("direct_user");
+    const response = await api.blockUserDirectly("direct_user");
 
     expect(response.status).toBe(200);
     expect(fetchStub.calls).toHaveLength(1);
@@ -90,7 +93,7 @@ describe("blockUserDirectly", () => {
 
   test("DB-08 throws with the HTTP status on 401 (signed out)", async () => {
     fetchStub = installFetchStub(() => ({ ok: false, status: 401 }));
-    await hooks.blockUserDirectly("direct_user").then(
+    await api.blockUserDirectly("direct_user").then(
       () => {
         throw new Error("Expected direct block to reject");
       },
@@ -102,7 +105,7 @@ describe("blockUserDirectly", () => {
 
   test("DB-09 throws with the HTTP status on 429 (rate limited)", async () => {
     fetchStub = installFetchStub(() => ({ ok: false, status: 429 }));
-    await hooks.blockUserDirectly("direct_user").then(
+    await api.blockUserDirectly("direct_user").then(
       () => {
         throw new Error("Expected direct block to reject");
       },
@@ -115,7 +118,7 @@ describe("blockUserDirectly", () => {
   test("DB-10 propagates network-level fetch rejections", async () => {
     const rejecting = installRejectingFetch("connection reset");
     try {
-      await hooks.blockUserDirectly("direct_user").then(
+      await api.blockUserDirectly("direct_user").then(
         () => {
           throw new Error("Expected direct block to reject");
         },
@@ -131,7 +134,7 @@ describe("blockUserDirectly", () => {
   test("DB-11 never calls fetch when request construction fails", async () => {
     setDocumentCookie("");
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
-    await hooks.blockUserDirectly("direct_user").then(
+    await api.blockUserDirectly("direct_user").then(
       () => {
         throw new Error("Expected direct block to reject");
       },
@@ -160,7 +163,7 @@ describe("blockTweet", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     const { moreButton, tweetArticle } = createTweetArticle("direct_user");
 
-    const result = await hooks.blockTweet(tweetArticle);
+    const result = await api.blockTweet(tweetArticle);
 
     expect(result).toEqual({ status: "blocked", username: "direct_user" });
     expect(fetchStub.calls).toHaveLength(1);
@@ -175,7 +178,7 @@ describe("blockTweet", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     const { tweetArticle } = createTweetArticle("safe_user");
 
-    const result = await hooks.blockTweet(tweetArticle);
+    const result = await api.blockTweet(tweetArticle);
 
     expect(result).toEqual({ status: "skipped", username: "safe_user" });
     expect(fetchStub.calls).toHaveLength(0);
@@ -188,7 +191,7 @@ describe("blockTweet", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     const { tweetArticle } = createTweetArticle("Safe_User");
 
-    const result = await hooks.blockTweet(tweetArticle);
+    const result = await api.blockTweet(tweetArticle);
 
     expect(result).toEqual({ status: "skipped", username: "Safe_User" });
     expect(fetchStub.calls).toHaveLength(0);
@@ -197,7 +200,7 @@ describe("blockTweet", () => {
   test("BT-04 fails with missing-username when no author link exists", async () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
 
-    const result = await hooks.blockTweet(createAnonymousTweetArticle());
+    const result = await api.blockTweet(createAnonymousTweetArticle());
 
     expect(result).toEqual({ status: "failed", reason: "missing-username" });
     expect(fetchStub.calls).toHaveLength(0);
@@ -207,7 +210,7 @@ describe("blockTweet", () => {
     fetchStub = installFetchStub(() => ({ ok: false, status: 403 }));
     const { tweetArticle } = createTweetArticle("api_blocked");
 
-    const result = await hooks.blockTweet(tweetArticle);
+    const result = await api.blockTweet(tweetArticle);
 
     expect(result.status).toBe("failed");
     if (result.status === "failed") {
@@ -221,7 +224,7 @@ describe("blockTweet", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     const { tweetArticle } = createTweetArticle("nocookie_user");
 
-    const result = await hooks.blockTweet(tweetArticle);
+    const result = await api.blockTweet(tweetArticle);
 
     expect(result.status).toBe("failed");
     expect(fetchStub.calls).toHaveLength(0);
@@ -231,13 +234,13 @@ describe("blockTweet", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     const { tweetArticle } = createTweetArticle("toggled_user");
 
-    expect(await hooks.blockTweet(tweetArticle)).toEqual({
+    expect(await api.blockTweet(tweetArticle)).toEqual({
       status: "blocked",
       username: "toggled_user",
     });
 
     storageFake.data["whitelist"] = ["toggled_user"];
-    expect(await hooks.blockTweet(tweetArticle)).toEqual({
+    expect(await api.blockTweet(tweetArticle)).toEqual({
       status: "skipped",
       username: "toggled_user",
     });
@@ -249,7 +252,7 @@ describe("blockTweet", () => {
     try {
       const { tweetArticle } = createTweetArticle("offline_user");
 
-      const result = await hooks.blockTweet(tweetArticle);
+      const result = await api.blockTweet(tweetArticle);
 
       expect(result.status).toBe("failed");
       if (result.status === "failed") {
@@ -268,7 +271,7 @@ describe("blockTweet", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     const { tweetArticle } = createTweetArticle("resilient_user");
 
-    const result = await hooks.blockTweet(tweetArticle);
+    const result = await api.blockTweet(tweetArticle);
 
     expect(result).toEqual({ status: "blocked", username: "resilient_user" });
     expect(fetchStub.calls).toHaveLength(1);

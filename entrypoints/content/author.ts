@@ -1,7 +1,4 @@
-// DOM author-extraction heuristics, plus the Discover-more reply-region boundary. Split
-// out of actions.ts — moved verbatim, kept as one module because both concerns read the
-// same reply <article> markup: extraction resolves who a reply is from, the boundary
-// decides which articles are genuine replies at all.
+// Author extraction and the Discover-more reply-region boundary share tweet DOM rules.
 import { normalizeUsername } from "../lib/settings";
 
 // One reply <article> holds several handle-shaped links, so the old "first

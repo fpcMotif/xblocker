@@ -1,8 +1,10 @@
-import { addToWhitelist, blockTweet, muteTweet, type DirectActionType } from "./actions";
+import { addToWhitelist } from "../lib/whitelist-store";
 import { extractUsernameFromTweet, getConversationReplies } from "./author";
 import { createActionButton } from "./buttons";
+import { blockTweet, muteTweet } from "./reply-actions";
 import { detectTheme } from "./theme";
 import { showToast } from "./toast";
+import type { DirectActionType } from "./x-api";
 
 export type CursorConsoleOptions = {
   onActed?: (kind: DirectActionType) => void;

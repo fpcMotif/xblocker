@@ -1,8 +1,4 @@
-// Direct X API layer: builds and sends the block/mute POST requests that let the
-// reply batch (actions.ts) and the Cursor Console (quick-block.ts) act on an account
-// without ever opening X's own •••-menu confirmation flow. Split out of actions.ts —
-// moved verbatim so the cookie/bearer/ct0 request plumbing and response parsing stay a
-// separate concern from batch orchestration and DOM author extraction.
+// Direct X API requests shared by reply batches and the Cursor Console.
 import { normalizeUsername } from "../lib/settings";
 
 export type DirectActionType = "block" | "mute";
@@ -76,8 +72,7 @@ export function createDirectMuteRequest(username: string): DirectActionRequest {
   return createDirectActionRequest("mute", username);
 }
 
-// Exported (not module-private) so the reply-batch orchestration in actions.ts can drive
-// a single direct call per reply; re-exported to callers via `export * from "./x-api"`.
+// Reply batches call this once per reply.
 export async function performDirectAction(
   type: DirectActionType,
   username: string,
@@ -109,8 +104,7 @@ function readProp(value: unknown, key: string): unknown {
 
 // blocks/create.json returns the blocked user object, including the stable numeric
 // id_str. Capture it so the local store keys on the id rather than the mutable screen
-// name. Fall back to the screen name if the body is missing or unreadable. Exported for
-// actions.ts's recordAction, which persists this outcome to the local store.
+// name. Fall back to the screen name if the body is missing or unreadable.
 export async function readBlockOutcome(
   response: Response,
   username: string,

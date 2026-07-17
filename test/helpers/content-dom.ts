@@ -1,18 +1,3 @@
-// Loads the content script once in test mode and exposes its internals.
-// Every content.ts test file must obtain hooks through this module so the
-// __XB_TEST__ flag is guaranteed to be set before the first import.
-
-globalThis.__XB_TEST__ = true;
-await import("../../entrypoints/content/index.ts");
-globalThis.__XB_TEST__ = undefined;
-
-const installed = globalThis.__xblockerTestHooks;
-if (!installed) {
-  throw new Error("content/index.ts did not install __xblockerTestHooks in test mode");
-}
-
-export const hooks = installed;
-
 /** Build a tweet <article> with an author link and a mocked More button. */
 export function createTweetArticle(username: string): {
   moreButton: HTMLElement & { clicks: number };

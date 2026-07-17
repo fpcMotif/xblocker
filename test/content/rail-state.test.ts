@@ -2,14 +2,12 @@
 // transitions, Glide motion, dwell + collapse-grace timing, suppression,
 // and batch pinning).
 //
-// This suite drives the rail directly through its public handlers
-// (handleMouseMove/handleKeydown/handleScroll/step) instead of loading
-// content-hooks: document-level wiring is task 004, and rail.ts must be
-// specifiable in isolation. Spec: docs/superpowers/specs/2026-06-12-reply-rail-design.md
+// This suite drives the rail through its public handlers.
+// Spec: docs/superpowers/specs/2026-06-12-reply-rail-design.md
 // §§ States, Motion, Reply-mode detection.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { batchState } from "../../entrypoints/content/actions.ts";
+import { batchState } from "../../entrypoints/content/reply-actions.ts";
 import { FOLLOW_FACTOR, lerp, VIEWPORT_MARGIN } from "../../entrypoints/content/position.ts";
 import { COLLAPSE_GRACE_MS, DWELL_MS, ReplyRail } from "../../entrypoints/content/rail.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";

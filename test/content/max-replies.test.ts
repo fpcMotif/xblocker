@@ -3,7 +3,8 @@
 // bounds how many reply articles a batch run touches.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { hooks, installFetchStub, populateTweetPage } from "../helpers/content-hooks.ts";
+import * as replyActions from "../../entrypoints/content/reply-actions.ts";
+import { installFetchStub, populateTweetPage } from "../helpers/content-dom.ts";
 import { installImmediateTimers } from "../helpers/timers.ts";
 import {
   resetTestEnvironment,
@@ -31,80 +32,80 @@ describe("max replies setting", () => {
   });
 
   test("MR-01 defaults to 50 replies per run when no setting is stored", async () => {
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
   });
 
   test("MR-02 defaults to 50 when settings exist without maxReplies", async () => {
     storageFake.data["settings"] = { theme: "dark" };
 
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
   });
 
   test("MR-03 defaults to 50 when settings is not an object", async () => {
     storageFake.data["settings"] = "fifty";
 
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
   });
 
   test("MR-04 defaults to 50 when the storage read fails", async () => {
     storageFake.data["settings"] = { maxReplies: 7 };
     storageFake.failNextGet = true;
 
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
   });
 
   test("MR-05 uses the stored max replies value", async () => {
     storageFake.data["settings"] = { maxReplies: 7 };
 
-    expect(await hooks.getMaxReplies()).toBe(7);
+    expect(await replyActions.getMaxReplies()).toBe(7);
   });
 
   test("MR-06 truncates fractional values", async () => {
     storageFake.data["settings"] = { maxReplies: 7.9 };
 
-    expect(await hooks.getMaxReplies()).toBe(7);
+    expect(await replyActions.getMaxReplies()).toBe(7);
   });
 
   test("MR-07 clamps values above the 200 cap", async () => {
     storageFake.data["settings"] = { maxReplies: 999 };
 
-    expect(await hooks.getMaxReplies()).toBe(200);
+    expect(await replyActions.getMaxReplies()).toBe(200);
   });
 
   test("MR-08 clamps zero and negative values up to 1", async () => {
     storageFake.data["settings"] = { maxReplies: 0 };
-    expect(await hooks.getMaxReplies()).toBe(1);
+    expect(await replyActions.getMaxReplies()).toBe(1);
 
     storageFake.data["settings"] = { maxReplies: -5 };
-    expect(await hooks.getMaxReplies()).toBe(1);
+    expect(await replyActions.getMaxReplies()).toBe(1);
   });
 
   test("MR-09 falls back to 50 for non-finite or non-numeric values", async () => {
     storageFake.data["settings"] = { maxReplies: Number.POSITIVE_INFINITY };
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
 
     storageFake.data["settings"] = { maxReplies: Number.NaN };
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
 
     storageFake.data["settings"] = { maxReplies: true };
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
 
     storageFake.data["settings"] = { maxReplies: null };
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
   });
 
   test("MR-10 parses numeric strings and clamps them like numbers", async () => {
     storageFake.data["settings"] = { maxReplies: "12" };
-    expect(await hooks.getMaxReplies()).toBe(12);
+    expect(await replyActions.getMaxReplies()).toBe(12);
 
     storageFake.data["settings"] = { maxReplies: "999" };
-    expect(await hooks.getMaxReplies()).toBe(200);
+    expect(await replyActions.getMaxReplies()).toBe(200);
 
     storageFake.data["settings"] = { maxReplies: "0" };
-    expect(await hooks.getMaxReplies()).toBe(1);
+    expect(await replyActions.getMaxReplies()).toBe(1);
 
     storageFake.data["settings"] = { maxReplies: "not-a-number" };
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
   });
 
   test("MR-11 blocks only up to the configured max replies", async () => {
@@ -113,7 +114,7 @@ describe("max replies setting", () => {
     populateTweetPage(["reply_user_1", "reply_user_2", "reply_user_3", "reply_user_4"]);
     const progress: Array<{ done: number; total: number }> = [];
 
-    const summary = await hooks.blockReplies((update) => progress.push(update));
+    const summary = await replyActions.blockReplies((update) => progress.push(update));
 
     expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
     expect(fetchStub.calls.map((call) => call.init?.body)).toEqual([
@@ -140,7 +141,7 @@ describe("max replies setting", () => {
       "reply_user_5",
     ]);
 
-    const summary = await hooks.muteReplies();
+    const summary = await replyActions.muteReplies();
 
     expect(summary).toEqual({ acted: 3, skipped: 0, failed: 0 });
     expect(fetchStub.calls.map((call) => call.init?.body)).toEqual([
@@ -158,7 +159,7 @@ describe("max replies setting", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage(["reply_user_1", "reply_user_2"]);
 
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
 
     expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
     expect(fetchStub.calls).toHaveLength(2);
