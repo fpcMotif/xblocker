@@ -3,8 +3,9 @@
 // exercises the storage side-effect and the id_str capture from blocks/create.json.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import * as replyActions from "../../entrypoints/content/reply-actions.ts";
 import { blockedStore } from "../../entrypoints/lib/blocked-store.ts";
-import { createTweetArticle, hooks } from "../helpers/content-hooks.ts";
+import { createTweetArticle } from "../helpers/content-dom.ts";
 import { resetTestEnvironment, setDocumentCookie } from "../setup.ts";
 
 type Restore = () => void;
@@ -50,7 +51,7 @@ describe("reply-bar block recording", () => {
     restore = installJsonResponder(JSON.stringify({ id_str: "999", screen_name: "RealName" }));
     const { tweetArticle } = createTweetArticle("spammer");
 
-    const result = await hooks.blockTweet(tweetArticle);
+    const result = await replyActions.blockTweet(tweetArticle);
     expect(result).toEqual({ status: "blocked", username: "spammer" });
 
     const account = await blockedStore.get("999");
@@ -64,7 +65,7 @@ describe("reply-bar block recording", () => {
     restore = installJsonResponder(JSON.stringify({ id: 12345 }));
     const { tweetArticle } = createTweetArticle("spammer");
 
-    await hooks.blockTweet(tweetArticle);
+    await replyActions.blockTweet(tweetArticle);
 
     const account = await blockedStore.get("12345");
     expect(account?.xUserId).toBe("12345");
@@ -75,7 +76,7 @@ describe("reply-bar block recording", () => {
     restore = installJsonResponder(JSON.stringify({ unrelated: true }));
     const { tweetArticle } = createTweetArticle("spammer");
 
-    await hooks.blockTweet(tweetArticle);
+    await replyActions.blockTweet(tweetArticle);
 
     const account = await blockedStore.get("@spammer");
     expect(account?.idUnknown).toBe(true);
@@ -87,7 +88,7 @@ describe("reply-bar block recording", () => {
     restore = installUnreadableBodyResponder();
     const { tweetArticle } = createTweetArticle("spammer");
 
-    const result = await hooks.blockTweet(tweetArticle);
+    const result = await replyActions.blockTweet(tweetArticle);
     expect(result).toEqual({ status: "blocked", username: "spammer" });
 
     const stats = await blockedStore.stats();
@@ -99,7 +100,7 @@ describe("reply-bar block recording", () => {
     const { tweetArticle } = createTweetArticle("noisy");
     document.body.appendChild(tweetArticle);
 
-    const result = await hooks.muteTweet(tweetArticle);
+    const result = await replyActions.muteTweet(tweetArticle);
     expect(result).toEqual({ status: "muted", username: "noisy" });
 
     const account = await blockedStore.get("@noisy");
@@ -111,7 +112,7 @@ describe("reply-bar block recording", () => {
     restore = installJsonResponder("{not valid json");
     const { tweetArticle } = createTweetArticle("spammer");
 
-    await hooks.blockTweet(tweetArticle);
+    await replyActions.blockTweet(tweetArticle);
 
     const account = await blockedStore.get("@spammer");
     expect(account?.idUnknown).toBe(true);
@@ -127,7 +128,7 @@ describe("reply-bar block recording", () => {
     blockedStore.record = () => Promise.reject(new Error("storage exploded"));
     try {
       const { tweetArticle } = createTweetArticle("spammer");
-      const result = await hooks.blockTweet(tweetArticle);
+      const result = await replyActions.blockTweet(tweetArticle);
       expect(result).toEqual({ status: "blocked", username: "spammer" });
     } finally {
       blockedStore.record = originalRecord;

@@ -1,4 +1,5 @@
-import { addToWhitelist, normalizeUsername } from "./actions";
+import { normalizeUsername } from "../lib/settings";
+import { addToWhitelist } from "../lib/whitelist-store";
 import { detectTheme } from "./theme";
 import { showToast } from "./toast";
 

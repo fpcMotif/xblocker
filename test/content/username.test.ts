@@ -1,12 +1,13 @@
 // Catalog: UN-* (normalizeUsername) and EX-* (extractUsernameFromTweet).
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { extractUsernameFromTweet, normalizeUsername } from "../../entrypoints/content/actions.ts";
+import { extractUsernameFromTweet } from "../../entrypoints/content/author.ts";
+import { normalizeUsername } from "../../entrypoints/lib/settings.ts";
 import {
   createQuoteTweetArticle,
   createReplyArticle,
   createRepostArticle,
-} from "../helpers/content-hooks.ts";
+} from "../helpers/content-dom.ts";
 import { resetTestEnvironment } from "../setup.ts";
 
 describe("normalizeUsername", () => {

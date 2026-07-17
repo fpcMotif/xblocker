@@ -8,14 +8,14 @@
 // (old BULK-08) moved to dock behavior — see ui-rendering.test.ts.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { batchState } from "../../entrypoints/content/actions.ts";
+import * as replyActions from "../../entrypoints/content/reply-actions.ts";
+import { batchState } from "../../entrypoints/content/reply-actions.ts";
 import {
   appendDiscoverMoreSection,
   createAnonymousTweetArticle,
-  hooks,
   installFetchStub,
   populateTweetPage,
-} from "../helpers/content-hooks.ts";
+} from "../helpers/content-dom.ts";
 import { installImmediateTimers, settleMicrotasks } from "../helpers/timers.ts";
 import {
   resetTestEnvironment,
@@ -59,7 +59,7 @@ describe("blockReplies", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage(["reply_one", "reply_two"]);
 
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
 
     expect(summary).toBeNull();
     expect(fetchStub.calls).toHaveLength(0);
@@ -69,7 +69,7 @@ describe("blockReplies", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     const replies = populateTweetPage(["reply_one", "reply_two", "reply_three"]);
 
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
 
     expect(summary).toEqual({ acted: 3, skipped: 0, failed: 0 });
     expect(fetchStub.calls.map(requestBodyText)).toEqual([
@@ -98,7 +98,7 @@ describe("blockReplies", () => {
     // A reply with no author link counts as failed (missing-username).
     document.body.appendChild(createAnonymousTweetArticle());
 
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
 
     expect(summary).toEqual({ acted: 2, skipped: 1, failed: 2 });
     // The whitelisted and anonymous replies never reach the network.
@@ -119,7 +119,7 @@ describe("blockReplies", () => {
     populateTweetPage(["good_one", "safe_user", "bad_user"]);
     const progress: Array<{ done: number; total: number }> = [];
 
-    await hooks.blockReplies((update) => {
+    await replyActions.blockReplies((update) => {
       progress.push({ ...update });
     });
 
@@ -139,7 +139,7 @@ describe("blockReplies", () => {
     );
     const [blocked, whitelisted, failed] = populateTweetPage(["good_one", "safe_user", "bad_user"]);
 
-    await hooks.blockReplies();
+    await replyActions.blockReplies();
 
     expect(blocked?.dataset.xbBlocked).toBe("true");
     expect(whitelisted?.dataset.xbBlocked).toBeUndefined();
@@ -155,7 +155,7 @@ describe("blockReplies", () => {
     populateTweetPage(["reply_one", "reply_two"]);
 
     expect(batchState.running).toBe(false);
-    await hooks.blockReplies();
+    await replyActions.blockReplies();
 
     expect(observedDuringFetch).toEqual([true, true]);
     expect(batchState.running).toBe(false);
@@ -181,13 +181,13 @@ describe("blockReplies", () => {
     populateTweetPage(["reply_one", "reply_two"]);
 
     try {
-      const first = hooks.blockReplies();
+      const first = replyActions.blockReplies();
       // Let the first batch reach (and park on) its first fetch.
       await settleMicrotasks();
       expect(batchState.running).toBe(true);
       expect(seen).toHaveLength(1);
 
-      const second = await hooks.blockReplies();
+      const second = await replyActions.blockReplies();
       expect(second).toBeNull();
       // The guard returned before any await, so the second call hit no network.
       expect(seen).toHaveLength(1);
@@ -215,7 +215,7 @@ describe("blockReplies", () => {
 
     let threw = false;
     try {
-      await hooks.blockReplies();
+      await replyActions.blockReplies();
     } catch {
       threw = true;
     } finally {
@@ -226,7 +226,7 @@ describe("blockReplies", () => {
     expect(batchState.running).toBe(false);
 
     // The guard released cleanly: a fresh batch runs and acts on the replies.
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
     expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
   });
 
@@ -235,7 +235,7 @@ describe("blockReplies", () => {
     populateTweetPage([]);
     const progress: Array<{ done: number; total: number }> = [];
 
-    const summary = await hooks.blockReplies((update) => {
+    const summary = await replyActions.blockReplies((update) => {
       progress.push({ ...update });
     });
 
@@ -250,7 +250,7 @@ describe("blockReplies", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage(["reply_1", "reply_2", "reply_3", "reply_4", "reply_5"]);
 
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
 
     expect(fetchStub.calls.map(requestBodyText)).toEqual([
       "screen_name=reply_1",
@@ -265,7 +265,7 @@ describe("blockReplies", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage(Array.from({ length: 60 }, (_, i) => `reply_${i}`));
 
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
 
     expect(fetchStub.calls).toHaveLength(50);
     expect(summary).toEqual({ acted: 50, skipped: 0, failed: 0 });
@@ -273,13 +273,13 @@ describe("blockReplies", () => {
 
   test("BULK-10 clamps stored maxReplies values to the 1..200 range", async () => {
     storageFake.data["settings"] = { maxReplies: 999 };
-    expect(await hooks.getMaxReplies()).toBe(200);
+    expect(await replyActions.getMaxReplies()).toBe(200);
 
     storageFake.data["settings"] = { maxReplies: 0 };
-    expect(await hooks.getMaxReplies()).toBe(1);
+    expect(await replyActions.getMaxReplies()).toBe(1);
 
     storageFake.data["settings"] = { maxReplies: "not-a-number" };
-    expect(await hooks.getMaxReplies()).toBe(50);
+    expect(await replyActions.getMaxReplies()).toBe(50);
   });
 
   test("BULK-14 blocks only conversation replies, never Discover more recommendations", async () => {
@@ -287,7 +287,7 @@ describe("blockReplies", () => {
     const replies = populateTweetPage(["reply_one", "reply_two"]);
     const recommended = appendDiscoverMoreSection(["recommended_one", "recommended_two"]);
 
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
 
     expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
     expect(fetchStub.calls.map(requestBodyText)).toEqual([
@@ -314,7 +314,7 @@ describe("blockReplies", () => {
       "探索更多",
     );
 
-    const summary = await hooks.blockReplies();
+    const summary = await replyActions.blockReplies();
 
     expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
     expect(fetchStub.calls.map(requestBodyText)).toEqual([
@@ -356,7 +356,7 @@ describe("muteReplies", () => {
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage(["reply_one"]);
 
-    const summary = await hooks.muteReplies();
+    const summary = await replyActions.muteReplies();
 
     expect(summary).toBeNull();
     expect(fetchStub.calls).toHaveLength(0);
@@ -367,7 +367,7 @@ describe("muteReplies", () => {
     const replies = populateTweetPage(["reply_one", "reply_two"]);
     const progress: Array<{ done: number; total: number }> = [];
 
-    const summary = await hooks.muteReplies((update) => {
+    const summary = await replyActions.muteReplies((update) => {
       progress.push({ ...update });
     });
 
@@ -398,7 +398,7 @@ describe("muteReplies", () => {
     );
     populateTweetPage(["safe_user", "bad_user", "good_one"]);
 
-    const summary = await hooks.muteReplies();
+    const summary = await replyActions.muteReplies();
 
     expect(summary).toEqual({ acted: 1, skipped: 1, failed: 1 });
     expect(fetchStub.calls.map(requestBodyText)).toEqual([

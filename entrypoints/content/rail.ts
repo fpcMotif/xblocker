@@ -1,12 +1,11 @@
 import {
   batchState,
   blockReplies,
-  countConversationReplies,
   getMaxReplies,
-  isReplyArticle,
   muteReplies,
   type BatchProgress,
-} from "./actions";
+} from "./reply-actions";
+import { countConversationReplies, isReplyArticle } from "./author";
 import { createActionButton, createLabeledActionButton, type LabeledActionButton } from "./buttons";
 import { createIcon } from "./icons";
 import { showWhitelistModal } from "./modal";

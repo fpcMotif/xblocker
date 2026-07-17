@@ -25,7 +25,7 @@ import {
   installFetchStub,
   installRejectingFetch,
   populateTweetPage,
-} from "../helpers/content-hooks.ts";
+} from "../helpers/content-dom.ts";
 import { installManualTimers, settleMicrotasks, type ManualTimers } from "../helpers/timers.ts";
 import {
   resetTestEnvironment,

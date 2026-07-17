@@ -1,4 +1,4 @@
-// Settings primitives shared by the content script (actions.ts) and the popup
+// Settings primitives shared by the content script and the popup
 // (popup/main.ts): the max-replies bounds + clamp, and the X username normalizer.
 // Both bundles import this one definition instead of keeping copies that can drift —
 // e.g. raising the popup's cap while the content executor silently keeps the old one.

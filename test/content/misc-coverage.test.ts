@@ -1,6 +1,6 @@
 // Catalog: MC-* (isReplyArticle reply classification).
 //
-// Why this file exists: Bun 1.4 canary only records LINE hits for actions.ts
+// Why this file exists: Bun 1.4 canary only records LINE hits for reply-actions.ts
 // in a test file that also drives runReplyBatch (blockReplies/muteReplies).
 // rail-state.test.ts executes the isReplyArticle guard on every region check,
 // but without a batch run in that file the `return false` guard stays
@@ -9,13 +9,13 @@
 // contract, including the reply-is-true branch no other file asserts.
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { isReplyArticle } from "../../entrypoints/content/actions.ts";
+import { isReplyArticle } from "../../entrypoints/content/author.ts";
+import { muteReplies } from "../../entrypoints/content/reply-actions.ts";
 import {
   appendDiscoverMoreSection,
   createTweetArticle,
-  hooks,
   populateTweetPage,
-} from "../helpers/content-hooks.ts";
+} from "../helpers/content-dom.ts";
 import { resetTestEnvironment } from "../setup.ts";
 
 describe("isReplyArticle", () => {
@@ -24,7 +24,7 @@ describe("isReplyArticle", () => {
   });
 
   test("MC-01 a mute batch over a page with no articles acts on nothing", async () => {
-    expect(await hooks.muteReplies()).toEqual({ acted: 0, skipped: 0, failed: 0 });
+    expect(await muteReplies()).toEqual({ acted: 0, skipped: 0, failed: 0 });
   });
 
   test("MC-02 elements that are not tweet articles are never replies", () => {

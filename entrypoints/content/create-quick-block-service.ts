@@ -1,7 +1,7 @@
-import type { DirectActionType } from "./actions";
 import { CursorConsole } from "./cursor-console";
 import { NativeAutoConfirm } from "./native-auto-confirm";
 import type { QuickBlockMode } from "./quick-block-mode";
+import type { DirectActionType } from "./x-api";
 
 export type QuickBlockService = {
   mount(): void;

@@ -1,5 +1,5 @@
 // Single chrome.storage.local promise wrapper, replacing the six hand-rolled copies
-// scattered across this extension (blocked-store.ts, content/actions.ts, popup/main.ts,
+// scattered across this extension (blocked-store.ts, content/reply-actions.ts, popup/main.ts,
 // background-sync.ts, sync-engine.ts, content/rail.ts). Each owning file adopts this
 // module on its own schedule — nothing here migrates an existing caller.
 //

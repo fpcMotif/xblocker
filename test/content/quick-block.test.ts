@@ -1,11 +1,13 @@
 // Catalog: QB-* (module-level one-click manual block: Cursor Console, scoped native
-// auto-confirm, the mode flag, and the thin service factory). QB-30/31 are deferred.
+// auto-confirm, the mode flag, the service factory, and ContentSession wiring).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   createQuickBlockService,
+  type CreateQuickBlockServiceOptions,
   type QuickBlockService,
 } from "../../entrypoints/content/create-quick-block-service.ts";
+import { ContentSession } from "../../entrypoints/content/content-session.ts";
 import { CursorConsole } from "../../entrypoints/content/cursor-console.ts";
 import {
   DEFAULT_QUICK_BLOCK_MODE,
@@ -13,13 +15,19 @@ import {
   resolveQuickBlockMode,
 } from "../../entrypoints/content/quick-block-mode.ts";
 import { NativeAutoConfirm } from "../../entrypoints/content/native-auto-confirm.ts";
+import { ReplyRail } from "../../entrypoints/content/rail.ts";
 import {
   createAnonymousTweetArticle,
   createTweetArticle,
   installFetchStub,
   populateTweetPage,
-} from "../helpers/content-hooks.ts";
-import { resetTestEnvironment, setDocumentCookie, storageFake } from "../setup.ts";
+} from "../helpers/content-dom.ts";
+import {
+  resetTestEnvironment,
+  setDocumentCookie,
+  setWindowLocation,
+  storageFake,
+} from "../setup.ts";
 import { installManualTimers, settleMicrotasks } from "../helpers/timers.ts";
 
 // Mirrors AUTO_CONFIRM_WINDOW_MS in native-auto-confirm.ts (the sheet-watch expiry).
@@ -468,4 +476,78 @@ describe("quick-block service factory", () => {
   });
 });
 
-// QB-30/31 move to Candidate A as ContentSession integration tests.
+describe("ContentSession quick-block integration", () => {
+  test("QB-30 a real inline block increments the real rail session count", async () => {
+    setWindowLocation("https://x.com/thread_author/status/123456789");
+    const reply = pageWithReply("spammer");
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const session = new ContentSession({ resolveQuickBlockMode: () => "inline" });
+
+    try {
+      session.start();
+      await settle();
+      const button = consoleButton(reply, "block");
+      const acted = waitForButtonState(button, "success");
+      button.click();
+      await acted;
+
+      expect(stub.calls.some((call) => call.url.includes("/blocks/create.json"))).toBe(true);
+      expect(document.querySelector(".xb-session-count")?.textContent).toBe("1");
+    } finally {
+      session.destroy();
+      stub.uninstall();
+    }
+  });
+
+  test("QB-31 navigation destroys the rail but keeps quick-block mounted", () => {
+    class FakeRail extends ReplyRail {
+      destroys = 0;
+
+      override mount(): void {
+        this.root.dataset.xbSurface = "reply-rail";
+        document.body.appendChild(this.root);
+      }
+
+      override destroy(): void {
+        this.destroys += 1;
+        this.root.remove();
+      }
+    }
+
+    const location = { href: "https://x.com/author/status/123456789" };
+    const rail = new FakeRail();
+    const quickBlock = { destroys: 0, mounts: 0 };
+    let navigate = (): void => undefined;
+    const session = new ContentSession({
+      location,
+      createQuickBlockService(_options: CreateQuickBlockServiceOptions) {
+        return {
+          destroy() {
+            quickBlock.destroys += 1;
+          },
+          mount() {
+            quickBlock.mounts += 1;
+          },
+        };
+      },
+      createRail: () => rail,
+      observeUrlChanges(onChange) {
+        navigate = onChange;
+        return { disconnect: () => undefined };
+      },
+      resolveQuickBlockMode: () => "inline",
+    });
+
+    try {
+      session.start();
+      location.href = "https://x.com/i/timeline";
+      navigate();
+
+      expect(document.querySelector('[data-xb-surface="reply-rail"]')).toBeNull();
+      expect(rail.destroys).toBe(1);
+      expect(quickBlock).toEqual({ destroys: 0, mounts: 1 });
+    } finally {
+      session.destroy();
+    }
+  });
+});
