@@ -5,6 +5,7 @@
 import type { BlockedStats } from "../lib/blocked-merge";
 import { blockedStore } from "../lib/blocked-store";
 import { CLOUD_BACKUP_KEY, SETTINGS_KEY, storageGet, storageSet } from "../lib/chrome-storage";
+import { createCloudSyncSession, type CloudSyncDeps } from "../lib/cloud-session";
 import {
   XB_DARK_TOKENS,
   XB_FONT_STACK,
@@ -14,14 +15,6 @@ import {
 import { createIcon } from "../lib/icons";
 import { createLiveNumber, type LiveNumber, type LiveNumberClock } from "../lib/live-number";
 import { readSettings, type Settings } from "../lib/settings";
-import {
-  type CloudAdapter,
-  formatSyncAge,
-  loadConvexAdapter,
-  readCloudStatus,
-  runAutoCloudSync,
-  runCloudSync,
-} from "../lib/sync-engine";
 import { getWhitelist } from "../lib/whitelist-store";
 
 // The popup renders rows for only two of the four settings keys (keyboardMode is reserved
@@ -741,7 +734,7 @@ function buildFooter(): HTMLElement {
   return footer;
 }
 
-export type RenderPopupOptions = {
+export type RenderPopupOptions = Pick<CloudSyncDeps, "loadAdapter" | "now" | "probeConfigured"> & {
   /**
    * Test-only seam: inject a deterministic clock for the stat strip's live-number
    * primitive so a storage-driven delta (see the `blockedStore.onChange` wiring below)
@@ -750,12 +743,6 @@ export type RenderPopupOptions = {
    * never pass this, so the popup always animates on the real clock.
    */
   clock?: Partial<LiveNumberClock>;
-  /**
-   * The cloud transport port (defaults to the lazy Convex loader). Injecting a plain
-   * fake here is how the sync-row tests exercise the sync wiring without the live Convex
-   * module — the same seam ADR-0003 gave the settings pane and background worker.
-   */
-  loadAdapter?: () => Promise<CloudAdapter>;
 };
 
 export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = {}): Promise<void> {
@@ -777,6 +764,7 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
   const toggles = buildToggles(settings);
   const syncTrigger: { run?: () => void } = {};
   const syncRow = buildSyncRow(syncTrigger);
+  const syncSession = createCloudSyncSession(opts);
   const footer = buildFooter();
 
   popup.append(header, statStrip.element, toggles, syncRow.element, footer);
@@ -794,81 +782,51 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
     statStrip.mutedLive.set(next.muted);
   });
 
-  const loadAdapter = opts.loadAdapter ?? loadConvexAdapter;
-
   // Best guess before the port's configured-check below resolves: "off" needs no Convex
   // knowledge at all, and "idle" is the common case for an already-configured, already
-  // enabled build. Never load the adapter eagerly — see loadConvexAdapter in
-  // sync-engine.ts for why.
+  // enabled build. The session keeps the transport lazy.
   syncRow.setState(cloudBackupEnabled ? "idle" : "off", "Never synced.");
 
-  // One in-flight guard shared by the manual "Sync now" button and the mount-time
-  // auto-sync below: at most one sync runs at a time, and whichever claims the row first
-  // owns its telltale/copy until it settles — the other bows out rather than clobbering
-  // it back to idle (PU-CB-11).
-  let syncInFlight = false;
-  const runGuardedSync = async (): Promise<void> => {
-    if (syncInFlight) return;
-    syncInFlight = true;
+  const runManualSync = async (): Promise<void> => {
+    if (syncSession.isInFlight()) return;
     syncRow.setState("syncing", "");
     try {
-      const outcome = await runCloudSync(Date.now, loadAdapter);
-      if (outcome.status === "synced") {
-        syncRow.setState("idle", formatSyncAge({ lastSyncAt: outcome.at }, Date.now()));
-      } else {
-        syncRow.setState("unconfigured", "");
-      }
+      const result = await syncSession.runManual();
+      if (result) syncRow.setState(result.state, result.detail);
     } catch {
       syncRow.setState("error", "");
-    } finally {
-      syncInFlight = false;
     }
   };
   syncTrigger.run = () => {
-    void runGuardedSync();
+    void runManualSync();
   };
 
   void (async () => {
-    const status = await readCloudStatus(loadAdapter);
-    if (!status.configured) {
+    if (!(await syncSession.isBuildConfigured())) {
       syncRow.setState("unconfigured", "");
       return;
     }
-    if (!status.enabled) {
+    if (!cloudBackupEnabled) {
       syncRow.setState("off", "");
       return;
     }
-    // A manual "Sync now" the user started while this read was resolving already owns the
-    // row — leave it be (PU-CB-11).
-    if (syncInFlight) return;
-    syncInFlight = true;
-    try {
-      // Open-time sync is an automatic trigger, so it flows through runAutoCloudSync —
-      // ADR-0003's single policy gate. It runs a full push+pull only when a sync is due;
-      // a "skipped" result means nothing was due, so we just refresh the idle "last
-      // synced" copy from the meta readCloudStatus already handed us.
-      const outcome = await runAutoCloudSync(status.enabled, Date.now, loadAdapter, () =>
-        syncRow.setState("syncing", ""),
-      );
-      if (outcome.status === "synced") {
-        syncRow.setState("idle", formatSyncAge({ lastSyncAt: outcome.at }, Date.now()));
-      } else if (outcome.status === "unconfigured") {
-        syncRow.setState("unconfigured", "");
-      } else {
-        syncRow.setState("idle", formatSyncAge(status.meta, Date.now()));
-      }
-    } catch {
-      syncRow.setState("error", "");
-    } finally {
-      syncInFlight = false;
+    const result = await syncSession.runAutoOnOpen(true, {
+      onSyncStart: () => syncRow.setState("syncing", ""),
+    });
+    // Apply only a result this auto run actually owns: a "syncing" result means a manual
+    // "Sync now" claimed the row (the session was busy or got superseded mid-gate), and a
+    // settled-but-stale result must not land while a manual sync is still in flight —
+    // either way the owner's telltale/copy would be clobbered (PU-CB-11).
+    if (result.state !== "syncing" && !syncSession.isInFlight()) {
+      syncRow.setState(result.state, result.detail);
     }
   })();
 }
 
-export function mountPopupIfPresent(): void {
+export function mountPopupIfPresent(opts: RenderPopupOptions = {}): void {
   const appRoot = document.getElementById("app");
   if (appRoot) {
-    void renderPopup(appRoot);
+    void renderPopup(appRoot, opts);
   }
 }
 

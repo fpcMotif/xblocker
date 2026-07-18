@@ -19,7 +19,7 @@
 import { createIcon } from "../lib/icons";
 import { renderAboutPane } from "./panes/about";
 import { renderBlockedLogPane } from "./panes/blocked-log";
-import { renderCloudPane } from "./panes/cloud";
+import { renderCloudPane, type RenderCloudPaneOptions } from "./panes/cloud";
 import { renderGeneralPane } from "./panes/general";
 import { renderWhitelistPane } from "./panes/whitelist";
 import { ensureOptionsStyles } from "./styles";
@@ -160,7 +160,11 @@ function renderPaneLoadError(container: HTMLElement, onRetry: () => void): void 
   container.replaceChildren(wrapper);
 }
 
-function mountPane(route: OptionsRoute, container: HTMLElement): Promise<PaneHandle> {
+function mountPane(
+  route: OptionsRoute,
+  container: HTMLElement,
+  opts: RenderOptionsOptions,
+): Promise<PaneHandle> {
   switch (route) {
     case "general":
       return renderGeneralPane(container);
@@ -169,7 +173,7 @@ function mountPane(route: OptionsRoute, container: HTMLElement): Promise<PaneHan
     case "blocked-log":
       return renderBlockedLogPane(container);
     case "cloud":
-      return renderCloudPane(container);
+      return renderCloudPane(container, opts.cloud);
     case "about":
       return Promise.resolve(renderAboutPane(container));
     default:
@@ -177,7 +181,16 @@ function mountPane(route: OptionsRoute, container: HTMLElement): Promise<PaneHan
   }
 }
 
-export async function renderOptions(root: HTMLElement): Promise<void> {
+export type RenderOptionsOptions = {
+  /** Per-pane dependency overrides; tests inject the cloud pane's ports through here so
+   *  exercising the cloud route never loads the real convex-sync module. */
+  cloud?: RenderCloudPaneOptions;
+};
+
+export async function renderOptions(
+  root: HTMLElement,
+  opts: RenderOptionsOptions = {},
+): Promise<void> {
   ensureOptionsStyles();
 
   const shell = document.createElement("div");
@@ -207,7 +220,7 @@ export async function renderOptions(root: HTMLElement): Promise<void> {
     const staging = document.createElement("div");
     let handle: PaneHandle;
     try {
-      handle = await mountPane(route, staging);
+      handle = await mountPane(route, staging, opts);
     } catch {
       if (token !== navToken) return; // superseded — the winning navigation owns the error, not us
       // The route never finished loading, so nothing is currently mounted for it. Reset

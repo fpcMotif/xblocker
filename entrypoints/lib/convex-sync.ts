@@ -43,19 +43,21 @@ function readEnv(name: string): string | undefined {
   return import.meta.env[name];
 }
 
-const CONVEX_URL = readEnv("VITE_CONVEX_URL");
-
-/** True when the deployment URL is configured. */
+/** True when the deployment URL is configured. Read per call, not frozen at module
+ *  load: which test first imports this module must not pin the URL for the whole
+ *  process (tests delete/restore VITE_CONVEX_URL), and in the extension the value is
+ *  build-time inlined anyway so laziness costs nothing. */
 export function isCloudConfigured(): boolean {
-  return !!CONVEX_URL;
+  return !!readEnv("VITE_CONVEX_URL");
 }
 
 let httpClient: ConvexHttpClient | undefined;
 function client(): ConvexHttpClient {
-  if (!CONVEX_URL) {
+  const url = readEnv("VITE_CONVEX_URL");
+  if (!url) {
     throw new Error("Convex deployment URL is not configured (set VITE_CONVEX_URL).");
   }
-  httpClient ??= new ConvexHttpClient(CONVEX_URL);
+  httpClient ??= new ConvexHttpClient(url);
   return httpClient;
 }
 

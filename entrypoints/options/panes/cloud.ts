@@ -1,23 +1,13 @@
-// Cloud backup pane. The Convex bundle is never statically imported (an unconfigured
-// build should not pay for it at all) — the pane reaches the cloud transport through the
-// CloudAdapter port (sync-engine's `loadConvexAdapter`, a lazy import()), the same seam
-// the popup and background workers use. `loadAdapter` is injectable so tests supply a
-// plain fake instead of the live Convex module.
+// Cloud backup pane. Cloud-session owns lazy transport loading and wipe orchestration.
 
 import { blockedStore } from "../../lib/blocked-store";
 import { CLOUD_BACKUP_KEY, storageSet } from "../../lib/chrome-storage";
-import {
-  type CloudAdapter,
-  formatSyncAge,
-  loadConvexAdapter,
-  readCloudDisplayState,
-  runCloudSync,
-  SYNC_META_KEY,
-  type SyncMeta,
-} from "../../lib/sync-engine";
+import { type CloudSyncDeps, createCloudSyncSession, formatSyncAge } from "../../lib/cloud-session";
+import { readCloudDisplayState, type SyncMeta } from "../../lib/sync-engine";
 
 export const WIPE_CONFIRM_WORD = "WIPE";
 
+export { formatSyncAge };
 type PaneHandle = { destroy(): void };
 
 function renderUnconfigured(container: HTMLElement): void {
@@ -44,17 +34,12 @@ function renderUnconfigured(container: HTMLElement): void {
 
 export async function renderCloudPane(
   container: HTMLElement,
-  opts: { now?: () => number; loadAdapter?: () => Promise<CloudAdapter> } = {},
+  opts: RenderCloudPaneOptions = {},
 ): Promise<PaneHandle> {
   const now = opts.now ?? Date.now;
-  const loadAdapter = opts.loadAdapter ?? loadConvexAdapter;
+  const syncSession = createCloudSyncSession(opts);
 
-  // Ask the port whether this build is configured before reading any storage — an
-  // unconfigured build renders a static card and never touches the enabled/meta/pending
-  // rows. The resolved adapter is held for the wipe action below; the display rows are pure
-  // storage (readCloudDisplayState), so they don't re-load or re-check the adapter.
-  const adapter = await loadAdapter();
-  if (!adapter.isConfigured()) {
+  if (!(await syncSession.isBuildConfigured())) {
     renderUnconfigured(container);
     return { destroy() {} };
   }
@@ -153,9 +138,9 @@ export async function renderCloudPane(
     syncButton.disabled = true;
     syncButton.textContent = "Syncing…";
     try {
-      const outcome = await runCloudSync(now, loadAdapter);
-      if (outcome.status === "synced") {
-        currentMeta = { lastSyncAt: outcome.at };
+      const result = await syncSession.runManual();
+      if (result?.outcome.status === "synced") {
+        currentMeta = { lastSyncAt: result.outcome.at };
         currentPendingCount = (await blockedStore.pending()).length;
       }
       // Only the success/unconfigured path refreshes from currentMeta/currentPendingCount
@@ -246,21 +231,11 @@ export async function renderCloudPane(
     confirmButton.disabled = true;
     cancelButton.disabled = true;
     try {
-      await adapter.clear();
-      // The cloud rows are gone, so the queued outbox actions that produced them must
-      // never re-push (that would silently repopulate the cloud the user just wiped) —
-      // drain the outbox by marking every pending item synced.
-      const drained = await blockedStore.pending();
-      if (drained.length > 0) {
-        await blockedStore.markSynced(drained.map((item) => item.action.actionId));
-      }
-      // A wiped cloud with backup left on would just refill on the next auto-sync, so
-      // the wipe also turns cloud backup off.
-      await storageSet({ [SYNC_META_KEY]: {}, [CLOUD_BACKUP_KEY]: false });
+      const result = await syncSession.wipeCloud();
       enabled = false;
       toggleInput.checked = false;
       currentMeta = {};
-      currentPendingCount = (await blockedStore.pending()).length;
+      currentPendingCount = result.pendingCount;
       refreshMetaRows();
       closeWipePanel();
     } catch (error) {
@@ -277,3 +252,8 @@ export async function renderCloudPane(
 
   return { destroy() {} };
 }
+
+export type RenderCloudPaneOptions = Pick<
+  CloudSyncDeps,
+  "clearCloud" | "loadAdapter" | "now" | "probeConfigured"
+>;

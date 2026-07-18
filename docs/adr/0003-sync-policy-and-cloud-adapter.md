@@ -102,3 +102,19 @@ The two consciously-deferred pieces above are done (architecture-deepening pass,
   adapter's `configured` flag on top for the popup, which holds no adapter yet; the settings
   pane loads its adapter up front (it needs it for the wipe) and reads `readCloudDisplayState`
   directly, so it neither re-loads nor re-checks the adapter.
+## Implementation status (2026-07-16 — Candidate B)
+
+- **Popup `loadCloudAdapter` dep + `mock.module` test debt (Decision bullets on
+  popup/main.ts; Consequences “popup test seam deliberately deferred”):** resolved.
+  Popup takes injectable `loadAdapter` / `probeConfigured` via cloud-session;
+  popup/options cloud tests inject plain adapter fakes — no process-global `mock.module`.
+- **`clearCloud` “stays exported but unwired” (Decision bullet):** superseded for the
+  options surface. Gauge-and-ledger shipped wipe in `entrypoints/options/panes/cloud.ts`
+  (lazy `clearCloud` from `convex-sync`). Candidate B centralizes the existing side-effect
+  sequence in `entrypoints/lib/cloud-session.ts` via a separate `ClearCloudPort` — still
+  not on `CloudAdapter`.
+- **Popup auto-open policy:** now routes through `runAutoCloudSync` inside cloud-session
+  (ADR gate preserved); mount configured probe remains a separate port.
+
+Historical 2026-07-10 rationale in Context/Options/Decision is unchanged; this section
+records post-implementation status only.
