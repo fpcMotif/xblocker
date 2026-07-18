@@ -125,6 +125,11 @@ The two consciously-deferred pieces above are done (architecture-deepening pass,
 - **Wipe/sync mutual exclusion:** `wipeCloud` refuses while a sync holds the session
   guard and holds it (`owner: "wipe"`) for its own duration, so an in-flight push can
   never land after `clear()` and silently repopulate a wiped cloud.
+- **Chunk-free configured probe:** the probe port reads `cloud-config` (env-only, no
+  Convex import), so the popup's mount-time check no longer fetches the Convex client
+  chunk — the "unconfigured build never pays" discipline now covers the probe path.
+  `convex-sync` re-exports `isCloudConfigured` from `cloud-config` (one source of
+  truth), and its HTTP client cache is keyed by URL instead of first-seen.
 
 Historical 2026-07-10 rationale in Context/Options/Decision is unchanged; this section
 records post-implementation status only.
