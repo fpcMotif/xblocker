@@ -144,7 +144,8 @@ export function formatSyncAge(meta: SyncMeta, now: number): string {
  * (`CLOUD_BACKUP_KEY === true`), the last-sync meta, and the pending-outbox depth. Reads no
  * adapter, so a surface that already holds a configured adapter (the settings pane, which
  * must load it up front for the wipe action) reuses this without re-loading or re-checking
- * it. `readCloudStatus` layers the adapter's `configured` on top for surfaces that don't.
+ * it. Surfaces that hold no adapter yet (the popup) probe `configured` through the
+ * cloud-session's probe port instead of loading the transport themselves.
  */
 export async function readCloudDisplayState(): Promise<{
   enabled: boolean;
@@ -157,19 +158,4 @@ export async function readCloudDisplayState(): Promise<{
     blockedStore.pending(),
   ]);
   return { enabled: enabled === true, meta, pendingCount: pending.length };
-}
-
-/**
- * One read of "the cloud world" for a surface's initial render: whether the build is
- * configured (loads the adapter to ask) plus the `readCloudDisplayState` fields. The popup
- * renders from this single read (it holds no adapter yet); the settings pane, which already
- * loaded a configured adapter, reads `readCloudDisplayState` directly. When unconfigured the
- * storage fields are still real — the caller decides whether to render them or fall back to
- * an "unconfigured" state.
- */
-export async function readCloudStatus(
-  loadAdapter: () => Promise<CloudAdapter> = loadConvexAdapter,
-): Promise<{ configured: boolean; enabled: boolean; meta: SyncMeta; pendingCount: number }> {
-  const [adapter, display] = await Promise.all([loadAdapter(), readCloudDisplayState()]);
-  return { configured: adapter.isConfigured(), ...display };
 }

@@ -1,7 +1,7 @@
 // Catalog: SE-* (the shared one-shot cloud sync used by the popup and background),
 // AC-* (runAutoCloudSync, THE gate every automatic sync trigger flows through), RCS-*
-// (readCloudStatus, the one "read the cloud world for display" both surfaces render
-// from), and OC-01 (the shared formatSyncAge age-line formatter, which lives here now
+// (readCloudDisplayState, the one storage read the settings pane renders its rows from),
+// and OC-01 (the shared formatSyncAge age-line formatter, which lives here now
 // that sync-engine owns SyncMeta).
 //
 // The cloud transport is injected via the `loadAdapter` param (see docs/adr/0003), so
@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   formatSyncAge,
   getSyncMeta,
-  readCloudStatus,
+  readCloudDisplayState,
   runAutoCloudSync,
   runCloudSync,
   shouldAutoSync,
@@ -57,7 +57,7 @@ function makeAdapter(
       calls.pull += 1;
       return overrides.pull ? overrides.pull() : [];
     },
-    // The engine paths under test (runCloudSync / runAutoCloudSync / readCloudStatus)
+    // The engine paths under test (runCloudSync / runAutoCloudSync / readCloudDisplayState)
     // never wipe, so clear is a satisfy-the-port no-op with nothing to record.
     async clear() {},
   };
@@ -284,25 +284,21 @@ describe("runAutoCloudSync", () => {
   });
 });
 
-describe("readCloudStatus", () => {
-  test("RCS-01 reports configured + enabled + meta + pending from the adapter and storage", async () => {
+describe("readCloudDisplayState", () => {
+  test("RCS-01 reports enabled + meta + pending from storage without touching an adapter", async () => {
     storageFake.data[CLOUD_BACKUP_KEY] = true;
     storageFake.data[SYNC_META_KEY] = { lastSyncAt: 42 };
     storageFake.data["blockedOutbox"] = [pendingItem("a1"), pendingItem("a2")];
-    const { adapter } = makeAdapter({ configured: true });
 
-    expect(await readCloudStatus(() => Promise.resolve(adapter))).toEqual({
-      configured: true,
+    expect(await readCloudDisplayState()).toEqual({
       enabled: true,
       meta: { lastSyncAt: 42 },
       pendingCount: 2,
     });
   });
 
-  test("RCS-02 reports unconfigured + disabled defaults against an empty store", async () => {
-    const { adapter } = makeAdapter({ configured: false });
-    expect(await readCloudStatus(() => Promise.resolve(adapter))).toEqual({
-      configured: false,
+  test("RCS-02 reports disabled defaults against an empty store", async () => {
+    expect(await readCloudDisplayState()).toEqual({
       enabled: false,
       meta: {},
       pendingCount: 0,
@@ -311,21 +307,7 @@ describe("readCloudStatus", () => {
 
   test("RCS-03 treats any non-true cloudBackup value as disabled", async () => {
     storageFake.data[CLOUD_BACKUP_KEY] = "yes"; // truthy but not === true
-    const { adapter } = makeAdapter();
-    expect((await readCloudStatus(() => Promise.resolve(adapter))).enabled).toBe(false);
-  });
-
-  test("RCS-04 the default loadAdapter falls back to the real convex-sync module (unconfigured, no network)", async () => {
-    // No explicit loadAdapter -> exercises the default `loadConvexAdapter`. Force the
-    // deployment URL unset so the real adapter's isConfigured() is false and the read
-    // returns before any network I/O (mirrors SE-08).
-    const originalUrl = process.env["VITE_CONVEX_URL"];
-    delete process.env["VITE_CONVEX_URL"];
-    try {
-      expect((await readCloudStatus()).configured).toBe(false);
-    } finally {
-      if (originalUrl !== undefined) process.env["VITE_CONVEX_URL"] = originalUrl;
-    }
+    expect((await readCloudDisplayState()).enabled).toBe(false);
   });
 });
 
