@@ -54,12 +54,14 @@ export type CloudSyncSession = {
 
 // Dynamic imports on purpose (ADR-0003): convex-sync pulls in the Convex client bundle,
 // and an unconfigured build must never pay for it — the session reaches the transport
-// lazily, the same discipline sync-engine's loadConvexAdapter uses for push/pull.
+// lazily, the same discipline sync-engine's loadConvexAdapter uses for push/pull. The
+// probe goes further: cloud-config imports no Convex code at all, so the mount-time
+// configured check costs no chunk fetch either.
 const loadDefaultAdapter: LoadCloudAdapter = async () =>
   (await import("./convex-sync")).convexAdapter;
 
 const probeDefaultConfiguration: ProbeConfiguredPort = async () =>
-  (await import("./convex-sync")).isCloudConfigured();
+  (await import("./cloud-config")).isCloudConfigured();
 
 // One-line delegate: the configured check and the live-Convex clear both live in
 // convex-sync (the coverage-exempt thin I/O module, same discipline as push/pull) —

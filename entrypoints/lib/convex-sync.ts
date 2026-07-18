@@ -17,7 +17,13 @@ import { makeFunctionReference } from "convex/server";
 
 import { outboxItemToRecordArgs, outboxToRecordBatches, type RecordActionArgs } from "./cloud-wire";
 import type { OutboxItem, RemoteAccount } from "./blocked-store";
+import { isCloudConfigured, readConvexUrl } from "./cloud-config";
 import type { CloudAdapter } from "./sync-engine";
+
+// The build-time configuration (URL read + configured check) lives in cloud-config,
+// which imports no Convex code — re-exported here so this module's consumers can keep
+// one import site while probes reach the chunk-free module directly.
+export { isCloudConfigured };
 
 // The Convex `listBlocked` query returns exactly the shape the local store's mergeRemote
 // consumes, so re-export the single definition rather than maintaining a twin here.
@@ -38,27 +44,18 @@ const clearOwnerRef = makeFunctionReference<"mutation", Record<string, never>, n
   "blocked:clearOwner",
 );
 
-function readEnv(name: string): string | undefined {
-  // import.meta.env is typed with a string index signature by Vite/WXT.
-  return import.meta.env[name];
-}
-
-/** True when the deployment URL is configured. Read per call, not frozen at module
- *  load: which test first imports this module must not pin the URL for the whole
- *  process (tests delete/restore VITE_CONVEX_URL), and in the extension the value is
- *  build-time inlined anyway so laziness costs nothing. */
-export function isCloudConfigured(): boolean {
-  return !!readEnv("VITE_CONVEX_URL");
-}
-
-let httpClient: ConvexHttpClient | undefined;
+let httpClient: { url: string; client: ConvexHttpClient } | undefined;
 function client(): ConvexHttpClient {
-  const url = readEnv("VITE_CONVEX_URL");
+  const url = readConvexUrl();
   if (!url) {
     throw new Error("Convex deployment URL is not configured (set VITE_CONVEX_URL).");
   }
-  httpClient ??= new ConvexHttpClient(url);
-  return httpClient;
+  // Keyed by URL, not first-seen: tests delete/restore VITE_CONVEX_URL, and a client
+  // built against a previous value must not keep talking to the old deployment.
+  if (httpClient?.url !== url) {
+    httpClient = { url, client: new ConvexHttpClient(url) };
+  }
+  return httpClient.client;
 }
 
 /** Items per batched `recordActions` call. Well under Convex's per-mutation read/write
