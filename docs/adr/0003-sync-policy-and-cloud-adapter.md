@@ -116,5 +116,15 @@ The two consciously-deferred pieces above are done (architecture-deepening pass,
 - **Popup auto-open policy:** now routes through `runAutoCloudSync` inside cloud-session
   (ADR gate preserved); mount configured probe remains a separate port.
 
+## Implementation status (2026-07-19 — gate + wipe-mutex fix)
+
+- **Default clear port:** delegates to `convex-sync`'s re-exported `clearCloud()` (the
+  configured check lives in that coverage-exempt I/O module — its happy path is
+  structurally uncoverable in cloud-session without a live client or `mock.module`).
+  The wipe's side-effect sequence (drain + backup-off) remains in cloud-session.
+- **Wipe/sync mutual exclusion:** `wipeCloud` refuses while a sync holds the session
+  guard and holds it (`owner: "wipe"`) for its own duration, so an in-flight push can
+  never land after `clear()` and silently repopulate a wiped cloud.
+
 Historical 2026-07-10 rationale in Context/Options/Decision is unchanged; this section
 records post-implementation status only.

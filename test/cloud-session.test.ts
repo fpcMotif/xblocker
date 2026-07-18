@@ -394,6 +394,57 @@ describe("wipeCloud", () => {
     expect(storageFake.data["blockedOutbox"]).toHaveLength(1);
     expect(storageFake.data["cloudBackup"]).toBe(true);
   });
+
+  test("CS-18 refuses while a sync is in flight, then the retry goes through", async () => {
+    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
+    const { adapter } = makeAdapter({
+      pull: () =>
+        new Promise((resolve) => {
+          resolvePull = resolve;
+        }),
+    });
+    let clearCalls = 0;
+    const session = createCloudSyncSession({
+      loadAdapter: async () => adapter,
+      clearCloud: async () => {
+        clearCalls += 1;
+      },
+    });
+
+    const sync = session.runManual();
+    const wipe = session.wipeCloud();
+    expect(wipe).rejects.toThrow(/in progress/);
+    await wipe.catch(() => undefined);
+    expect(clearCalls).toBe(0);
+    expect(storageFake.data["cloudBackup"]).toBeUndefined();
+
+    await waitUntil(() => resolvePull !== undefined);
+    resolvePull?.([]);
+    await sync;
+    expect(await session.wipeCloud()).toEqual({ pendingCount: 0 });
+    expect(clearCalls).toBe(1);
+  });
+
+  test("CS-19 holds the guard for the whole wipe, so syncs bow out until it settles", async () => {
+    storageFake.data["cloudBackup"] = true;
+    let resolveClear: (() => void) | undefined;
+    const session = createCloudSyncSession({
+      clearCloud: () =>
+        new Promise((resolve) => {
+          resolveClear = resolve;
+        }),
+    });
+
+    const wipe = session.wipeCloud();
+    expect(session.isInFlight()).toBe(true);
+    expect(await session.runManual()).toBeNull();
+    expect(await session.runAutoOnOpen(true)).toEqual({ state: "syncing", detail: "" });
+
+    await waitUntil(() => resolveClear !== undefined);
+    resolveClear?.();
+    expect(await wipe).toEqual({ pendingCount: 0 });
+    expect(session.isInFlight()).toBe(false);
+  });
 });
 
 describe("production defaults", () => {

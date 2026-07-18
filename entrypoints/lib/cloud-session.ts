@@ -44,6 +44,11 @@ export type CloudSyncSession = {
   ): Promise<AutoSyncResult>;
   isBuildConfigured(): Promise<boolean>;
   isInFlight(): boolean;
+  /** Wipes every cloud row, drains the outbox, and turns backup off. Throws when a
+   *  sync holds the session's guard — a wipe racing an in-flight push can have the
+   *  push land after the clear, silently repopulating the cloud the user just
+   *  permanently deleted (and both paths mark the outbox synced, so no trace is
+   *  left). Retry once the sync settles. */
   wipeCloud(): Promise<{ pendingCount: number }>;
 };
 
@@ -56,13 +61,10 @@ const loadDefaultAdapter: LoadCloudAdapter = async () =>
 const probeDefaultConfiguration: ProbeConfiguredPort = async () =>
   (await import("./convex-sync")).isCloudConfigured();
 
-const clearDefaultCloud: ClearCloudPort = async () => {
-  const adapter = (await import("./convex-sync")).convexAdapter;
-  if (!adapter.isConfigured()) {
-    throw new Error("Convex deployment URL is not configured (set VITE_CONVEX_URL).");
-  }
-  await adapter.clear();
-};
+// One-line delegate: the configured check and the live-Convex clear both live in
+// convex-sync (the coverage-exempt thin I/O module, same discipline as push/pull) —
+// keeping them here left the configured happy path structurally uncoverable.
+const clearDefaultCloud: ClearCloudPort = async () => (await import("./convex-sync")).clearCloud();
 
 // The formatter lives in sync-engine (it owns SyncMeta) — re-exported here so the
 // session's consumers (popup, options pane, tests) import one cloud-facing module.
@@ -85,7 +87,7 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
   const probeConfigured = deps.probeConfigured ?? probeDefaultConfiguration;
   const clearCloud = deps.clearCloud ?? clearDefaultCloud;
   const now = deps.now ?? Date.now;
-  let owner: "auto" | "manual" | undefined;
+  let owner: "auto" | "manual" | "wipe" | undefined;
   const autoSuperseded = Symbol();
 
   async function mapOutcome(
@@ -132,18 +134,26 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
     isBuildConfigured: () => probeConfigured(),
 
     async wipeCloud() {
-      await clearCloud();
-      // The cloud rows are gone, so the queued outbox actions that produced them must
-      // never re-push (that would silently repopulate the cloud the user just wiped) —
-      // drain the outbox by marking every pending item synced.
-      const pending = await blockedStore.pending();
-      if (pending.length > 0) {
-        await blockedStore.markSynced(pending.map((item) => item.action.actionId));
+      if (owner) {
+        throw new Error("A sync is in progress — retry the wipe once it finishes.");
       }
-      // A wiped cloud with backup left on would just refill on the next auto-sync, so
-      // the wipe also turns cloud backup off.
-      await storageSet({ [SYNC_META_KEY]: {}, [CLOUD_BACKUP_KEY]: false });
-      return { pendingCount: (await blockedStore.pending()).length };
+      owner = "wipe";
+      try {
+        await clearCloud();
+        // The cloud rows are gone, so the queued outbox actions that produced them must
+        // never re-push (that would silently repopulate the cloud the user just wiped) —
+        // drain the outbox by marking every pending item synced.
+        const pending = await blockedStore.pending();
+        if (pending.length > 0) {
+          await blockedStore.markSynced(pending.map((item) => item.action.actionId));
+        }
+        // A wiped cloud with backup left on would just refill on the next auto-sync, so
+        // the wipe also turns cloud backup off.
+        await storageSet({ [SYNC_META_KEY]: {}, [CLOUD_BACKUP_KEY]: false });
+        return { pendingCount: (await blockedStore.pending()).length };
+      } finally {
+        if (owner === "wipe") owner = undefined;
+      }
     },
   };
 }
