@@ -105,9 +105,16 @@ export async function pullBlocked(): Promise<RemoteAccount[]> {
   return client().query(listBlockedRef, {});
 }
 
-/** Delete every cloud row ("delete my cloud data"). Reached only through the adapter's
- *  `clear` port below — surfaces call `adapter.clear()`, never this directly. */
-async function clearCloud(): Promise<void> {
+/** Delete every cloud row ("delete my cloud data"). Throws when the deployment URL is
+ *  not configured, so the cloud-session's default wipe port can delegate straight here
+ *  without re-implementing the guard. Like `pushOutbox`/`pullBlocked`, this is thin
+ *  live-Convex I/O — which is why the configured check lives in this coverage-exempt
+ *  module rather than in cloud-session, where its happy path needs a live client (or
+ *  the process-global module mocks the session design removed) to be exercised. */
+export async function clearCloud(): Promise<void> {
+  if (!isCloudConfigured()) {
+    throw new Error("Convex deployment URL is not configured (set VITE_CONVEX_URL).");
+  }
   await client().mutation(clearOwnerRef, {});
 }
 
