@@ -127,6 +127,10 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
         return { outcome, ...(await mapOutcome(outcome)) };
       } catch (error) {
         if (error === autoSuperseded) return { state: "syncing", detail: "" };
+        // The row gets a bare "error" state; the failure itself would vanish without
+        // a trace otherwise — keep the identity in the console of whichever surface
+        // ran the session (popup/options) for field diagnosis.
+        console.warn("Cloud auto-sync on open failed:", error);
         return { state: "error", detail: "" };
       } finally {
         if (started && owner === "auto") owner = undefined;
