@@ -40,13 +40,15 @@ export const BLOCK_THRESHOLD = 2;
 const STRONG_WEIGHT = 2;
 const WEAK_WEIGHT = 1;
 
-// Escort / solicitation lexicon (STRONG). Curated to unambiguous phrases: bare tokens that
-// also occur in legitimate Chinese text — e.g. 上门 ("outcall/home-visit", as in 上门维修
-// "home repair"), 外围 ("periphery", as in 外围设备 "peripherals"), and the contact-handoff
-// family 加微/加V/微信 ("add my WeChat", also said by legitimate businesses) — are deliberately
-// left OUT of this STRONG (auto-block) tier, so only the compound 同城上门 is matched. Those
-// softer tokens belong to a future weak-signal tier (#25 follow-up), not a solo auto-block.
-// Stored lower-cased so the latin "P" euphemism (约P / 4P / 寻P友) matches case-insensitively.
+// Escort / solicitation lexicon (STRONG). PLATFORM CONTEXT is the calibration: this runs on
+// X, not a Chinese local-services app (58同城 / 美团) or WeChat. Legitimate outcall/home-visit
+// businesses and personal contact-handoff live on those platforms, not here, so on X the
+// solicitation vocabulary — 上门 ("outcall"), and the 加微/加V family ("add my WeChat", i.e.
+// take this off-platform) — has a near-zero legitimate base rate and is treated as STRONG.
+// (The residual 上门维修 / 上门女婿-meme body is negligible on X.) The LONE holdout is 外围
+// ("periphery", 外围设备 = "peripherals"): X's active Chinese tech community genuinely says it,
+// so 外围 stays out of auto-block. Stored lower-cased so the latin euphemisms (约P / 4P / 加V)
+// match case-insensitively.
 export const ESCORT_LEXICON: readonly string[] = [
   "约p",
   "约炮",
@@ -58,7 +60,11 @@ export const ESCORT_LEXICON: readonly string[] = [
   "点主页",
   "点主頁",
   "看主页",
-  "同城上门",
+  "上门",
+  "加微",
+  "加v",
+  "加薇",
+  "加威",
 ];
 
 // Crypto-shill lexicon (STRONG). Matched on word/token boundaries so an ordinary word that

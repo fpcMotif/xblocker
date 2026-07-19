@@ -29,8 +29,9 @@ describe("strong escort lexicon", () => {
     expect(verdict.matched).toContain("escort-strong");
   });
 
-  test("SC-02 blocks 同城上门 (compound; bare 上门 is not a token)", () => {
+  test("SC-02 blocks 同城上门 / bare 上门 (solicitation vocab, ~zero legit base rate on X)", () => {
     expect(classify(account({ displayName: "翠琴🌸同城上门" })).block).toBe(true);
+    expect(classify(account({ displayName: "梦曼🌸上门" })).block).toBe(true);
   });
 
   test("SC-03 blocks 寻P友", () => {
@@ -169,24 +170,32 @@ describe("precision — genuine accounts are never blocked", () => {
     expect(verdict.matched).not.toContain("throwaway-body");
   });
 
-  test("SC-33 a legit 上门维修 (home-repair) reply is not escort spam", () => {
+  test("SC-33 上门 in a reply body blocks on X (solicitation vocab, not a repair listing)", () => {
+    // On X there is no legitimate 上门维修 business context (that lives on 58同城/WeChat), so
+    // the near-zero-base-rate 上门 token is treated as strong here. The rare home-repair /
+    // 上门女婿-meme false positive is an accepted, documented cost on this platform.
     const verdict = classify({
       displayName: "老王家电维修",
       handle: "wanghomerepair",
-      body: "同城上门维修，需要的私信", // NB: contains 同城上门 -> intentionally still caught
+      body: "同城上门维修，需要的私信",
     });
-    // The compound 同城上门 IS an escort token, so this DOES block; the precision case is
-    // the *bare* 上门 below, which must not.
     expect(verdict.block).toBe(true);
   });
 
-  test("SC-34 the bare 上门 token (outcall/home-visit) alone does not block", () => {
+  test("SC-34 外围 (peripherals) is the lone carve-out — a tech reply does not block", () => {
+    // X's Chinese tech community genuinely discusses 外围设备 (computer peripherals), so 外围
+    // is deliberately kept OUT of the auto-block lexicon.
     const verdict = classify({
-      displayName: "家电维修师傅",
-      handle: "repairguy",
-      body: "可以上门维修，价格公道",
+      displayName: "键盘老王",
+      handle: "keebfan",
+      body: "这个外围设备用起来很顺手，推荐",
     });
     expect(verdict.block).toBe(false);
+  });
+
+  test("SC-36 the 加微/加V off-platform contact-handoff blocks", () => {
+    expect(classify(account({ displayName: "normal", body: "详情加微信 详聊" })).block).toBe(true);
+    expect(classify(account({ body: "加V看主页" })).block).toBe(true);
   });
 
   test("SC-35 an ordinary birth-year handle trips only the weak signal, never a block", () => {
