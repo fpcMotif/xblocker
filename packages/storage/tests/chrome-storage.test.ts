@@ -9,8 +9,8 @@ import {
   storageRemove,
   storageSet,
   WHITELIST_KEY,
-} from "../entrypoints/lib/chrome-storage.ts";
-import { resetTestEnvironment, storageFake } from "./setup.ts";
+} from "../chrome-storage.ts";
+import { resetTestEnvironment, storageFake } from "../../../test/setup.ts";
 
 describe("storage key constants", () => {
   test("CS-01 name the keys existing callers already use", () => {

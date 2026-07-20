@@ -3,8 +3,8 @@
 // fake). Shared by the popup sync-row suite and the options cloud-pane suite — both inject
 // it as their cloud transport so no test ever loads the live Convex module. `state` swaps a
 // method's behavior (e.g. make `pull` reject or hang); `calls` counts invocations.
-import type { OutboxItem, RemoteAccount } from "../../entrypoints/lib/blocked-store.ts";
-import type { CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
+import type { OutboxItem, RemoteAccount } from "../../packages/storage/blocked-store.ts";
+import type { CloudAdapter } from "../../packages/sync/sync-engine.ts";
 
 export function makeCloudAdapterFake() {
   const calls = { push: 0, pull: 0, clear: 0 };

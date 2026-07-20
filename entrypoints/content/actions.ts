@@ -1,13 +1,13 @@
-import { blockedStore } from "../lib/blocked-store";
+import { blockedStore } from "../../packages/storage/blocked-store";
 import {
   normalizeUsername,
   readSettings,
   DEFAULT_MAX_REPLIES,
   MAX_REPLIES_LIMIT,
-} from "../lib/settings";
-// Whitelist persistence lives in ../lib/whitelist-store (verified behavior-identical to
+} from "../../packages/storage/settings";
+// Whitelist persistence lives in ../../packages/storage/whitelist-store (verified behavior-identical to
 // the implementation this module used to carry).
-import { getWhitelist, isWhitelisted } from "../lib/whitelist-store";
+import { getWhitelist, isWhitelisted } from "../../packages/storage/whitelist-store";
 // Direct X API request/response layer and DOM author-extraction + Discover-more boundary
 // detection were split out into their own modules.
 import { performDirectAction, readBlockOutcome, type DirectActionType } from "./x-api";
@@ -21,12 +21,12 @@ export {
   isWhitelisted,
   removeFromWhitelist,
   type WhitelistAddResult,
-} from "../lib/whitelist-store";
+} from "../../packages/storage/whitelist-store";
 export * from "./x-api";
 export * from "./author";
 
 // Re-exported so existing importers (modal.ts, index.ts hooks, tests) keep their
-// `from "./actions"` path while the single definition lives in ../lib/settings.
+// `from "./actions"` path while the single definition lives in ../../packages/storage/settings.
 export { normalizeUsername, DEFAULT_MAX_REPLIES, MAX_REPLIES_LIMIT };
 
 export type ReplyActionResult =

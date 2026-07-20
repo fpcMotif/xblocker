@@ -1,6 +1,6 @@
 // Catalog: WL-* (getWhitelist / isWhitelisted / addToWhitelist / removeFromWhitelist),
 // mirroring test/content/whitelist-storage.test.ts's cases against the shared
-// entrypoints/lib/whitelist-store.ts module, plus WL-20/WL-21 for concurrent removes
+// packages/storage/whitelist-store.ts module, plus WL-20/WL-21 for concurrent removes
 // and a mixed add+remove race that the ported module must also serialize.
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -10,9 +10,9 @@ import {
   getWhitelist,
   isWhitelisted,
   removeFromWhitelist,
-} from "../entrypoints/lib/whitelist-store.ts";
-import { settleMicrotasks } from "./helpers/timers.ts";
-import { resetTestEnvironment, storageFake } from "./setup.ts";
+} from "../whitelist-store.ts";
+import { settleMicrotasks } from "../../../test/helpers/timers.ts";
+import { resetTestEnvironment, storageFake } from "../../../test/setup.ts";
 
 describe("getWhitelist", () => {
   beforeEach(() => {

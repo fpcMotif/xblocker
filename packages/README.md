@@ -15,6 +15,18 @@ Root files (`index.ts`, `client.ts`, ...) are a package's entry points — its
 public surface. Everything else is private. `packages/example/` is a starter
 template: copy it to start a new package, or delete it if you don't need it.
 
+## Current packages
+
+- `storage/` — the local database: the chrome.storage kv layer, settings, the
+  blocked/whitelist stores, and the merge domain logic (also shared with the
+  Convex backend).
+- `sync/` — cloud sync: the sync engine, cloud session, background scheduling,
+  and the public wire format, with cloud-config and the Convex client adapter
+  hidden in `lib/`.
+
+An active layering rule enforces that storage never depends on sync.
+`example/` is the copy-me template.
+
 ## The rule
 
 Code outside a package may import only that package's root files, never

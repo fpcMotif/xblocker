@@ -20,10 +20,10 @@ import {
   SYNC_META_KEY,
   SYNC_STALE_MS,
   type CloudAdapter,
-} from "../entrypoints/lib/sync-engine.ts";
-import type { OutboxItem, RemoteAccount } from "../entrypoints/lib/blocked-store.ts";
-import { CLOUD_BACKUP_KEY } from "../entrypoints/lib/chrome-storage.ts";
-import { resetTestEnvironment, storageFake } from "./setup.ts";
+} from "../sync-engine.ts";
+import type { OutboxItem, RemoteAccount } from "../../storage/blocked-store.ts";
+import { CLOUD_BACKUP_KEY } from "../../storage/chrome-storage.ts";
+import { resetTestEnvironment, storageFake } from "../../../test/setup.ts";
 
 const pendingItem = (actionId: string): OutboxItem => ({
   accountKey: "1",
@@ -148,7 +148,7 @@ describe("runCloudSync", () => {
 
   test("SE-08 the default loadAdapter param falls back to the real convex-sync module and short-circuits when unconfigured (no network)", async () => {
     // No explicit loadAdapter -> exercises the default `loadConvexAdapter`, a real
-    // `import("./convex-sync")`. Force the deployment URL unset so the real adapter's
+    // `import("./lib/convex-sync")`. Force the deployment URL unset so the real adapter's
     // isConfigured() is false and the call returns before any network I/O.
     const originalUrl = process.env["VITE_CONVEX_URL"];
     delete process.env["VITE_CONVEX_URL"];

@@ -2,7 +2,7 @@
 
 This directory is the optional cloud backup for XBlocker's blocked-account list. It is
 **opt-in** and the extension works fully without it — the local store
-(`entrypoints/lib/blocked-store.ts`) is always the source of truth; Convex is a mirror.
+(`packages/storage/blocked-store.ts`) is always the source of truth; Convex is a mirror.
 
 ## What it does
 
@@ -68,6 +68,6 @@ toggling backup on) drains the local outbox to Convex and pulls remote accounts 
 - `clearOwner` (`clearCloud()` in `convex-sync.ts`) deletes every cloud row for the owner.
   It is implemented but not yet wired to a popup control; toggling backup off only stops
   syncing, it does not delete the cloud copy.
-- The dedup/rollup arithmetic mirrors `entrypoints/lib/blocked-merge.ts`, and the
+- The dedup/rollup arithmetic mirrors `packages/storage/blocked-merge.ts`, and the
   client→cloud argument mapping (`outboxItemToRecordArgs`) is unit tested in
-  `test/blocked-store.test.ts`.
+  `packages/storage/tests/blocked-store.test.ts`.
