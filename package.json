@@ -19,9 +19,10 @@
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware --deny-warnings .",
     "lint:fix": "oxlint --type-aware --fix .",
-    "format": "oxfmt --write package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\"",
-    "format:check": "oxfmt --check package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\"",
-    "check": "bun run typecheck && bun run lint && bun run format:check && bun test && bun run build",
+    "lint:boundaries": "depcruise entrypoints packages",
+    "format": "oxfmt --write package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\"",
+    "format:check": "oxfmt --check package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\"",
+    "check": "bun run typecheck && bun run lint && bun run lint:boundaries && bun run format:check && bun test && bun run build",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
@@ -31,6 +32,7 @@
     "@types/chrome": "^0.1.43",
     "@typescript/native-preview": "^7.0.0-dev.20260612.1",
     "bun-types": "^1.3.14",
+    "dependency-cruiser": "^18.1.0",
     "happy-dom": "^20.10.2",
     "oxfmt": "^0.54.0",
     "oxlint": "^1.69.0",
