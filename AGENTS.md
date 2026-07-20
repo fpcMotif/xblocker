@@ -13,3 +13,7 @@ Use the default Matt Pocock skills triage label vocabulary. See `docs/agents/tri
 ### Domain docs
 
 This is a single-context repo: root `CONTEXT.md` plus `docs/adr/` when needed. See `docs/agents/domain.md`.
+
+### Package conventions
+
+Packages are deep modules — import only a package's root entry points, never its subfolder internals; see [packages/README.md](./packages/README.md) before adding or importing one.
