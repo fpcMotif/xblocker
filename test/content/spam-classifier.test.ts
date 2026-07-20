@@ -55,6 +55,16 @@ describe("strong escort lexicon", () => {
   test("SC-07 matches the latin P euphemism case-insensitively (约p == 约P)", () => {
     expect(classify(account({ displayName: "同城约p" })).block).toBe(true);
   });
+
+  test("SC-08 sees through full-width look-alike evasion (约Ｐ, ｅｔｈ)", () => {
+    // Full-width Ｐ (U+FF30) lowercases to full-width ｐ, not ASCII p — NFKC folds it back.
+    expect(classify(account({ displayName: "同城约Ｐ" })).block).toBe(true);
+    expect(classify(account({ displayName: "gm", body: "ｅｔｈ to the moon" })).block).toBe(true);
+  });
+
+  test("SC-09 sees through zero-width-char injection (上<ZWSP>门)", () => {
+    expect(classify(account({ displayName: "梦曼🌸上\u200B门" })).block).toBe(true);
+  });
 });
 
 describe("strong crypto lexicon", () => {

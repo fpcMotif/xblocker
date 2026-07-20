@@ -98,13 +98,23 @@ const NAME_TEMPLATE_PATTERN =
 const CONSONANT_CLUSTER_PATTERN = /[bcdfghjklmnpqrstvwxz]{4,}/i;
 const EMOJI_PATTERN = /\p{Extended_Pictographic}/u;
 
+// Bots defeat a naive substring/word match by full-width look-alikes (约Ｐ, ｅｔｈ — JS
+// lowercases full-width Ｐ to full-width ｐ, never ASCII p) and by injecting zero-width /
+// format chars between characters (上<ZWSP>门). Fold both away before the STRONG lexicon
+// runs: strip zero-width joiners/spaces/BOM, then NFKC-normalize full-width & compatibility
+// forms to ASCII. (Verified: without this, 约Ｐ / ｅｔｈ / 上<ZWSP>门 all pass silently.)
+function normalizeForMatch(text: string): string {
+  return text.replace(/\u200B|\u200C|\u200D|\u2060|\uFEFF/g, "").normalize("NFKC");
+}
+
 function hasEscortToken(haystack: string): boolean {
-  const lower = haystack.toLowerCase();
+  const lower = normalizeForMatch(haystack).toLowerCase();
   return ESCORT_LEXICON.some((token) => lower.includes(token));
 }
 
 function hasCryptoToken(haystack: string): boolean {
-  return CRYPTO_PATTERN.test(haystack) || WALLET_PATTERN.test(haystack);
+  const normalized = normalizeForMatch(haystack);
+  return CRYPTO_PATTERN.test(normalized) || WALLET_PATTERN.test(normalized);
 }
 
 function hasNameTemplate(displayName: string): boolean {
