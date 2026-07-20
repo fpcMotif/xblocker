@@ -1,17 +1,17 @@
-// Whitelist pane: backed by lib/whitelist-store only (no other storage). The store keeps
+// Whitelist pane: backed by packages/storage/whitelist-store only (no other storage). The store keeps
 // just an ordered list of handles, no per-entry "added at" timestamp — so the table shows
 // Handle + Remove only rather than fabricating a date the store never recorded.
 
 import { createIcon } from "../../lib/icons";
-import { normalizeSettings, normalizeUsername } from "../../lib/settings";
+import { normalizeSettings, normalizeUsername } from "../../../packages/storage/settings";
 import {
   addManyToWhitelist,
   addToWhitelist,
   getWhitelist,
   removeFromWhitelist,
   type WhitelistAddResult,
-} from "../../lib/whitelist-store";
-import { storageGet, SETTINGS_KEY } from "../../lib/chrome-storage";
+} from "../../../packages/storage/whitelist-store";
+import { storageGet, SETTINGS_KEY } from "../../../packages/storage/chrome-storage";
 import { downloadJson, type DownloadFn } from "../download";
 
 export const WHITELIST_SEARCH_DEBOUNCE_MS = 120;

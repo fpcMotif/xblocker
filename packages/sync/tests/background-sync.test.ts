@@ -9,10 +9,10 @@ import {
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
   SYNC_DUE_KEY,
-} from "../entrypoints/lib/background-sync.ts";
-import { OUTBOX_STORAGE_KEY } from "../entrypoints/lib/blocked-store.ts";
-import { installManualTimers, settleMicrotasks } from "./helpers/timers.ts";
-import { resetTestEnvironment, storageFake } from "./setup.ts";
+} from "../background-sync.ts";
+import { OUTBOX_STORAGE_KEY } from "../../storage/blocked-store.ts";
+import { installManualTimers, settleMicrotasks } from "../../../test/helpers/timers.ts";
+import { resetTestEnvironment, storageFake } from "../../../test/setup.ts";
 
 beforeEach(() => {
   resetTestEnvironment();
@@ -279,7 +279,7 @@ describe("background entrypoint wiring", () => {
     };
 
     try {
-      const background = await import("../entrypoints/background.ts");
+      const background = await import("../../../entrypoints/background.ts");
       // Run through the wxt entrypoint definition, exactly as the worker boots.
       background.default.main();
 
@@ -341,7 +341,7 @@ describe("background entrypoint wiring", () => {
     storageFake.data["cloudSyncMeta"] = seededMeta;
 
     try {
-      const background = await import("../entrypoints/background.ts");
+      const background = await import("../../../entrypoints/background.ts");
       background.default.main();
 
       const timers = installManualTimers();
@@ -388,7 +388,7 @@ describe("background entrypoint wiring", () => {
     };
 
     try {
-      const background = await import("../entrypoints/background.ts");
+      const background = await import("../../../entrypoints/background.ts");
       background.default.main();
 
       expect(messageListeners).toHaveLength(1);

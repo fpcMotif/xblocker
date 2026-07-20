@@ -2,10 +2,15 @@
 // docs/plans/2026-07-10-gauge-and-ledger/plan.md, "Popup"). Whitelist management and
 // max-replies now live on the settings page; this surface only shows the stat strip,
 // two behavior toggles, the cloud sync row, and a link out to settings.
-import type { BlockedStats } from "../lib/blocked-merge";
-import { blockedStore } from "../lib/blocked-store";
-import { CLOUD_BACKUP_KEY, SETTINGS_KEY, storageGet, storageSet } from "../lib/chrome-storage";
-import { createCloudSyncSession, type CloudSyncDeps } from "../lib/cloud-session";
+import type { BlockedStats } from "../../packages/storage/blocked-merge";
+import { blockedStore } from "../../packages/storage/blocked-store";
+import {
+  CLOUD_BACKUP_KEY,
+  SETTINGS_KEY,
+  storageGet,
+  storageSet,
+} from "../../packages/storage/chrome-storage";
+import { createCloudSyncSession, type CloudSyncDeps } from "../../packages/sync/cloud-session";
 import {
   XB_DARK_TOKENS,
   XB_FONT_STACK,
@@ -14,8 +19,8 @@ import {
 } from "../lib/design-tokens";
 import { createIcon } from "../lib/icons";
 import { createLiveNumber, type LiveNumber, type LiveNumberClock } from "../lib/live-number";
-import { readSettings, type Settings } from "../lib/settings";
-import { getWhitelist } from "../lib/whitelist-store";
+import { readSettings, type Settings } from "../../packages/storage/settings";
+import { getWhitelist } from "../../packages/storage/whitelist-store";
 
 // The popup renders rows for only two of the four settings keys (keyboardMode is reserved
 // for future j/k navigation; maxReplies lives on the settings page) but always round-trips

@@ -1,6 +1,6 @@
 import { v, type Infer } from "convex/values";
 
-import { applyAccountRollup, sumAccountRollups } from "../entrypoints/lib/blocked-merge";
+import { applyAccountRollup, sumAccountRollups } from "../packages/storage/blocked-merge";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 
 const kindValidator = v.union(v.literal("block"), v.literal("mute"), v.literal("unblock"));
@@ -13,7 +13,7 @@ const sourceValidator = v.union(
 const statusValidator = v.union(v.literal("active"), v.literal("unblocked"));
 
 // Shape of each row returned by listBlocked — mirrors RemoteAccount in
-// entrypoints/lib/blocked-store.ts (the local store's mergeRemote consumes it).
+// packages/storage/blocked-store.ts (the local store's mergeRemote consumes it).
 const remoteAccountValidator = v.object({
   xUserId: v.string(),
   handle: v.string(),
@@ -33,11 +33,11 @@ const OWNER = "local";
 // append the event. The rollup arithmetic (a same-id upsert adds +1, an aliasKey
 // migration SUMs the legacy handle row into the numeric one) is not reimplemented here —
 // it comes from applyAccountRollup/sumAccountRollups in
-// entrypoints/lib/blocked-merge.ts, shared with the local store per
+// packages/storage/blocked-merge.ts, shared with the local store per
 // docs/adr/0002-shared-ledger-algebra.md.
 //
 // This handler runs in the Convex runtime and is not executed by the unit suite, so
-// makeFakeCloud in test/blocked-store.test.ts exercises the same shared operators and
+// makeFakeCloud in packages/storage/tests/blocked-store.test.ts exercises the same shared operators and
 // BS-33/34/35 pin the +1/SUM distinction.
 const recordActionArgs = {
   xUserId: v.string(),

@@ -1,7 +1,7 @@
 // Catalog: OBL-* (Blocked log pane: pure helpers + the virtualized, filterable ledger).
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { BlockAction, BlockedAccount } from "../../entrypoints/lib/blocked-merge.ts";
+import type { BlockAction, BlockedAccount } from "../../packages/storage/blocked-merge.ts";
 import {
   BLOCKED_LOG_SEARCH_DEBOUNCE_MS,
   computeSyncStatus,
