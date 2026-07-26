@@ -209,17 +209,13 @@ export const clearOwner = mutation({
       .query("blockedAccounts")
       .withIndex("by_owner", (q) => q.eq("owner", owner))
       .collect();
-    for (const account of accounts) {
-      await ctx.db.delete(account._id);
-    }
+    await Promise.all(accounts.map((account) => ctx.db.delete(account._id)));
 
     const actions = await ctx.db
       .query("blockActions")
       .withIndex("by_owner_xid", (q) => q.eq("owner", owner))
       .collect();
-    for (const action of actions) {
-      await ctx.db.delete(action._id);
-    }
+    await Promise.all(actions.map((action) => ctx.db.delete(action._id)));
 
     return null;
   },
