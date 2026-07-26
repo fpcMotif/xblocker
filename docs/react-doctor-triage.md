@@ -37,4 +37,10 @@ Scope: WXT MV3 extension. No React project detected, so React-only rules were ga
 
 - Untouched `origin/main`: `bun run check` passed.
 - Baseline: 633 tests, 100% covered lines/functions, production build passed.
-- Each fix commit must pass focused checks. Final stack must pass `bun run check` and React Doctor again.
+- Focused tests passed after each fix.
+- Root and Convex TypeScript checks passed.
+- Final `bun run check`: 633 tests, 100% covered lines/functions, production build passed.
+- Final React Doctor: 84/100, 8 warnings. All 5 true positives are gone; the 8 remaining warnings are the triaged ordered loops and Convex file-entrypoint false positives.
+
+Run the build and React Doctor serially. A concurrent scan can inspect WXT's generated
+`.output/` bundle mid-build and report generated-code findings that do not exist in source.
