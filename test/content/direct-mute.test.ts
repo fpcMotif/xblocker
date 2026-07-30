@@ -140,6 +140,25 @@ describe("muteUserDirectly", () => {
     }
   });
 
+  test("DM-10 performDirectAction throws when response.ok is false for mute", async () => {
+    fetchStub = installFetchStub(() => ({ ok: false, status: 403 }));
+    await hooks.performDirectAction("mute", "testuser").then(
+      () => {
+        throw new Error("Expected performDirectAction to throw");
+      },
+      (error) => {
+        expect(String(error)).toContain("Direct mute failed with HTTP 403.");
+      },
+    );
+  });
+
+  test("DM-11 performDirectAction returns response when ok is true", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+
+    const response = await hooks.performDirectAction("mute", "testuser");
+    expect(response.status).toBe(200);
+  });
+
   test("DM-09 never calls fetch when the CSRF cookie is missing", async () => {
     setDocumentCookie("");
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));

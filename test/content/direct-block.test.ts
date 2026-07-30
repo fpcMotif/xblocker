@@ -128,6 +128,18 @@ describe("blockUserDirectly", () => {
     }
   });
 
+  test("DB-12 performDirectAction throws when response.ok is false for block", async () => {
+    fetchStub = installFetchStub(() => ({ ok: false, status: 500 }));
+    await hooks.performDirectAction("block", "testuser").then(
+      () => {
+        throw new Error("Expected performDirectAction to throw");
+      },
+      (error) => {
+        expect(String(error)).toContain("Direct block failed with HTTP 500.");
+      },
+    );
+  });
+
   test("DB-11 never calls fetch when request construction fails", async () => {
     setDocumentCookie("");
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
