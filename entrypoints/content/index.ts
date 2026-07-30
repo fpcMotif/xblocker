@@ -12,6 +12,7 @@ import {
   muteReplies,
   muteTweet,
   muteUserDirectly,
+  performDirectAction,
   normalizeUsername,
 } from "./actions";
 import { computeRailY } from "./position";
@@ -46,6 +47,7 @@ type XBlockerTestHooks = {
   muteReplies: typeof muteReplies;
   muteTweet: typeof muteTweet;
   muteUserDirectly: typeof muteUserDirectly;
+  performDirectAction: typeof performDirectAction;
   normalizeUsername: typeof normalizeUsername;
   observeThemeChanges: typeof observeThemeChanges;
   railTimings: { dwellMs: number; collapseGraceMs: number };
@@ -198,6 +200,8 @@ if (typeof globalThis !== "undefined" && globalThis.__XB_TEST__) {
     muteReplies,
     muteTweet,
     muteUserDirectly,
+    performDirectAction,
+
     normalizeUsername,
     observeThemeChanges,
     railTimings: { dwellMs: DWELL_MS, collapseGraceMs: COLLAPSE_GRACE_MS },
