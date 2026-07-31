@@ -2,8 +2,10 @@ export type ThemeName = "dark" | "light";
 
 /** Parse an rgb()/rgba() string to its channels, or null if it carries no
  *  usable surface color (unparseable, or fully transparent). */
-function parseRgb(color: string): [number, number, number] | null {
-  const match = /rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\s*\)/.exec(color);
+export function parseRgb(color: string): [number, number, number] | null {
+  const match = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$/i.exec(
+    color.trim(),
+  );
   if (!match) {
     return null;
   }
