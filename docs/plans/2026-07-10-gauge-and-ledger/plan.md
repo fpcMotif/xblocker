@@ -5,7 +5,8 @@ and 31). Thesis: a tool opened dozens of times a day earns trust through
 mechanical precision, not personality. The popup is a gauge cluster; the
 settings page is a ledger. Tokens are the existing Calm Control system in
 `entrypoints/lib/design-tokens.ts` (see DESIGN.md). User-locked IA: lean popup,
-two-pane settings (General · Whitelist · Blocked log · Cloud backup · About)
+two-pane settings (Bulk actions · Whitelist · Blocked log · Cloud backup ·
+About)
 with blocked-accounts log, whitelist import/export, and a cloud danger zone.
 
 ## Shared rules (both surfaces)
@@ -35,8 +36,8 @@ with blocked-accounts log, whitelist import/export, and a cloud danger zone.
 
 ## Popup (reshape `entrypoints/popup/main.ts` to a lean strip)
 
-360px wide, ~356px tall, no scroll, background `--xb-surface` (no nested
-panel). Padding 16px sides / 14px vertical. Full-width 1px `--xb-border`
+360px wide, compact intrinsic height, no scroll, background `--xb-surface`
+(no nested panel). Padding 16px sides / 14px vertical. Full-width 1px `--xb-border`
 dividers between regions.
 
 1. **Header** 44px: brand chip 22×22 (radius 8, primary/0.12 bg, primary
@@ -48,12 +49,7 @@ dividers between regions.
    under it (danger=Blocked, warning=Muted, success=Whitelisted); label
    10/600 uppercase tracked 0.06em muted ("Blocked" / "Muted" /
    "Whitelisted"). Live-updates via the shared count primitive.
-3. **Toggles** 2×44px rows: "Protect whitelist" — caption "Whitelisted
-   handles are skipped during bulk actions."; "Confirm destructive actions" —
-   caption "Ask before block or mute runs." Label 13/600, caption 11/500
-   muted. Switch 42×24 (track `--xb-track`/checked `--xb-primary`, 16px
-   thumb, 160ms).
-4. **Sync row** 48px: left — 8px telltale dot + two-line stack (12/600 ink +
+3. **Sync row** 48px: left — 8px telltale dot + two-line stack (12/600 ink +
    11/500 muted). Telltale states with temporal signatures (colorblind-safe):
    solid success = synced; 900ms breathing opacity 1↔0.4 primary = syncing
    (reduced-motion: static 0.7); double-blink-then-hold danger = error;
@@ -64,7 +60,7 @@ dividers between regions.
    strings preserved for the engine layer); when OFF: a ghost text-link
    "Turn on in settings" (opens options); when unconfigured (no
    VITE_CONVEX_URL): plain muted text "Not configured". No dead buttons.
-5. **Footer** (8px air, no rule): full-width 40px row-button, transparent →
+4. **Footer** (8px air, no rule): full-width 40px row-button, transparent →
    `--xb-elevated` hover, active 0.98; "Open settings" 13/600 left, chevron
    muted right → `chrome.runtime.openOptionsPage()` (guarded optional call
    for the test chrome mock).
@@ -72,8 +68,8 @@ dividers between regions.
 No hero surface in the popup — the hero token stays reserved for the Reply
 Rail's primary action.
 
-Removed from popup (move to settings): whitelist section, Max replies, cloud
-card. Popup keeps only what's listed above.
+Removed from popup: whitelist controls, behavior toggles, Bulk reply limit, and
+the cloud card. Popup keeps only what's listed above.
 
 ## Settings page (new `entrypoints/options/`)
 
@@ -81,7 +77,7 @@ Full-tab options page (`open_in_tab: true`). Two-pane: fixed left rail 232px
 (`--xb-elevated`, 1px right border) + fluid scrollable content
 (`--xb-surface`, 40px padding). File layout suggestion:
 `entrypoints/options/index.html`, `main.ts` (shell + router), `styles.ts`,
-`panes/{general,whitelist,blocked-log,cloud,about}.ts`,
+`panes/{bulk-actions,whitelist,blocked-log,cloud,about}.ts`,
 `virtual-list.ts` — all under the 100% coverage gate.
 
 - **Rail**: brand row 56px (chip + "XBlocker" 15/700); nav items 40px
@@ -92,14 +88,17 @@ Full-tab options page (`open_in_tab: true`). Two-pane: fixed left rail 232px
 - Pane header pattern: H1 20/700 + one-line 13/500 muted description, 24px
   below. Form panes constrain to 640px column; table panes to 960px.
 
-### General
-Bordered group card (radius 16, `--xb-elevated`), 56px rows with internal
-hairlines: Protect whitelist · Confirm destructive actions · Keyboard mode
-(caption "Reserved for upcoming j/k navigation in the reply rail." — stored,
-honestly captioned). Separate group: "Max replies per run" (caption "Cap on
-accounts processed per bulk action, 1–200.") — 220px slider paired with a
-linked 56px tabular numeric input, both writing the same
-`clampMaxReplies()` value, always in lockstep.
+### Bulk actions
+One setting: **Bulk reply limit**. Caption: "Reply attempts per bulk action.
+Skipped and failed replies count toward the limit." A 220px slider and linked
+56px tabular numeric input write the same value from 1–200 and stay in lockstep.
+Slider input previews locally; change saves. Numeric values clamp to the range.
+Blank or nonnumeric input restores the saved value and shows the range error.
+Failed persistence restores the saved value and shows an inline save error.
+
+The module reads the new `bulkReplyLimit` key first. A background migration
+writes a valid legacy `settings.maxReplies` value to the new key, then removes
+the legacy key. Reads never mutate storage. The default is 50.
 
 ### Whitelist
 Toolbar: `@handle` input + primary "Add" (36px). Invalid → input border
@@ -107,8 +106,8 @@ danger + caption "Not a valid handle." (no shake). Search input (debounced
 120ms). Table 960px, **row height 40px** (one of exactly two table row
 heights in the surface), flat, hover `--xb-track`: Handle · Added · remove.
 Remove = 28px ghost icon button, opacity 0 → 1 on row hover/focus-within
-(tab-reachable always); with "Confirm destructive actions" on, first click
-swaps label to "Confirm?" for ~3s before executing. Top-right: "Import
+(tab-reachable always); first click swaps the label to "Confirm?" for ~3s,
+and the second removes the handle. Top-right: "Import
 JSON" / "Export JSON" secondary buttons. Import is shape-validating with a
 concrete inline result: "Imported 12, skipped 3 duplicates." / "That file
 isn't a whitelist export." Empty state: "No whitelisted handles yet." +
@@ -141,11 +140,11 @@ cloud. This cannot be undone and does not touch your local block/mute
 list."; "Wipe cloud data" (danger-filled) expands the card in place (200ms
 height+opacity) revealing input "Type WIPE to confirm" (compare trimmed,
 case-insensitive; display literal WIPE) + Cancel + "Confirm wipe" (disabled
-until match). Executes a new `wipeCloud()` in `lib/sync-engine.ts` that
-calls the existing (currently unwired) `clearOwner` mutation in
-`lib/convex-sync.ts`, then resets meta. This gate is unconditional —
-independent of the "Confirm destructive actions" toggle (blast radius is
-categorically larger).
+until match). Executes the `wipe` intent through `lib/cloud-backup.ts`, which
+durably turns backup off, then calls the cloud adapter's clear operation, drains
+only the actions pending when the wipe began, and resets meta. Cloud operations
+are serialized across extension contexts, so an in-flight sync cannot restore
+data after wipe. This gate is unconditional.
 
 ### About
 32px mark · "Version {manifest}" 13 tabular muted · "Local-first reply-spam
@@ -159,7 +158,7 @@ backup is turned on."
   `open_in_tab: true` (WXT manifest meta or wxt.config manifest override —
   verify against WXT 0.20 docs). Popup's openOptionsPage needs
   `options_ui` present to work.
-- Preserve the sync-engine status strings currently asserted in
+- Preserve the Cloud backup status strings currently asserted in
   test/popup/cloud-backup.test.ts, or update those tests deliberately.
 - happy-dom: file import/export via hidden `<input type=file>` and anchor
   download — factor through small seams so tests can stub File/Blob/URL.

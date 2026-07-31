@@ -19,10 +19,12 @@ import {
   type RecordInput,
   type RemoteAccountSnapshot,
 } from "./blocked-merge";
-import { storageSet } from "./chrome-storage";
+import { storageSetStrict } from "./chrome-storage";
+import { createExclusiveRunner } from "./exclusive-lock";
 
 const ACCOUNTS_KEY = "blockedAccounts";
 const OUTBOX_KEY = "blockedOutbox";
+const runStoreMutation = createExclusiveRunner("xblocker-blocked-store");
 
 /** Storage key of the outbox, exported so the background worker can watch it for
  *  changes (a queued action is the signal that a cloud sync is worth scheduling). */
@@ -92,35 +94,6 @@ function isAccountMap(value: unknown): value is AccountMap {
 }
 
 export function createBlockedStore(): BlockedStore {
-  // chrome.storage has no transactions, so read-modify-write mutations are
-  // serialized through this chain; concurrent record/markSynced/mergeRemote
-  // calls queue instead of racing (XB-BUG-08 family). The chain is advanced by
-  // a settled (never-rejecting) promise so one failed mutation cannot wedge it.
-  //
-  // SCOPE: this serializes only WITHIN one JS context. `blockedStore` is a
-  // per-context singleton, and the popup/background (running mergeRemote on a cloud
-  // pull) and the content script (running record) are separate contexts whose
-  // singletons can still lose-update each other on ACCOUNTS_KEY: each does its own
-  // read-modify-write, so whichever storage.set lands last wins that key, dropping
-  // the other side's account-map update. That is SELF-HEALING, not merely harmless:
-  // record() writes ACCOUNTS_KEY and OUTBOX_KEY together in ONE storage.set, while
-  // mergeRemote only ever writes ACCOUNTS_KEY — so a clobbered account-map update can
-  // never take its matching outbox entry down with it. The queued action still gets
-  // pushed to the cloud on the next sync, and the next pull's mergeRemote (which folds
-  // by taking the max of both sides' counts, see foldAccountSnapshot) brings the
-  // clobbered side back up to the correct rolled-up total. So a cross-context race
-  // here costs at most a transient stale count between the clobber and the next sync
-  // round-trip, never a lost block/mute/unblock. popup/main.ts's stats()/onChange()
-  // reads are therefore best-effort snapshots of that eventually-consistent state,
-  // not a reason to add a stronger (re-read-and-revalidate) write here.
-  let mutationChain: Promise<unknown> = Promise.resolve();
-
-  function enqueueMutation<T>(mutate: () => Promise<T>): Promise<T> {
-    const run = mutationChain.then(mutate);
-    mutationChain = run.catch(() => undefined);
-    return run;
-  }
-
   async function loadMap(): Promise<AccountMap> {
     return (await readKey<AccountMap>(ACCOUNTS_KEY)) ?? {};
   }
@@ -162,7 +135,7 @@ export function createBlockedStore(): BlockedStore {
     },
 
     record(input) {
-      return enqueueMutation(async () => {
+      return runStoreMutation(async () => {
         const map = await loadMap();
         const existingKey = findExistingKey(map, input);
         const existing = existingKey ? map[existingKey] : undefined;
@@ -182,7 +155,7 @@ export function createBlockedStore(): BlockedStore {
           });
         }
 
-        await storageSet({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
+        await storageSetStrict({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
         return merged;
       });
     },
@@ -203,17 +176,17 @@ export function createBlockedStore(): BlockedStore {
 
     markSynced(actionIds) {
       if (actionIds.length === 0) return Promise.resolve();
-      return enqueueMutation(async () => {
+      return runStoreMutation(async () => {
         const done = new Set(actionIds);
         const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
         const remaining = outbox.filter((item) => !done.has(item.action.actionId));
-        await storageSet({ [OUTBOX_KEY]: remaining });
+        await storageSetStrict({ [OUTBOX_KEY]: remaining });
       });
     },
 
     mergeRemote(remote) {
       if (remote.length === 0) return Promise.resolve();
-      return enqueueMutation(async () => {
+      return runStoreMutation(async () => {
         const map = await loadMap();
         let changed = false;
 
@@ -267,7 +240,7 @@ export function createBlockedStore(): BlockedStore {
           changed = true;
         }
 
-        if (changed) await storageSet({ [ACCOUNTS_KEY]: map });
+        if (changed) await storageSetStrict({ [ACCOUNTS_KEY]: map });
       });
     },
 

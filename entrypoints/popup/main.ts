@@ -1,10 +1,9 @@
 // Gauge & Ledger popup: a lean status strip (see
 // docs/plans/2026-07-10-gauge-and-ledger/plan.md, "Popup"). Whitelist management and
-// max-replies now live on the settings page; this surface only shows the stat strip,
-// two behavior toggles, the cloud sync row, and a link out to settings.
+// Bulk reply limit and Whitelist management live in settings; this surface shows the
+// stat strip, Cloud backup state, and a link out to settings.
 import type { BlockedStats } from "../lib/blocked-merge";
 import { blockedStore } from "../lib/blocked-store";
-import { CLOUD_BACKUP_KEY, SETTINGS_KEY, storageGet, storageSet } from "../lib/chrome-storage";
 import {
   XB_DARK_TOKENS,
   XB_FONT_STACK,
@@ -13,37 +12,13 @@ import {
 } from "../lib/design-tokens";
 import { createIcon } from "../lib/icons";
 import { createLiveNumber, type LiveNumber, type LiveNumberClock } from "../lib/live-number";
-import { clampMaxReplies, DEFAULT_MAX_REPLIES } from "../lib/settings";
-import { getSyncMeta, runCloudSync, shouldAutoSync, type SyncMeta } from "../lib/sync-engine";
+import {
+  cloudBackup as defaultCloudBackup,
+  type CloudBackup,
+  type CloudBackupSnapshot,
+  type SyncMeta,
+} from "../lib/cloud-backup";
 import { getWhitelist } from "../lib/whitelist-store";
-
-type PopupSettings = {
-  confirmDestructiveActions: boolean;
-  keyboardMode: boolean;
-  maxReplies: number;
-  protectWhitelist: boolean;
-};
-
-// keyboardMode and maxReplies have no row in this popup (keyboardMode is reserved for
-// future j/k navigation; maxReplies moved to the settings page) but both stay in the
-// schema so the stored settings blob shape is unchanged for other readers.
-const DEFAULT_SETTINGS: PopupSettings = {
-  confirmDestructiveActions: true,
-  keyboardMode: false,
-  maxReplies: DEFAULT_MAX_REPLIES,
-  protectWhitelist: true,
-};
-
-async function getStoredSettings(): Promise<PopupSettings> {
-  const stored = await storageGet<Partial<PopupSettings>>(SETTINGS_KEY);
-  const settings: PopupSettings = { ...DEFAULT_SETTINGS, ...stored };
-  settings.maxReplies = clampMaxReplies(settings.maxReplies);
-  return settings;
-}
-
-function saveSettings(settings: PopupSettings): void {
-  void storageSet({ [SETTINGS_KEY]: settings });
-}
 
 /** Guarded so the test chrome mock (which has no openOptionsPage) never throws. */
 function openSettings(): void {
@@ -178,88 +153,6 @@ function ensurePopupStyles(): void {
 			letter-spacing: 0.06em;
 			text-transform: uppercase;
 			color: var(--xb-ink-muted);
-		}
-
-		.xb-toggles {
-			padding: 2px 0;
-		}
-
-		.xb-toggle-row {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 12px;
-			min-height: 44px;
-			padding: 8px 0;
-			cursor: pointer;
-		}
-
-		.xb-toggle-row + .xb-toggle-row {
-			border-top: 1px solid var(--xb-border);
-		}
-
-		.xb-toggle-copy {
-			display: grid;
-			gap: 2px;
-			min-width: 0;
-		}
-
-		.xb-toggle-title {
-			font-size: 13px;
-			font-weight: 600;
-			color: var(--xb-ink);
-		}
-
-		.xb-toggle-caption {
-			font-size: 11px;
-			font-weight: 500;
-			line-height: 1.3;
-			color: var(--xb-ink-muted);
-		}
-
-		.xb-switch {
-			appearance: none;
-			position: relative;
-			flex: 0 0 auto;
-			box-sizing: border-box;
-			width: 42px;
-			height: 24px;
-			margin: 0;
-			border-radius: 999px;
-			border: 1px solid var(--xb-border);
-			background: var(--xb-track);
-			cursor: pointer;
-			transition: background-color 160ms var(--xb-ease-out), border-color 160ms var(--xb-ease-out);
-		}
-
-		.xb-switch::before {
-			content: "";
-			position: absolute;
-			top: 3px;
-			left: 3px;
-			width: 16px;
-			height: 16px;
-			border-radius: 50%;
-			background: oklch(1 0 0);
-			transition: transform 160ms var(--xb-ease-out);
-		}
-
-		.xb-switch:checked {
-			border-color: var(--xb-primary);
-			background: var(--xb-primary);
-		}
-
-		.xb-switch:checked::before {
-			transform: translateX(18px);
-		}
-
-		.xb-switch:active {
-			transform: scale(0.96);
-		}
-
-		.xb-switch:focus-visible {
-			outline: 2px solid var(--xb-primary);
-			outline-offset: 2px;
 		}
 
 		.xb-sync-row {
@@ -559,69 +452,6 @@ function buildStatStrip(clock: Partial<LiveNumberClock> | undefined): {
   };
 }
 
-function buildToggleRow(
-  label: string,
-  caption: string,
-  checked: boolean,
-  onChange: (checked: boolean) => void,
-): HTMLElement {
-  const row = document.createElement("label");
-  row.className = "xb-toggle-row";
-
-  const copy = document.createElement("span");
-  copy.className = "xb-toggle-copy";
-
-  const title = document.createElement("span");
-  title.className = "xb-toggle-title";
-  title.textContent = label;
-
-  const captionNode = document.createElement("span");
-  captionNode.className = "xb-toggle-caption";
-  captionNode.textContent = caption;
-
-  copy.append(title, captionNode);
-
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.className = "xb-switch";
-  input.checked = checked;
-  input.addEventListener("change", () => onChange(input.checked));
-
-  row.append(copy, input);
-  return row;
-}
-
-function buildToggles(settings: PopupSettings): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "xb-region xb-toggles";
-
-  wrap.appendChild(
-    buildToggleRow(
-      "Protect whitelist",
-      "Whitelisted handles are skipped during bulk actions.",
-      settings.protectWhitelist,
-      (checked) => {
-        settings.protectWhitelist = checked;
-        saveSettings(settings);
-      },
-    ),
-  );
-
-  wrap.appendChild(
-    buildToggleRow(
-      "Confirm destructive actions",
-      "Ask before block or mute runs.",
-      settings.confirmDestructiveActions,
-      (checked) => {
-        settings.confirmDestructiveActions = checked;
-        saveSettings(settings);
-      },
-    ),
-  );
-
-  return wrap;
-}
-
 export type SyncRowState = "error" | "idle" | "off" | "syncing" | "unconfigured";
 
 /** Human "how long ago" for the sync row's idle detail line; coarse on purpose. */
@@ -776,17 +606,14 @@ export type RenderPopupOptions = {
    * never pass this, so the popup always animates on the real clock.
    */
   clock?: Partial<LiveNumberClock>;
+  cloudBackup?: CloudBackup;
 };
 
 export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = {}): Promise<void> {
   ensurePopupStyles();
+  const cloudBackup = opts.cloudBackup ?? defaultCloudBackup;
 
-  const [settings, whitelist, cloudBackupEnabled, stats] = await Promise.all([
-    getStoredSettings(),
-    getWhitelist(),
-    storageGet<boolean>(CLOUD_BACKUP_KEY).then((value) => value === true),
-    blockedStore.stats(),
-  ]);
+  const [whitelist, stats] = await Promise.all([getWhitelist(), blockedStore.stats()]);
 
   const popup = document.createElement("main");
   popup.className = "xb-popup";
@@ -794,12 +621,11 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
 
   const header = buildHeader();
   const statStrip = buildStatStrip(opts.clock);
-  const toggles = buildToggles(settings);
   const syncTrigger: { run?: () => void } = {};
   const syncRow = buildSyncRow(syncTrigger);
   const footer = buildFooter();
 
-  popup.append(header, statStrip.element, toggles, syncRow.element, footer);
+  popup.append(header, statStrip.element, syncRow.element, footer);
   root.replaceChildren(popup);
 
   // The first set() on a fresh createLiveNumber renders instantly with no debounce or
@@ -814,11 +640,25 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
     statStrip.mutedLive.set(next.muted);
   });
 
-  // Best guess before the lazy configured-check below resolves: "off" needs no Convex
-  // knowledge at all, and "idle" is the common case for an already-configured, already
-  // enabled build. Never import convex-sync eagerly — see loadConvexAdapter in
-  // sync-engine.ts for why.
-  syncRow.setState(cloudBackupEnabled ? "idle" : "off", "Never synced.");
+  // Render the quiet off state while the asynchronous Cloud backup projection resolves.
+  // The shell remains immediate; configured/enabled state replaces this placeholder.
+  syncRow.setState("off", "Never synced.");
+
+  const setSnapshotState = (snapshot: CloudBackupSnapshot): void => {
+    if (snapshot.availability === "unconfigured") {
+      syncRow.setState("unconfigured", "");
+    } else if (!snapshot.enabled) {
+      syncRow.setState("off", "");
+    } else {
+      syncRow.setState(
+        "idle",
+        formatLastSync(
+          snapshot.lastSyncedAt === null ? {} : { lastSyncAt: snapshot.lastSyncedAt },
+          Date.now(),
+        ),
+      );
+    }
+  };
 
   let syncInFlight = false;
   const runGuardedSync = async (): Promise<void> => {
@@ -826,12 +666,8 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
     syncInFlight = true;
     syncRow.setState("syncing", "");
     try {
-      const outcome = await runCloudSync();
-      if (outcome.status === "synced") {
-        syncRow.setState("idle", formatLastSync({ lastSyncAt: outcome.at }, Date.now()));
-      } else {
-        syncRow.setState("unconfigured", "");
-      }
+      const result = await cloudBackup.act({ kind: "sync", trigger: "manual" });
+      setSnapshotState(result.snapshot);
     } catch {
       syncRow.setState("error", "");
     } finally {
@@ -843,25 +679,18 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
   };
 
   void (async () => {
-    const { isCloudConfigured } = await import("../lib/convex-sync");
-    if (!isCloudConfigured()) {
-      syncRow.setState("unconfigured", "");
+    const snapshot = await cloudBackup.inspect();
+    if (snapshot.availability === "unconfigured" || !snapshot.enabled) {
+      setSnapshotState(snapshot);
       return;
     }
-    if (!cloudBackupEnabled) {
-      syncRow.setState("off", "");
-      return;
+    const result = await cloudBackup.act({ kind: "sync", trigger: "automatic" });
+    if (!syncInFlight) {
+      // A manual "Sync now" click may have started during the awaits above and now
+      // owns the row; never clobber its state with this automatic result.
+      setSnapshotState(result.snapshot);
     }
-    const [pending, meta] = await Promise.all([blockedStore.pending(), getSyncMeta()]);
-    if (shouldAutoSync(true, pending.length, meta, Date.now())) {
-      await runGuardedSync();
-    } else if (!syncInFlight) {
-      // Re-read after the awaits above: a manual "Sync now" click may have started
-      // and is now owning the row (syncing/error/idle-from-its-own-result) — never
-      // clobber it back to idle out from under a concurrently-running sync.
-      syncRow.setState("idle", formatLastSync(meta, Date.now()));
-    }
-  })();
+  })().catch(() => syncRow.setState("error", ""));
 }
 
 export function mountPopupIfPresent(): void {

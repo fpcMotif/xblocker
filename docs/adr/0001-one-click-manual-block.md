@@ -75,7 +75,8 @@ site-wide.
   into the ••• → Block / Mute menu items.
 - A is the **Cursor Console**: per-reply Block / Mute / Whitelist buttons reusing the
   existing direct-API path; one click, no confirmation. Kept as the robust opt-in.
-- The popup's unused `confirmDestructiveActions` toggle is intentionally left untouched.
+- Settings expose no generic confirmation toggle. Block and mute stay one-click;
+  higher-risk operations define their own fixed gates.
 
 ### Revision (2026-06-15) — default flipped A → B
 

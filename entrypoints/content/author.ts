@@ -2,7 +2,7 @@
 // out of actions.ts — moved verbatim, kept as one module because both concerns read the
 // same reply <article> markup: extraction resolves who a reply is from, the boundary
 // decides which articles are genuine replies at all.
-import { normalizeUsername } from "../lib/settings";
+import { normalizeUsername } from "../lib/x-username";
 
 // One reply <article> holds several handle-shaped links, so the old "first
 // /handle link wins" scan mis-attributes the author: a "<x> reposted"

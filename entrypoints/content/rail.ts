@@ -2,7 +2,7 @@ import {
   batchState,
   blockReplies,
   countConversationReplies,
-  getMaxReplies,
+  getBulkReplyLimit,
   isReplyArticle,
   muteReplies,
   type BatchProgress,
@@ -435,7 +435,7 @@ export class ReplyRail {
   }
 
   private async updateReplyCounts(): Promise<void> {
-    const maxReplies = await getMaxReplies();
+    const maxReplies = await getBulkReplyLimit();
     const count = Math.min(countConversationReplies(), maxReplies);
     this.blockButton.setCount(count);
     this.muteButton.setCount(count);

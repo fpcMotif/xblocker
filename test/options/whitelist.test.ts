@@ -183,19 +183,7 @@ describe("Whitelist pane", () => {
     expect(document.body.textContent).toContain('No handles match "zzz".');
   });
 
-  test("OWL-13 removes immediately when 'Confirm destructive actions' is off", async () => {
-    storageFake.data["settings"] = { confirmDestructiveActions: false };
-    storageFake.data["whitelist"] = ["alice"];
-    await renderWhitelistPane(document.body);
-
-    removeButton(0).dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await settleMicrotasks();
-
-    expect(rows()).toHaveLength(0);
-    expect(storageFake.data["whitelist"]).toEqual([]);
-  });
-
-  describe("with 'Confirm destructive actions' on", () => {
+  describe("removal confirmation", () => {
     let timers: ManualTimers;
 
     beforeEach(() => {
@@ -207,7 +195,6 @@ describe("Whitelist pane", () => {
     });
 
     test("OWL-14 first click arms a 'Confirm?' state that auto-resets after the window", async () => {
-      storageFake.data["settings"] = { confirmDestructiveActions: true };
       storageFake.data["whitelist"] = ["alice"];
       await renderWhitelistPane(document.body);
 
@@ -223,7 +210,6 @@ describe("Whitelist pane", () => {
     });
 
     test("OWL-15 a second click within the window commits the removal", async () => {
-      storageFake.data["settings"] = { confirmDestructiveActions: true };
       storageFake.data["whitelist"] = ["alice"];
       await renderWhitelistPane(document.body);
 

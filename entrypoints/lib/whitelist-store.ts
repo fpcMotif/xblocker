@@ -10,7 +10,7 @@
 // ambiguity, so saveWhitelist reuses storageSet and the shared WHITELIST_KEY constant.
 
 import { storageSet, WHITELIST_KEY } from "./chrome-storage";
-import { normalizeUsername } from "./settings";
+import { normalizeUsername } from "./x-username";
 
 export type WhitelistAddResult = "added" | "error" | "exists" | "invalid";
 

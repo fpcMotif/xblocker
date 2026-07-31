@@ -11,7 +11,7 @@
 // Contract pinned here:
 // - root: HTMLDivElement with data-xb-surface="reply-rail", role="group"
 // - incrementBlocked(by?: number), setProgress(BatchProgress | null),
-//   refreshReplyCounts() reading reply articles capped by settings.maxReplies
+//   refreshReplyCounts() reading reply articles capped by the Bulk reply limit
 // - bulk buttons are labeled (aria-label "Block all replies" / "Mute all replies")
 //   and carry an `.xb-count` chip hidden at zero
 // - footer `.xb-session` indicator + collapsed `.xb-puck-count` badge show the
@@ -174,7 +174,7 @@ describe("bulk button reply counts", () => {
   });
 
   test("RA-02 shows the loaded reply count on the block and mute buttons", async () => {
-    storageFake.data["settings"] = { maxReplies: 100 };
+    storageFake.data["bulkReplyLimit"] = 100;
     populateTweetPage([
       "reply_user_1",
       "reply_user_2",
@@ -192,8 +192,8 @@ describe("bulk button reply counts", () => {
     expect(getCountBadge("Mute all replies").textContent).toBe("5");
   });
 
-  test("RA-03 caps the displayed counts at the stored maxReplies", async () => {
-    storageFake.data["settings"] = { maxReplies: 3 };
+  test("RA-03 caps displayed counts at the stored Bulk reply limit", async () => {
+    storageFake.data["bulkReplyLimit"] = 3;
     populateTweetPage([
       "reply_user_1",
       "reply_user_2",
@@ -211,7 +211,7 @@ describe("bulk button reply counts", () => {
   });
 
   test("RA-17 excludes Discover more recommendations from the badge count", async () => {
-    storageFake.data["settings"] = { maxReplies: 100 };
+    storageFake.data["bulkReplyLimit"] = 100;
     populateTweetPage(["reply_user_1", "reply_user_2"]);
     // A recommended post after the "Discover more" heading is not a reply, so it
     // must not inflate the badge the way a raw article count would.

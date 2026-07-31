@@ -143,6 +143,6 @@ The toolbar surfaces follow the "Gauge & Ledger" direction (spec:
   tables); exactly two table row heights — whitelist 40px, blocked log 36px
   (virtualized, fixed-height windowing); tone colors on dots only, data labels
   stay ink.
-- **Danger gradient**: routine destructive actions get inline "Confirm?"
-  label-swaps (when the confirm setting is on); the cloud wipe alone gets a
-  typed-WIPE gate (trimmed, case-insensitive compare), unconditional.
+- **Danger gradient**: block and mute stay one-click. Whitelist removal always
+  gets an inline second-click "Confirm?" gate. Cloud wipe gets the stronger
+  typed-WIPE gate (trimmed, case-insensitive compare).

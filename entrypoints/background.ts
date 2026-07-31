@@ -8,18 +8,22 @@
 import { defineBackground } from "wxt/utils/define-background";
 
 import { OUTBOX_STORAGE_KEY } from "./lib/blocked-store";
+import { installBlockedStoreMessageHandler } from "./lib/blocked-store-bridge";
+import { bulkReplyLimit } from "./lib/bulk-reply-limit";
 import {
   createBackgroundSyncScheduler,
-  readCloudBackupEnabled,
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
 } from "./lib/background-sync";
-import { runAutoCloudSync } from "./lib/sync-engine";
+import { cloudBackup } from "./lib/cloud-backup";
 
 export function startBackgroundSync(): void {
+  installBlockedStoreMessageHandler();
+  void bulkReplyLimit.migrate().catch((error: unknown) => {
+    console.warn("XBlocker Bulk reply limit migration failed:", error);
+  });
   const scheduler = createBackgroundSyncScheduler({
-    isEnabled: readCloudBackupEnabled,
-    sync: () => runAutoCloudSync(true),
+    sync: () => cloudBackup.act({ kind: "sync", trigger: "automatic" }),
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {

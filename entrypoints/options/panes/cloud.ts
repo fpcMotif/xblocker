@@ -1,20 +1,11 @@
-// Cloud backup pane. convex-sync.ts is never statically imported (an unconfigured build
-// should not pay for the Convex bundle at all) — both the "is this build configured"
-// check and the wipe action reach it through a lazy import(), same discipline
-// lib/sync-engine.ts already uses for push/pull.
-
-import { blockedStore } from "../../lib/blocked-store";
-import { CLOUD_BACKUP_KEY, storageGet, storageSet } from "../../lib/chrome-storage";
-import { getSyncMeta, runCloudSync, SYNC_META_KEY, type SyncMeta } from "../../lib/sync-engine";
+import {
+  cloudBackup as defaultCloudBackup,
+  type CloudBackup,
+  type CloudBackupSnapshot,
+  type SyncMeta,
+} from "../../lib/cloud-backup";
 
 export const WIPE_CONFIRM_WORD = "WIPE";
-
-async function loadConvexSync(): Promise<{
-  isCloudConfigured: () => boolean;
-  clearCloud: () => Promise<void>;
-}> {
-  return import("../../lib/convex-sync");
-}
 
 /** "Never synced." / "Synced just now." / "Synced 4m ago." — coarse, matching the popup's
  *  own phrasing but kept as a local, independent implementation (this pane must not
@@ -56,22 +47,18 @@ function renderUnconfigured(container: HTMLElement): void {
 
 export async function renderCloudPane(
   container: HTMLElement,
-  opts: { now?: () => number } = {},
+  opts: { now?: () => number; cloudBackup?: CloudBackup } = {},
 ): Promise<PaneHandle> {
   const now = opts.now ?? Date.now;
-  const { isCloudConfigured, clearCloud } = await loadConvexSync();
+  const cloudBackup = opts.cloudBackup ?? defaultCloudBackup;
+  const snapshot = await cloudBackup.inspect();
 
-  if (!isCloudConfigured()) {
+  if (snapshot.availability === "unconfigured") {
     renderUnconfigured(container);
     return { destroy() {} };
   }
 
-  const [enabledStored, meta, pending] = await Promise.all([
-    storageGet<boolean>(CLOUD_BACKUP_KEY),
-    getSyncMeta(),
-    blockedStore.pending(),
-  ]);
-  let enabled = enabledStored === true;
+  let enabled = snapshot.enabled;
 
   const wrapper = document.createElement("div");
   wrapper.className = "xb-opt-pane-form";
@@ -144,8 +131,21 @@ export async function renderCloudPane(
 
   statusCard.append(toggleRow, statusRow, lastSyncedRow, pendingRow, syncRow);
 
-  let currentMeta: SyncMeta = meta;
-  let currentPendingCount = pending.length;
+  let currentMeta: SyncMeta =
+    snapshot.lastSyncedAt === null ? {} : { lastSyncAt: snapshot.lastSyncedAt };
+  let currentPendingCount = snapshot.pendingActions;
+
+  function applySnapshot(next: CloudBackupSnapshot): void {
+    if (next.availability === "unconfigured") {
+      renderUnconfigured(container);
+      return;
+    }
+    enabled = next.enabled;
+    currentMeta = next.lastSyncedAt === null ? {} : { lastSyncAt: next.lastSyncedAt };
+    currentPendingCount = next.pendingActions;
+    toggleInput.checked = enabled;
+    refreshMetaRows();
+  }
 
   function refreshMetaRows(): void {
     statusValue.textContent = enabled ? "On" : "Off";
@@ -156,19 +156,23 @@ export async function renderCloudPane(
 
   toggleInput.addEventListener("change", () => {
     enabled = toggleInput.checked;
-    void storageSet({ [CLOUD_BACKUP_KEY]: enabled });
     refreshMetaRows();
+    void cloudBackup
+      .act({ kind: "set-enabled", enabled })
+      .then((result) => applySnapshot(result.snapshot))
+      .catch(() => {
+        enabled = !enabled;
+        toggleInput.checked = enabled;
+        statusValue.textContent = "Update failed";
+      });
   });
 
   syncButton.addEventListener("click", async () => {
     syncButton.disabled = true;
     syncButton.textContent = "Syncing…";
     try {
-      const outcome = await runCloudSync();
-      if (outcome.status === "synced") {
-        currentMeta = { lastSyncAt: outcome.at };
-        currentPendingCount = (await blockedStore.pending()).length;
-      }
+      const result = await cloudBackup.act({ kind: "sync", trigger: "manual" });
+      applySnapshot(result.snapshot);
       // Only the success/unconfigured path refreshes from currentMeta/currentPendingCount
       // here — refreshMetaRows() would otherwise immediately overwrite the "Sync failed"
       // text the catch below sets, making a real failure invisible to the user.
@@ -257,25 +261,22 @@ export async function renderCloudPane(
     confirmButton.disabled = true;
     cancelButton.disabled = true;
     try {
-      const { clearCloud: clear } = { clearCloud };
-      await clear();
-      // The cloud rows are gone, so the queued outbox actions that produced them must
-      // never re-push (that would silently repopulate the cloud the user just wiped) —
-      // drain the outbox by marking every pending item synced.
-      const drained = await blockedStore.pending();
-      if (drained.length > 0) {
-        await blockedStore.markSynced(drained.map((item) => item.action.actionId));
+      const result = await cloudBackup.act({ kind: "wipe" });
+      if (result.outcome !== "wiped") {
+        applySnapshot(result.snapshot);
+        return;
       }
-      // A wiped cloud with backup left on would just refill on the next auto-sync, so
-      // the wipe also turns cloud backup off.
-      await storageSet({ [SYNC_META_KEY]: {}, [CLOUD_BACKUP_KEY]: false });
-      enabled = false;
-      toggleInput.checked = false;
-      currentMeta = {};
-      currentPendingCount = (await blockedStore.pending()).length;
-      refreshMetaRows();
+      applySnapshot(result.snapshot);
       closeWipePanel();
     } catch (error) {
+      let currentSnapshot: CloudBackupSnapshot | undefined;
+      try {
+        currentSnapshot = await cloudBackup.inspect();
+      } catch {
+        // Keep the original operation error when even the recovery projection is unavailable.
+      }
+      if (currentSnapshot) applySnapshot(currentSnapshot);
+      if (currentSnapshot?.availability === "unconfigured") return;
       wipeResult.hidden = false;
       wipeResult.dataset.tone = "danger";
       wipeResult.textContent = `Wipe failed: ${error instanceof Error ? error.message : String(error)}`;

@@ -8,7 +8,8 @@ A modern Chrome extension for efficiently managing content on X.com (formerly Tw
 - 🔇 **Intelligent Muting**: Mute unwanted comments efficiently
 - ✅ **Whitelist Management**: Protect trusted users from being blocked/muted
 - 🎛️ **Reply Action Bar**: Clear in-page actions without burying core controls in a menu
-- ⚙️ **Popup Settings**: Manage whitelist and behavior preferences from the Chrome popup
+- ⚙️ **Settings Page**: Set the bulk reply limit and manage whitelist,
+  logs, and cloud backup
 - 📊 **Progress Tracking**: Real-time progress bars during operations
 - 🔔 **Toast Notifications**: Elegant feedback system
 - ⚡ **Fast Performance**: Optimized for large comment threads
@@ -106,7 +107,9 @@ The test environment includes mocks for:
    - **Block replies**: Block reply authors directly through X's session-authenticated API
    - **Mute replies**: Mute reply authors directly through X's session-authenticated API
    - **Whitelist**: Add trusted users to the protection list
-4. Open the Chrome extension popup to manage whitelist entries and behavior settings, including "Max replies per run" (how many replies Block/Mute process at once, default 50)
+4. Open the extension popup, then choose **Open settings**. Use **Bulk actions**
+   to set the **Bulk reply limit** (reply attempts per block or mute run,
+   default 50).
 
 ### One-click manual block (Cursor Console)
 
@@ -120,7 +123,8 @@ The strategy is selectable at build time via the `VITE_QUICK_BLOCK_MODE` environ
 
 ### Whitelist Management
 
-- Use the extension popup to add or remove usernames
+- Use the Whitelist settings pane to add or remove usernames
+- Removing a username always requires a second confirmation click
 - Use the in-page "Whitelist" action for quick additions while browsing
 - Users on whitelist are protected from blocking/muting
 - Whitelist data persists across browser sessions
@@ -130,7 +134,9 @@ The strategy is selectable at build time via the `VITE_QUICK_BLOCK_MODE` environ
 ### Core Components
 
 - `entrypoints/content/` - WXT TypeScript content script modules (actions, dock, console, modal, theme)
-- `entrypoints/popup/` - Chrome extension popup for settings and whitelist management
+- `entrypoints/popup/` - Lean Chrome extension status and cloud-sync popup
+- `entrypoints/options/` - Full settings page for bulk actions, whitelist, logs,
+  cloud backup, and about
 - `wxt.config.ts` - Manifest V3 metadata, permissions, and host permissions
 - `bts.jsonc` - Better-T-Stack stack record for the WXT vanilla TypeScript addon
 - `.oxlintrc.json` / `.oxfmtrc.json` - OXC lint and format configuration
@@ -139,7 +145,8 @@ The strategy is selectable at build time via the `VITE_QUICK_BLOCK_MODE` environ
 ### Key Functions
 
 - `addButtons()` - Creates the in-page Reply Action Bar
-- `blockCommentTweets()` / `muteCommentTweets()` - Direct block/mute workflows for replies, capped by the "Max replies per run" setting
+- `blockCommentTweets()` / `muteCommentTweets()` - Direct block/mute workflows
+  capped by the Bulk reply limit
 - `addToWhitelist()` - Manages whitelist operations
 - `showToast()` - Displays user notifications
 - `showWhitelistModal()` - Handles whitelist input modal
@@ -149,7 +156,7 @@ The strategy is selectable at build time via the `VITE_QUICK_BLOCK_MODE` environ
 Uses Chrome's `chrome.storage.local` API to persist:
 
 - User whitelist data
-- Extension preferences
+- Bulk reply limit (`bulkReplyLimit`; legacy `settings.maxReplies` is migrated once)
 
 ## Browser Compatibility
 

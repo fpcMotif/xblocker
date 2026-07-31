@@ -1,10 +1,6 @@
 // Catalog: OS-* (options page shell: rail, hash routing, version footer, mount guard).
-// The "cloud" route is deliberately NOT exercised here — rendering it triggers cloud.ts's
-// lazy `import("../../lib/convex-sync")`, and this file must never cause the REAL
-// (unmocked) convex-sync module to load, since which test file first does so determines
-// what `VITE_CONVEX_URL` (present in .env for this repo) gets frozen to. cloud.test.ts
-// mocks convex-sync and is the one place that exercises that route, including through
-// this same shell.
+// Cloud backup behavior is exercised through an injected CloudBackup value in cloud.test.ts;
+// these shell tests stay focused on routing and pane lifecycle.
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { mountOptionsIfPresent, renderOptions } from "../../entrypoints/options/main.ts";
@@ -38,7 +34,7 @@ describe("options shell", () => {
     resetTestEnvironment();
   });
 
-  test("OS-01 renders the rail (brand + 5 nav items) with General active by default", async () => {
+  test("OS-01 renders the rail with Bulk actions active by default", async () => {
     await renderOptions(document.body);
 
     expect(document.querySelector(".xb-opt-brand-name")?.textContent).toBe("XBlocker");
@@ -46,9 +42,9 @@ describe("options shell", () => {
       Array.from(document.querySelectorAll<HTMLElement>(".xb-opt-nav-item")).map(
         (el) => el.dataset["route"],
       ),
-    ).toEqual(["general", "whitelist", "blocked-log", "cloud", "about"]);
-    expect(activeRoute()).toBe("general");
-    expect(contentPane().querySelector("h1")?.textContent).toBe("General");
+    ).toEqual(["bulk-actions", "whitelist", "blocked-log", "cloud", "about"]);
+    expect(activeRoute()).toBe("bulk-actions");
+    expect(contentPane().querySelector("h1")?.textContent).toBe("Bulk actions");
   });
 
   test("OS-02 injects the stylesheet exactly once across renders", async () => {
@@ -82,10 +78,10 @@ describe("options shell", () => {
     expect(activeRoute()).toBe("about");
     expect(contentPane().querySelector("h1")?.textContent).toBe("About");
 
-    clickNav("general");
+    clickNav("bulk-actions");
     await settleMicrotasks();
-    expect(activeRoute()).toBe("general");
-    expect(contentPane().querySelector("h1")?.textContent).toBe("General");
+    expect(activeRoute()).toBe("bulk-actions");
+    expect(contentPane().querySelector("h1")?.textContent).toBe("Bulk actions");
   });
 
   test("OS-05 an initial #whitelist hash deep-links straight to that pane", async () => {
@@ -95,45 +91,26 @@ describe("options shell", () => {
     expect(contentPane().querySelector("h1")?.textContent).toBe("Whitelist");
   });
 
-  test("OS-06 an unrecognized hash falls back to General", async () => {
+  test("OS-06 an unrecognized hash falls back to Bulk actions", async () => {
     window.location.hash = "#not-a-real-route";
     await renderOptions(document.body);
-    expect(activeRoute()).toBe("general");
-    expect(contentPane().querySelector("h1")?.textContent).toBe("General");
+    expect(activeRoute()).toBe("bulk-actions");
+    expect(contentPane().querySelector("h1")?.textContent).toBe("Bulk actions");
   });
 
   test("OS-07 clicking the already-active nav item is a no-op", async () => {
     await renderOptions(document.body);
-    expect(() => clickNav("general")).not.toThrow();
+    expect(() => clickNav("bulk-actions")).not.toThrow();
     await settleMicrotasks();
-    expect(activeRoute()).toBe("general");
+    expect(activeRoute()).toBe("bulk-actions");
     expect(document.querySelectorAll(".xb-opt-content h1")).toHaveLength(1);
   });
 
-  test("OS-08 navigating away unsubscribes the outgoing pane's storage watcher", async () => {
-    type ChangeListener = (changes: Record<string, unknown>, area: string) => void;
-    const listeners: ChangeListener[] = [];
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- install a runtime onChanged fake the static chrome typings don't model.
-    const chromeStorage = chrome.storage as unknown as Record<string, unknown>;
-    const originalOnChanged = chromeStorage["onChanged"];
-    chromeStorage["onChanged"] = {
-      addListener: (fn: ChangeListener) => listeners.push(fn),
-      removeListener: (fn: ChangeListener) => {
-        const index = listeners.indexOf(fn);
-        if (index !== -1) listeners.splice(index, 1);
-      },
-    };
-    try {
-      await renderOptions(document.body);
-      // General's pane subscribes exactly one settings-change listener on mount.
-      expect(listeners).toHaveLength(1);
-
-      clickNav("whitelist");
-      await settleMicrotasks();
-      expect(listeners).toHaveLength(0);
-    } finally {
-      chromeStorage["onChanged"] = originalOnChanged;
-    }
+  test("OS-08 legacy #general links map to Bulk actions", async () => {
+    window.location.hash = "#general";
+    await renderOptions(document.body);
+    expect(activeRoute()).toBe("bulk-actions");
+    expect(contentPane().querySelector("h1")?.textContent).toBe("Bulk actions");
   });
 
   test("OS-09 the pinned version reads chrome.runtime.getManifest when present, and is blank otherwise", async () => {
@@ -246,36 +223,15 @@ describe("options shell", () => {
     expect(contentPane().querySelector("h1")?.textContent).toBe("Blocked log");
   });
 
-  test("OS-16 a rapid double-navigate away from a pane ends on the final route with the earlier pane's listeners torn down", async () => {
-    type ChangeListener = (changes: Record<string, unknown>, area: string) => void;
-    const listeners: ChangeListener[] = [];
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- install a runtime onChanged fake the static chrome typings don't model.
-    const chromeStorage = chrome.storage as unknown as Record<string, unknown>;
-    const originalOnChanged = chromeStorage["onChanged"];
-    chromeStorage["onChanged"] = {
-      addListener: (fn: ChangeListener) => listeners.push(fn),
-      removeListener: (fn: ChangeListener) => {
-        const index = listeners.indexOf(fn);
-        if (index !== -1) listeners.splice(index, 1);
-      },
-    };
-    try {
-      await renderOptions(document.body);
-      // General's pane subscribes exactly one settings-change listener on mount.
-      expect(listeners).toHaveLength(1);
+  test("OS-16 a rapid double-navigation ends on the final route", async () => {
+    await renderOptions(document.body);
+    clickNav("whitelist");
+    clickNav("blocked-log");
+    await settleMicrotasks();
 
-      clickNav("whitelist");
-      clickNav("blocked-log");
-      await settleMicrotasks();
-
-      expect(activeRoute()).toBe("blocked-log");
-      expect(contentPane().querySelector("h1")?.textContent).toBe("Blocked log");
-      expect(document.querySelectorAll(".xb-opt-content h1")).toHaveLength(1);
-      // The pane mounted before this double-navigate (General) is fully torn down.
-      expect(listeners).toHaveLength(0);
-    } finally {
-      chromeStorage["onChanged"] = originalOnChanged;
-    }
+    expect(activeRoute()).toBe("blocked-log");
+    expect(contentPane().querySelector("h1")?.textContent).toBe("Blocked log");
+    expect(document.querySelectorAll(".xb-opt-content h1")).toHaveLength(1);
   });
 });
 

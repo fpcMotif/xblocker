@@ -3,7 +3,7 @@
 // Handle + Remove only rather than fabricating a date the store never recorded.
 
 import { createIcon } from "../../lib/icons";
-import { normalizeUsername } from "../../lib/settings";
+import { normalizeUsername } from "../../lib/x-username";
 import {
   addManyToWhitelist,
   addToWhitelist,
@@ -11,9 +11,7 @@ import {
   removeFromWhitelist,
   type WhitelistAddResult,
 } from "../../lib/whitelist-store";
-import { storageGet, SETTINGS_KEY } from "../../lib/chrome-storage";
 import { downloadJson, type DownloadFn } from "../download";
-import { normalizeGeneralSettings } from "./general";
 
 export const WHITELIST_SEARCH_DEBOUNCE_MS = 120;
 export const WHITELIST_CONFIRM_WINDOW_MS = 3000;
@@ -67,11 +65,7 @@ export function exportWhitelist(list: string[], download?: DownloadFn): void {
 type PaneHandle = { destroy(): void };
 
 export async function renderWhitelistPane(container: HTMLElement): Promise<PaneHandle> {
-  const [whitelist, storedSettings] = await Promise.all([
-    getWhitelist(),
-    storageGet<unknown>(SETTINGS_KEY),
-  ]);
-  const confirmRequired = normalizeGeneralSettings(storedSettings).confirmDestructiveActions;
+  const whitelist = await getWhitelist();
   let entries = [...whitelist];
   let searchQuery = "";
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
@@ -175,7 +169,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     }
 
     button.addEventListener("click", () => {
-      if (!confirmRequired || button.dataset.confirming === "true") {
+      if (button.dataset.confirming === "true") {
         void commitRemove();
         return;
       }

@@ -1,6 +1,6 @@
 // Settings-page shell: two-pane layout (left rail + a routed content pane) per
 // docs/plans/2026-07-10-gauge-and-ledger/plan.md, "Settings page". Hash routing
-// (#general default, #whitelist, #blocked-log, #cloud, #about) is deliberately minimal —
+// (#bulk-actions default, #whitelist, #blocked-log, #cloud, #about) is deliberately minimal —
 // nav clicks call `navigate()` directly (so the render is deterministic and testable
 // without depending on a real browser's anchor-click-triggers-navigation behavior) and
 // also stamp `window.location.hash` so the route is shareable/bookmarkable in real use.
@@ -17,16 +17,17 @@
 // navigation is always the one that renders last.
 
 import { createIcon } from "../lib/icons";
+import type { CloudBackup } from "../lib/cloud-backup";
 import { renderAboutPane } from "./panes/about";
 import { renderBlockedLogPane } from "./panes/blocked-log";
 import { renderCloudPane } from "./panes/cloud";
-import { renderGeneralPane } from "./panes/general";
+import { renderBulkActionsPane } from "./panes/bulk-actions";
 import { renderWhitelistPane } from "./panes/whitelist";
 import { ensureOptionsStyles } from "./styles";
 
-export type OptionsRoute = "about" | "blocked-log" | "cloud" | "general" | "whitelist";
+export type OptionsRoute = "about" | "blocked-log" | "bulk-actions" | "cloud" | "whitelist";
 
-const DEFAULT_ROUTE: OptionsRoute = "general";
+const DEFAULT_ROUTE: OptionsRoute = "bulk-actions";
 
 type RouteDef = { id: OptionsRoute; label: string; icon: () => SVGSVGElement };
 
@@ -49,7 +50,7 @@ function createInfoIcon(size: number): SVGSVGElement {
 }
 
 const ROUTES: readonly RouteDef[] = [
-  { id: "general", label: "General", icon: () => createIcon("settings", 18) },
+  { id: "bulk-actions", label: "Bulk actions", icon: () => createIcon("settings", 18) },
   { id: "whitelist", label: "Whitelist", icon: () => createIcon("whitelist", 18) },
   { id: "blocked-log", label: "Blocked log", icon: () => createIcon("block", 18) },
   { id: "cloud", label: "Cloud backup", icon: () => createIcon("shield", 18) },
@@ -62,6 +63,7 @@ function isOptionsRoute(value: string): value is OptionsRoute {
 
 function routeFromHash(): OptionsRoute {
   const raw = (window.location.hash ?? "").replace(/^#/, "");
+  if (raw === "general") return "bulk-actions";
   return isOptionsRoute(raw) ? raw : DEFAULT_ROUTE;
 }
 
@@ -160,16 +162,20 @@ function renderPaneLoadError(container: HTMLElement, onRetry: () => void): void 
   container.replaceChildren(wrapper);
 }
 
-function mountPane(route: OptionsRoute, container: HTMLElement): Promise<PaneHandle> {
+function mountPane(
+  route: OptionsRoute,
+  container: HTMLElement,
+  cloudBackup?: CloudBackup,
+): Promise<PaneHandle> {
   switch (route) {
-    case "general":
-      return renderGeneralPane(container);
+    case "bulk-actions":
+      return renderBulkActionsPane(container);
     case "whitelist":
       return renderWhitelistPane(container);
     case "blocked-log":
       return renderBlockedLogPane(container);
     case "cloud":
-      return renderCloudPane(container);
+      return renderCloudPane(container, cloudBackup ? { cloudBackup } : {});
     case "about":
       return Promise.resolve(renderAboutPane(container));
     default:
@@ -177,7 +183,10 @@ function mountPane(route: OptionsRoute, container: HTMLElement): Promise<PaneHan
   }
 }
 
-export async function renderOptions(root: HTMLElement): Promise<void> {
+export async function renderOptions(
+  root: HTMLElement,
+  opts: { cloudBackup?: CloudBackup } = {},
+): Promise<void> {
   ensureOptionsStyles();
 
   const shell = document.createElement("div");
@@ -207,7 +216,7 @@ export async function renderOptions(root: HTMLElement): Promise<void> {
     const staging = document.createElement("div");
     let handle: PaneHandle;
     try {
-      handle = await mountPane(route, staging);
+      handle = await mountPane(route, staging, opts.cloudBackup);
     } catch {
       if (token !== navToken) return; // superseded — the winning navigation owns the error, not us
       // The route never finished loading, so nothing is currently mounted for it. Reset

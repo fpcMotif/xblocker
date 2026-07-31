@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   createBackgroundSyncScheduler,
-  readCloudBackupEnabled,
   OUTBOX_SYNC_DEBOUNCE_MS,
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
@@ -18,15 +17,11 @@ beforeEach(() => {
   resetTestEnvironment();
 });
 
-function makeDeps(enabled = true) {
+function makeDeps() {
   const log: string[] = [];
   return {
     log,
     deps: {
-      isEnabled: async () => {
-        log.push("isEnabled");
-        return enabled;
-      },
       sync: async () => {
         log.push("sync");
       },
@@ -50,14 +45,13 @@ describe("background sync scheduler", () => {
     scheduler.onOutboxChanged();
     await settleTimersAndMicrotasks();
 
-    expect(log).toEqual(["isEnabled", "sync"]);
+    expect(log).toEqual(["sync"]);
   });
 
   test("BG-02 the default debounce leaves room for a whole bulk run to queue up", () => {
     const timers = installManualTimers();
     try {
       const scheduler = createBackgroundSyncScheduler({
-        isEnabled: async () => true,
         sync: async () => {},
       });
       scheduler.onOutboxChanged();
@@ -78,22 +72,21 @@ describe("background sync scheduler", () => {
 
     scheduler.onAlarm(PERIODIC_SYNC_ALARM);
     await settleMicrotasks();
-    expect(log).toEqual(["isEnabled", "sync"]);
+    expect(log).toEqual(["sync"]);
   });
 
-  test("BG-04 does not sync while cloud backup is off", async () => {
-    const { log, deps } = makeDeps(false);
+  test("BG-04 delegates eligibility policy to the Cloud backup operation", async () => {
+    const { log, deps } = makeDeps();
     const scheduler = createBackgroundSyncScheduler(deps);
 
     scheduler.onOutboxChanged();
     await settleTimersAndMicrotasks();
 
-    expect(log).toEqual(["isEnabled"]);
+    expect(log).toEqual(["sync"]);
   });
 
   test("BG-05 a failing sync is swallowed (the outbox retries later)", async () => {
     const scheduler = createBackgroundSyncScheduler({
-      isEnabled: async () => true,
       sync: async () => {
         throw new Error("network down");
       },
@@ -119,14 +112,6 @@ describe("background sync scheduler", () => {
     expect(log).toEqual([]);
   });
 
-  test("BG-07 readCloudBackupEnabled reflects the stored opt-in flag", async () => {
-    expect(await readCloudBackupEnabled()).toBe(false);
-    storageFake.data["cloudBackup"] = true;
-    expect(await readCloudBackupEnabled()).toBe(true);
-    storageFake.failNextGet = true;
-    expect(await readCloudBackupEnabled()).toBe(false);
-  });
-
   test("BG-09 arming the debounce persists the due-at; a successful sync removes it", async () => {
     const { log, deps } = makeDeps();
     const scheduler = createBackgroundSyncScheduler({ ...deps, now: () => 1_000 });
@@ -135,7 +120,7 @@ describe("background sync scheduler", () => {
     expect(storageFake.data[SYNC_DUE_KEY]).toBe(1_000);
 
     await settleTimersAndMicrotasks();
-    expect(log).toEqual(["isEnabled", "sync"]);
+    expect(log).toEqual(["sync"]);
     // Removed outright: a set-to-undefined would leave the stale deadline in real
     // chrome (set drops undefined values) and every later wake would re-sync.
     expect(SYNC_DUE_KEY in storageFake.data).toBe(false);
@@ -144,7 +129,6 @@ describe("background sync scheduler", () => {
   test("BG-10 a failed sync leaves the due-at armed; a later wake retries it", async () => {
     let attempts = 0;
     const scheduler = createBackgroundSyncScheduler({
-      isEnabled: async () => true,
       sync: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error("network down");
@@ -171,7 +155,7 @@ describe("background sync scheduler", () => {
     createBackgroundSyncScheduler({ ...deps, now: () => 9_000 });
 
     await settleTimersAndMicrotasks();
-    expect(log).toEqual(["isEnabled", "sync"]);
+    expect(log).toEqual(["sync"]);
     expect(SYNC_DUE_KEY in storageFake.data).toBe(false);
   });
 
@@ -188,7 +172,7 @@ describe("background sync scheduler", () => {
 
       timers.flush();
       await settleMicrotasks();
-      expect(log).toEqual(["isEnabled", "sync"]);
+      expect(log).toEqual(["sync"]);
       expect(SYNC_DUE_KEY in storageFake.data).toBe(false);
     } finally {
       timers.uninstall();
@@ -203,7 +187,6 @@ describe("background sync scheduler", () => {
       let clock = 100;
       let syncs = 0;
       const scheduler = createBackgroundSyncScheduler({
-        isEnabled: async () => true,
         sync: async () => {
           syncs += 1;
           if (syncs === 1) {
@@ -249,7 +232,7 @@ describe("background sync scheduler", () => {
     scheduler.onAlarm(PERIODIC_SYNC_ALARM);
     await settleTimersAndMicrotasks();
 
-    expect(log).toEqual(["isEnabled", "sync"]);
+    expect(log).toEqual(["sync"]);
     expect(SYNC_DUE_KEY in storageFake.data).toBe(false);
   });
 });
@@ -257,6 +240,37 @@ describe("background sync scheduler", () => {
 describe("background entrypoint wiring", () => {
   type ChangeListener = (changes: Record<string, unknown>, areaName: string) => void;
   type AlarmListener = (alarm: { name: string }) => void;
+
+  test("BG-16 migration failure is reported without stopping worker startup", async () => {
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- install runtime alarm fakes the static Chrome typings do not model.
+    const chromeAny = chrome as unknown as Record<string, unknown>;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- install runtime storage fakes the static Chrome typings do not model.
+    const chromeStorage = chrome.storage as unknown as Record<string, unknown>;
+    const originalOnChanged = chromeStorage["onChanged"];
+    const originalAlarms = chromeAny["alarms"];
+    console.warn = (...args: unknown[]) => warnings.push(args);
+    chromeStorage["onChanged"] = { addListener: () => {}, removeListener: () => {} };
+    chromeAny["alarms"] = {
+      create: () => {},
+      onAlarm: { addListener: () => {} },
+    };
+    storageFake.data["settings"] = { maxReplies: 75 };
+    storageFake.failNextRemove = true;
+
+    try {
+      const { startBackgroundSync } = await import("../entrypoints/background.ts");
+      startBackgroundSync();
+      await settleMicrotasks();
+
+      expect(warnings[0]?.[0]).toBe("XBlocker Bulk reply limit migration failed:");
+    } finally {
+      console.warn = originalWarn;
+      chromeStorage["onChanged"] = originalOnChanged;
+      chromeAny["alarms"] = originalAlarms;
+    }
+  });
 
   test("BG-08 startBackgroundSync wires the outbox watch and the periodic alarm", async () => {
     const changeListeners: ChangeListener[] = [];
@@ -313,7 +327,7 @@ describe("background entrypoint wiring", () => {
     }
   });
 
-  test("BG-15 with cloud backup on, the wired sync dep (runAutoCloudSync) actually runs", async () => {
+  test("BG-15 with Cloud backup on, the wired module checks whether sync is due", async () => {
     const changeListeners: ChangeListener[] = [];
     const alarmListeners: AlarmListener[] = [];
 
@@ -333,8 +347,8 @@ describe("background entrypoint wiring", () => {
     };
 
     storageFake.data["cloudBackup"] = true;
-    // Nothing pending and a fresh lastSyncAt: runAutoCloudSync(true)'s own auto-sync
-    // gate reports nothing due, so it resolves to `{ status: "skipped" }` before ever
+    // Nothing pending and a fresh lastSyncAt: the Cloud backup module's automatic sync
+    // reports nothing due before ever
     // loading the (real, unmocked) convex-sync adapter — invoking it here stays
     // side-effect-safe and never touches Convex.
     const seededMeta = { lastSyncAt: Date.now() };

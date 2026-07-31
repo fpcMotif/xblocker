@@ -7,7 +7,7 @@ import {
   createDirectMuteRequest,
   extractUsernameFromTweet,
   getCookieValue,
-  getMaxReplies,
+  getBulkReplyLimit,
   isTweetPageUrl,
   muteReplies,
   muteTweet,
@@ -37,7 +37,7 @@ type XBlockerTestHooks = {
   createDirectMuteRequest: typeof createDirectMuteRequest;
   extractUsernameFromTweet: typeof extractUsernameFromTweet;
   getCookieValue: typeof getCookieValue;
-  getMaxReplies: typeof getMaxReplies;
+  getBulkReplyLimit: typeof getBulkReplyLimit;
   getQuickBlock: () => QuickBlock | null;
   getRail: () => ReplyRail | null;
   initializeXBlocker: typeof initializeXBlocker;
@@ -189,7 +189,7 @@ if (typeof globalThis !== "undefined" && globalThis.__XB_TEST__) {
     createDirectMuteRequest,
     extractUsernameFromTweet,
     getCookieValue,
-    getMaxReplies,
+    getBulkReplyLimit,
     getQuickBlock: () => quickBlock,
     getRail: () => rail,
     initializeXBlocker,

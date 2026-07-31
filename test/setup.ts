@@ -7,7 +7,7 @@
 // - The fake supports a "manual" dispatch mode where callbacks are queued and
 //   flushed explicitly. This exposes read-modify-write races (XB-BUG-08) that a
 //   synchronous fake can never reproduce.
-// - Failures can be injected per call (failNextGet/failNextSet) to assert the
+// - Failures can be injected per call to assert the
 //   extension degrades gracefully when chrome.storage errors.
 import { Window } from "happy-dom";
 
@@ -62,6 +62,7 @@ export class FakeChromeStorageArea {
   getCalls: StorageGetKeys[] = [];
   setCalls: StorageItems[] = [];
   failNextGet = false;
+  failNextRemove = false;
   failNextSet = false;
   private mode: DispatchMode = "sync";
   private pending: Array<() => void> = [];
@@ -86,7 +87,13 @@ export class FakeChromeStorageArea {
     this.dispatch(() => {
       if (this.failNextSet) {
         this.failNextSet = false;
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the browser stamps this read-only field during a failed callback; the fake mirrors that narrow behavior.
+        const runtime = chrome.runtime as unknown as {
+          lastError: chrome.runtime.LastError | undefined;
+        };
+        runtime.lastError = { message: "storage write failed" };
         callback?.();
+        runtime.lastError = undefined;
         return;
       }
       for (const [key, value] of Object.entries(items)) {
@@ -103,6 +110,17 @@ export class FakeChromeStorageArea {
    *  to clear a key, since set() drops undefined values. */
   remove(keys: string | string[], callback?: () => void): void {
     this.dispatch(() => {
+      if (this.failNextRemove) {
+        this.failNextRemove = false;
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the browser stamps this read-only field during a failed callback; the fake mirrors that narrow behavior.
+        const runtime = chrome.runtime as unknown as {
+          lastError: chrome.runtime.LastError | undefined;
+        };
+        runtime.lastError = { message: "storage remove failed" };
+        callback?.();
+        runtime.lastError = undefined;
+        return;
+      }
       for (const key of Array.isArray(keys) ? keys : [keys]) {
         delete this.data[key];
       }
@@ -141,6 +159,7 @@ export class FakeChromeStorageArea {
     this.getCalls = [];
     this.setCalls = [];
     this.failNextGet = false;
+    this.failNextRemove = false;
     this.failNextSet = false;
     this.mode = "sync";
     this.pending = [];
@@ -173,7 +192,7 @@ export class FakeChromeStorageArea {
 export const storageFake = new FakeChromeStorageArea();
 
 g.chrome = {
-  runtime: { lastError: undefined },
+  runtime: { lastError: undefined, onMessage: { addListener: () => {} } },
   storage: {
     local: {
       get: (keys: StorageGetKeys, callback: StorageGetCallback) => storageFake.get(keys, callback),

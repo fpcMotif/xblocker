@@ -73,11 +73,39 @@ Behavior change (intended): a periodic alarm or caught-up debounce with an empty
 and a fresh `lastSyncAt` now skips instead of running a full push+pull+merge. Manual
 "Sync now" remains unconditional.
 
+### Revision (2026-07-15) — complete the deferred Cloud backup seam
+
+The popup and settings redesign has shipped, so the temporary caller-owned orchestration
+above is retired. `lib/cloud-backup.ts` now exposes one deep `CloudBackup` interface:
+`inspect()` returns the current projection and `act(intent)` owns manual/automatic sync,
+enablement, and wipe. Popup, settings, and background depend on that same interface.
+
+`CloudAdapter` now also includes `clear`; `convexAdapter` and plain test adapters satisfy
+the same seam. Build configuration moved to the small `cloud-config.ts` module, so
+`inspect()` and skipped automatic work do not import the Convex client.
+
+Cloud operations acquire one same-origin Web Lock across popup, settings, and the MV3
+worker. Because content scripts have the host page's origin, their ledger writes route
+through a runtime-message bridge to the background owner; all local ledger mutations can
+then use a separate extension-origin Web Lock. This closes the cross-context
+read-modify-write race without nesting locks in conflicting order. Wipe first durably
+turns backup off, then captures the pending action ids, clears remote rows, drains only
+that captured set, and resets sync metadata. Lifecycle-critical storage writes reject on
+`chrome.runtime.lastError`; a partial wipe therefore fails visibly while remaining safely
+disabled. Every `act()` result includes the resulting `CloudBackupSnapshot`, so surfaces
+render the module's projection instead of reconstructing lifecycle state.
+
+The process-global `mock.module` seams in popup and settings tests are removed in favor
+of injected `CloudBackup` values. MV3 debounce, persisted due-at, alarm, and catch-up
+behavior remain in `background-sync.ts`; the scheduler only signals an automatic sync,
+leaving enablement, freshness, configuration, and pending-work policy in Cloud backup.
+
 ## Consequences
 
 - One policy, written once, consulted by every automatic trigger; tested at one seam.
 - Two real adapters at the cloud seam: `convexAdapter` in production, plain object
-  literals in engine tests. `mock.module` disappears from `test/sync-engine.test.ts`.
+  literals in `test/cloud-backup.test.ts`. No process-global module mocking is needed.
 - `blocked-store.ts` stops carrying Convex vocabulary; `cloud-wire.ts` is importable by
   tests and `convex-sync.ts` without pulling in storage or the SDK.
-- The popup test seam is deliberately deferred — do not "fix" it mid-redesign.
+- Popup and settings tests now cross the same `CloudBackup` interface as production
+  callers; no test duplicates the private Convex module shape.

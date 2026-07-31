@@ -11,7 +11,8 @@ Two source units exist; there is **no Convex / backend code** in this repo
 (verified by search), so there are no Convex actions to simulate. "Backend"
 here is the extension's only persistence and network surface:
 
-- **`chrome.storage.local`** — the whitelist/settings store. Simulated by a
+- **`chrome.storage.local`** — the whitelist, Bulk reply limit, log, and cloud
+  store. Simulated by a
   stateful fake (`FakeChromeStorageArea` in `test/setup.ts`) whose `set()`
   writes are observable by later `get()` calls, supports failure injection, and
   a manual-dispatch mode to expose read-modify-write races.
@@ -45,7 +46,9 @@ here is the extension's only persistence and network surface:
 | `ReplyRail` actions (bulk batches, counts, ring, drag persistence, session badge) | `content/rail-actions.test.ts` | RA-01..15 |
 | `isReplyArticle` classification + coverage attribution warm-up | `content/misc-coverage.test.ts` | MC-01..05 |
 | `checkPageAndAddButton`, `addButtons`, `observeThemeChanges`, `initializeXBlocker`, test hooks | `content/page-lifecycle.test.ts` | PL-01..21 |
-| `renderPopup`, popup whitelist form, settings toggles, `normalizeUsername` | `popup/popup.test.ts` | PU-01..13 |
+| `renderPopup`, status strip, cloud sync row, settings link | `popup/popup.test.ts` | PU-01..09 |
+| `bulkReplyLimit.read/migrate/set` | `bulk-reply-limit.test.ts` | contract and migration cases |
+| `renderBulkActionsPane` | `options/bulk-actions.test.ts` | input, clamp, rollback, persistence cases |
 
 ## Adversarial cases & pinned bugs
 

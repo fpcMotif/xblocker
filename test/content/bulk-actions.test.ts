@@ -202,7 +202,7 @@ describe("blockReplies", () => {
   });
 
   test("BULK-16 clears batchState.running when the run throws, so a later batch still proceeds", async () => {
-    // Force the batch's first storage read (getMaxReplies) to throw after
+    // Force the batch's first storage read (getBulkReplyLimit) to throw after
     // batchState.running was raised. The finally must reset it — otherwise the
     // re-entry guard would permanently reject every future batch (latent deadlock).
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
@@ -245,8 +245,8 @@ describe("blockReplies", () => {
     expect(batchState.running).toBe(false);
   });
 
-  test("BULK-08 caps the batch at the configured maxReplies setting", async () => {
-    storageFake.data["settings"] = { maxReplies: 2 };
+  test("BULK-08 caps the batch at the configured Bulk reply limit", async () => {
+    storageFake.data["bulkReplyLimit"] = 2;
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage(["reply_1", "reply_2", "reply_3", "reply_4", "reply_5"]);
 
@@ -259,9 +259,21 @@ describe("blockReplies", () => {
     expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
   });
 
+  test("BULK-20 skips and failures consume the Bulk reply limit", async () => {
+    storageFake.data["bulkReplyLimit"] = 2;
+    storageFake.data["whitelist"] = ["safe_user"];
+    fetchStub = installFetchStub(() => ({ ok: false, status: 500 }));
+    populateTweetPage(["safe_user", "bad_user", "never_reached"]);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ acted: 0, skipped: 1, failed: 1 });
+    expect(fetchStub.calls.map(requestBodyText)).toEqual(["screen_name=bad_user"]);
+  });
+
   test("BULK-09 caps the batch at the default of 50 when no setting is stored", async () => {
     // Replaces the old XB-BUG-04 pin: blockFirst20CommentTweets sliced to 50
-    // despite the "20" in its name. The cap is now explicit via getMaxReplies.
+    // despite the "20" in its name. The cap is now explicit via getBulkReplyLimit.
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
     populateTweetPage(Array.from({ length: 60 }, (_, i) => `reply_${i}`));
 
@@ -271,15 +283,15 @@ describe("blockReplies", () => {
     expect(summary).toEqual({ acted: 50, skipped: 0, failed: 0 });
   });
 
-  test("BULK-10 clamps stored maxReplies values to the 1..200 range", async () => {
-    storageFake.data["settings"] = { maxReplies: 999 };
-    expect(await hooks.getMaxReplies()).toBe(200);
+  test("BULK-10 clamps stored Bulk reply limit values to the 1..200 range", async () => {
+    storageFake.data["bulkReplyLimit"] = 999;
+    expect(await hooks.getBulkReplyLimit()).toBe(200);
 
-    storageFake.data["settings"] = { maxReplies: 0 };
-    expect(await hooks.getMaxReplies()).toBe(1);
+    storageFake.data["bulkReplyLimit"] = 0;
+    expect(await hooks.getBulkReplyLimit()).toBe(1);
 
-    storageFake.data["settings"] = { maxReplies: "not-a-number" };
-    expect(await hooks.getMaxReplies()).toBe(50);
+    storageFake.data["bulkReplyLimit"] = "not-a-number";
+    expect(await hooks.getBulkReplyLimit()).toBe(50);
   });
 
   test("BULK-14 blocks only conversation replies, never Discover more recommendations", async () => {

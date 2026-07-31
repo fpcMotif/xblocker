@@ -1,4 +1,4 @@
-// Catalog: PU-* (renderPopup shell, stat strip, toggles, footer, formatLastSync).
+// Catalog: PU-* (renderPopup shell, stat strip, footer, formatLastSync).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { ANIMATE_MS, type LiveNumberClock } from "../../entrypoints/lib/live-number.ts";
@@ -54,32 +54,12 @@ function statValues(): string[] {
   );
 }
 
-function seedSettings(overrides: {
-  confirmDestructiveActions?: boolean;
-  keyboardMode?: boolean;
-  maxReplies?: unknown;
-  protectWhitelist?: boolean;
-}): void {
-  storageFake.data["settings"] = overrides;
-}
-
-/** Reads the persisted `settings.maxReplies`, narrowing the storage fake's
- *  untyped record instead of asserting its shape. */
-function storedMaxReplies(): number {
-  const settings = storageFake.data["settings"];
-  if (typeof settings === "object" && settings !== null && "maxReplies" in settings) {
-    const { maxReplies } = settings;
-    if (typeof maxReplies === "number") return maxReplies;
-  }
-  throw new Error("settings.maxReplies missing or not a number");
-}
-
 describe("renderPopup structure", () => {
   beforeEach(() => {
     resetTestEnvironment();
   });
 
-  test("PU-01 renders the shell: brand, status, stat labels, toggle labels, footer", async () => {
+  test("PU-01 renders the shell: brand, status, stat labels, footer", async () => {
     await renderPopup(document.body);
     const popup = document.querySelector('[data-xb-surface="popup"]')!;
     expect(popup.querySelector("h1")?.textContent).toBe("XBlocker");
@@ -87,10 +67,7 @@ describe("renderPopup structure", () => {
     expect(popup.textContent).toContain("Blocked");
     expect(popup.textContent).toContain("Muted");
     expect(popup.textContent).toContain("Whitelisted");
-    expect(popup.textContent).toContain("Protect whitelist");
-    expect(popup.textContent).toContain("Whitelisted handles are skipped during bulk actions.");
-    expect(popup.textContent).toContain("Confirm destructive actions");
-    expect(popup.textContent).toContain("Ask before block or mute runs.");
+    expect(popup.querySelectorAll(".xb-switch")).toHaveLength(0);
     expect(popup.textContent).toContain("Open settings");
   });
 
@@ -204,81 +181,6 @@ describe("popup stat strip", () => {
     } finally {
       chromeStorage["onChanged"] = originalOnChanged;
     }
-  });
-});
-
-describe("popup settings toggles", () => {
-  beforeEach(() => {
-    resetTestEnvironment();
-  });
-
-  function toggles(): HTMLInputElement[] {
-    return Array.from(document.querySelectorAll<HTMLInputElement>(".xb-switch"));
-  }
-
-  test("PU-10 reflects stored setting values on the toggles", async () => {
-    seedSettings({ confirmDestructiveActions: false, protectWhitelist: false });
-    await renderPopup(document.body);
-    // Order matches buildToggles: protect, confirm.
-    expect(toggles().map((toggle) => toggle.checked)).toEqual([false, false]);
-  });
-
-  test("PU-11 falls back to default settings when none are stored", async () => {
-    await renderPopup(document.body);
-    expect(toggles().map((toggle) => toggle.checked)).toEqual([true, true]);
-  });
-
-  test("PU-12 toggling protectWhitelist persists the full 4-key settings object", async () => {
-    await renderPopup(document.body);
-    const [protectToggle] = toggles();
-    protectToggle!.checked = false;
-    protectToggle!.dispatchEvent(new Event("change", { bubbles: true }));
-
-    expect(storageFake.data["settings"]).toEqual({
-      confirmDestructiveActions: true,
-      keyboardMode: false,
-      maxReplies: 50,
-      protectWhitelist: false,
-    });
-  });
-
-  test("PU-13 toggling confirmDestructiveActions persists the full 4-key settings object", async () => {
-    await renderPopup(document.body);
-    const [, confirmToggle] = toggles();
-    confirmToggle!.checked = false;
-    confirmToggle!.dispatchEvent(new Event("change", { bubbles: true }));
-
-    expect(storageFake.data["settings"]).toEqual({
-      confirmDestructiveActions: false,
-      keyboardMode: false,
-      maxReplies: 50,
-      protectWhitelist: true,
-    });
-  });
-
-  test("PU-14 a stored keyboardMode/maxReplies pass through untouched when a toggle saves", async () => {
-    seedSettings({ keyboardMode: true, maxReplies: 75 });
-    await renderPopup(document.body);
-    const [protectToggle] = toggles();
-    protectToggle!.checked = false;
-    protectToggle!.dispatchEvent(new Event("change", { bubbles: true }));
-
-    expect(storageFake.data["settings"]).toEqual({
-      confirmDestructiveActions: true,
-      keyboardMode: true,
-      maxReplies: 75,
-      protectWhitelist: false,
-    });
-  });
-
-  test("PU-15 an out-of-range stored maxReplies is clamped before it's ever resaved", async () => {
-    seedSettings({ maxReplies: 999 });
-    await renderPopup(document.body);
-    const [protectToggle] = toggles();
-    protectToggle!.checked = false;
-    protectToggle!.dispatchEvent(new Event("change", { bubbles: true }));
-
-    expect(storedMaxReplies()).toBe(200);
   });
 });
 

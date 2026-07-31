@@ -1,11 +1,6 @@
-import { storageGet, SETTINGS_KEY } from "../lib/chrome-storage";
-import { blockedStore } from "../lib/blocked-store";
-import {
-  clampMaxReplies,
-  normalizeUsername,
-  DEFAULT_MAX_REPLIES,
-  MAX_REPLIES_LIMIT,
-} from "../lib/settings";
+import { bulkReplyLimit } from "../lib/bulk-reply-limit";
+import { recordBlockedAction } from "../lib/blocked-store-bridge";
+import { normalizeUsername } from "../lib/x-username";
 // Whitelist persistence lives in ../lib/whitelist-store (verified behavior-identical to
 // the implementation this module used to carry).
 import { getWhitelist, isWhitelisted } from "../lib/whitelist-store";
@@ -26,9 +21,7 @@ export {
 export * from "./x-api";
 export * from "./author";
 
-// Re-exported so existing importers (modal.ts, index.ts hooks, tests) keep their
-// `from "./actions"` path while the single definition lives in ../lib/settings.
-export { normalizeUsername, DEFAULT_MAX_REPLIES, MAX_REPLIES_LIMIT };
+export { normalizeUsername };
 
 export type ReplyActionResult =
   | { status: "blocked" | "muted" | "skipped"; username: string }
@@ -56,16 +49,8 @@ export function isTweetPageUrl(url: string): boolean {
   return TWEET_PAGE_URL_PATTERN.test(url) || !!isLocalTestPage;
 }
 
-function readMaxRepliesSetting(settings: unknown): unknown {
-  if (typeof settings === "object" && settings !== null && "maxReplies" in settings) {
-    return settings.maxReplies;
-  }
-  return undefined;
-}
-
-export async function getMaxReplies(): Promise<number> {
-  const settings = await storageGet<unknown>(SETTINGS_KEY);
-  return clampMaxReplies(readMaxRepliesSetting(settings));
+export function getBulkReplyLimit(): Promise<number> {
+  return bulkReplyLimit.read();
 }
 
 async function actOnTweet(
@@ -113,14 +98,14 @@ async function recordAction(
   try {
     if (type === "block") {
       const outcome = await readBlockOutcome(response, username);
-      await blockedStore.record({
+      await recordBlockedAction({
         handle: outcome.screen_name,
         kind: "block",
         source: "reply-bar",
         ...(outcome.id_str ? { xUserId: outcome.id_str } : {}),
       });
     } else {
-      await blockedStore.record({ handle: username, kind: "mute", source: "reply-bar" });
+      await recordBlockedAction({ handle: username, kind: "mute", source: "reply-bar" });
     }
   } catch (error) {
     console.warn(`Recorded ${type} of @${username} to the local store failed:`, error);
@@ -136,7 +121,7 @@ export function muteTweet(tweetArticle: Element): Promise<ReplyActionResult> {
 }
 
 async function getReplyArticles(): Promise<Element[]> {
-  const maxReplies = await getMaxReplies();
+  const maxReplies = await getBulkReplyLimit();
   return getConversationReplies().slice(0, maxReplies);
 }
 

@@ -7,7 +7,7 @@
 // after it grows (debounced, so a bulk run becomes one batched push) and on a periodic
 // alarm as a safety net.
 
-import { CLOUD_BACKUP_KEY, storageGet, storageRemove, storageSet } from "./chrome-storage";
+import { storageGet, storageRemove, storageSet } from "./chrome-storage";
 
 export const OUTBOX_SYNC_DEBOUNCE_MS = 10_000;
 export const PERIODIC_SYNC_ALARM = "xblocker-cloud-sync";
@@ -19,9 +19,7 @@ export const PERIODIC_SYNC_MINUTES = 30;
 export const SYNC_DUE_KEY = "syncDueAt";
 
 export type BackgroundSyncDeps = {
-  /** Whether the user has opted into cloud backup (reads the cloudBackup key). */
-  isEnabled: () => Promise<boolean>;
-  /** Run one sync (push outbox + pull remote). Errors are logged, never thrown. */
+  /** Signal one automatic sync; CloudBackup owns all eligibility policy. */
   sync: () => Promise<unknown>;
   /** Debounce for outbox changes; tests inject 0. */
   debounceMs?: number;
@@ -63,17 +61,16 @@ export function createBackgroundSyncScheduler(deps: BackgroundSyncDeps): Backgro
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      void syncIfEnabled();
+      void runSync();
     }, delayMs);
   }
 
-  async function syncIfEnabled(): Promise<void> {
+  async function runSync(): Promise<void> {
     try {
       // Captured before the push so the clear below can tell the debounce this sync
       // settles apart from one re-armed mid-flight: a re-arm means actions queued
       // after this sync read the outbox, and its due-at must survive to fire later.
       const settling = await readDueAt();
-      if (!(await deps.isEnabled())) return;
       await deps.sync();
       if (settling !== undefined && (await readDueAt()) === settling) {
         await writeDueAt(undefined);
@@ -95,7 +92,7 @@ export function createBackgroundSyncScheduler(deps: BackgroundSyncDeps): Backgro
     if (typeof dueAt !== "number") return;
     const remaining = dueAt - now();
     if (remaining <= 0) {
-      await syncIfEnabled();
+      await runSync();
       return;
     }
     if (timer === null) armTimer(remaining);
@@ -114,7 +111,7 @@ export function createBackgroundSyncScheduler(deps: BackgroundSyncDeps): Backgro
       if (name === PERIODIC_SYNC_ALARM) {
         // The periodic sync drains the same outbox a due debounce would, so it
         // subsumes any catch-up; running both would push the same batch twice.
-        void syncIfEnabled();
+        void runSync();
         return;
       }
       void catchUpIfDue();
@@ -124,9 +121,4 @@ export function createBackgroundSyncScheduler(deps: BackgroundSyncDeps): Backgro
       timer = null;
     },
   };
-}
-
-/** Read the cloud backup opt-in flag. */
-export async function readCloudBackupEnabled(): Promise<boolean> {
-  return (await storageGet<boolean>(CLOUD_BACKUP_KEY)) === true;
 }

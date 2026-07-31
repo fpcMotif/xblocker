@@ -17,7 +17,7 @@ import { makeFunctionReference } from "convex/server";
 
 import { outboxItemToRecordArgs, outboxToRecordBatches, type RecordActionArgs } from "./cloud-wire";
 import type { OutboxItem, RemoteAccount } from "./blocked-store";
-import type { CloudAdapter } from "./sync-engine";
+import type { CloudAdapter } from "./cloud-backup";
 
 // The Convex `listBlocked` query returns exactly the shape the local store's mergeRemote
 // consumes, so re-export the single definition rather than maintaining a twin here.
@@ -38,17 +38,7 @@ const clearOwnerRef = makeFunctionReference<"mutation", Record<string, never>, n
   "blocked:clearOwner",
 );
 
-function readEnv(name: string): string | undefined {
-  // import.meta.env is typed with a string index signature by Vite/WXT.
-  return import.meta.env[name];
-}
-
-const CONVEX_URL = readEnv("VITE_CONVEX_URL");
-
-/** True when the deployment URL is configured. */
-export function isCloudConfigured(): boolean {
-  return !!CONVEX_URL;
-}
+const CONVEX_URL = import.meta.env["VITE_CONVEX_URL"];
 
 let httpClient: ConvexHttpClient | undefined;
 function client(): ConvexHttpClient {
@@ -108,10 +98,9 @@ export async function clearCloud(): Promise<void> {
   await client().mutation(clearOwnerRef, {});
 }
 
-/** This adapter, wired to `sync-engine.ts`'s `CloudAdapter` seam: `runCloudSync` and
- *  `runAutoCloudSync` lazily import this module and use `convexAdapter` by default. */
+/** Production adapter at the Cloud backup module's remote seam. */
 export const convexAdapter = {
-  isConfigured: isCloudConfigured,
   push: pushOutbox,
   pull: pullBlocked,
+  clear: clearCloud,
 } satisfies CloudAdapter;

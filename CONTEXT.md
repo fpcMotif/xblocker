@@ -20,8 +20,19 @@ The single-reply surface — a per-reply control revealed while the cursor is ov
 _Avoid_: Tooltip, context menu, popup
 
 **Whitelist**:
-The set of trusted X.com usernames that XBlocker should not block or mute.
+The set of trusted X.com usernames that XBlocker always excludes from block and mute actions.
 _Avoid_: Allowlist, safe list
+
+**Bulk reply limit**:
+The owner's cap on reply attempts in one bulk action. Skipped and failed replies consume
+the cap because it bounds work, not successful actions or unique accounts.
+_Avoid_: Account limit, success limit, behavior settings
+
+**Cloud backup**:
+The optional remote mirror of the owner's blocked-account ledger. The local ledger remains
+the source of truth. Wiping Cloud backup also turns it off and discards only the actions
+that were already pending when the wipe began, so later local actions remain pending.
+_Avoid_: Cloud source of truth, cloud account
 
 ## Design source of truth
 

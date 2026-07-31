@@ -4,17 +4,18 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   CLOUD_BACKUP_KEY,
   DOCK_POSITION_KEY,
-  SETTINGS_KEY,
   storageGet,
+  storageGetStrict,
   storageRemove,
+  storageRemoveStrict,
   storageSet,
+  storageSetStrict,
   WHITELIST_KEY,
 } from "../entrypoints/lib/chrome-storage.ts";
 import { resetTestEnvironment, storageFake } from "./setup.ts";
 
 describe("storage key constants", () => {
   test("CS-01 name the keys existing callers already use", () => {
-    expect(SETTINGS_KEY).toBe("settings");
     expect(WHITELIST_KEY).toBe("whitelist");
     expect(CLOUD_BACKUP_KEY).toBe("cloudBackup");
     expect(DOCK_POSITION_KEY).toBe("dockPosition");
@@ -27,8 +28,8 @@ describe("storageGet", () => {
   });
 
   test("CS-02 resolves the stored value", async () => {
-    storageFake.data[SETTINGS_KEY] = { maxReplies: 25 };
-    expect(await storageGet<{ maxReplies: number }>(SETTINGS_KEY)).toEqual({ maxReplies: 25 });
+    storageFake.data[WHITELIST_KEY] = ["alice"];
+    expect(await storageGet<string[]>(WHITELIST_KEY)).toEqual(["alice"]);
   });
 
   test("CS-03 resolves undefined when the key was never stored", async () => {
@@ -63,15 +64,30 @@ describe("storageGet", () => {
   });
 });
 
+describe("storageGetStrict", () => {
+  beforeEach(() => resetTestEnvironment());
+
+  test("resolves stored and missing values", async () => {
+    storageFake.data[WHITELIST_KEY] = ["alice"];
+    expect(await storageGetStrict<string[]>(WHITELIST_KEY)).toEqual(["alice"]);
+    expect(await storageGetStrict(CLOUD_BACKUP_KEY)).toBeUndefined();
+  });
+
+  test("rejects failed reads", async () => {
+    storageFake.failNextGet = true;
+    expect(storageGetStrict(WHITELIST_KEY)).rejects.toThrow("chrome.storage.local.get failed");
+  });
+});
+
 describe("storageSet", () => {
   beforeEach(() => {
     resetTestEnvironment();
   });
 
   test("CS-06 persists the given items and resolves", async () => {
-    await storageSet({ [SETTINGS_KEY]: { maxReplies: 10 } });
-    expect(storageFake.data[SETTINGS_KEY]).toEqual({ maxReplies: 10 });
-    expect(storageFake.setCalls).toEqual([{ [SETTINGS_KEY]: { maxReplies: 10 } }]);
+    await storageSet({ [WHITELIST_KEY]: ["alice"] });
+    expect(storageFake.data[WHITELIST_KEY]).toEqual(["alice"]);
+    expect(storageFake.setCalls).toEqual([{ [WHITELIST_KEY]: ["alice"] }]);
   });
 
   test("CS-07 resolves even when the underlying write fails", async () => {
@@ -85,6 +101,16 @@ describe("storageSet", () => {
     await storageSet({ [CLOUD_BACKUP_KEY]: undefined });
     expect(storageFake.data[CLOUD_BACKUP_KEY]).toBe(true);
   });
+
+  test("CS-10 strict writes reject when Chrome reports persistence failure", async () => {
+    storageFake.failNextSet = true;
+    const message = await storageSetStrict({ [CLOUD_BACKUP_KEY]: false }).then(
+      () => undefined,
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    expect(message).toBe("storage write failed");
+    expect(storageFake.data[CLOUD_BACKUP_KEY]).toBeUndefined();
+  });
 });
 
 describe("storageRemove", () => {
@@ -96,5 +122,12 @@ describe("storageRemove", () => {
     storageFake.data[CLOUD_BACKUP_KEY] = true;
     await storageRemove(CLOUD_BACKUP_KEY);
     expect(CLOUD_BACKUP_KEY in storageFake.data).toBe(false);
+  });
+
+  test("strict delete rejects and preserves the key on failure", async () => {
+    storageFake.data[CLOUD_BACKUP_KEY] = true;
+    storageFake.failNextRemove = true;
+    expect(storageRemoveStrict(CLOUD_BACKUP_KEY)).rejects.toThrow("storage remove failed");
+    expect(storageFake.data[CLOUD_BACKUP_KEY]).toBe(true);
   });
 });
