@@ -23,6 +23,30 @@ const DIRECT_ACTION_ENDPOINTS: Record<DirectActionType, string> = {
   block: "/1.1/blocks/create.json",
   mute: "/1.1/mutes/users/create.json",
 };
+// friendships/show is the same v1.1 vintage as the create endpoints above (not
+// deprecated, not moved to GraphQL) and reports the authenticated user's own
+// relationship to a target, including `blocking`/`muting` -- exactly the confirmation
+// ADR-0001-line work needs. See docs/adr/0004-bulk-confirm-and-retry.md.
+const RELATIONSHIP_LOOKUP_ENDPOINT = "/1.1/friendships/show.json";
+
+/** A direct-API HTTP failure, carrying the status so callers can classify a 429
+ *  (rate-limited) failure differently from an ordinary one without parsing the
+ *  message string. */
+export class DirectApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "DirectApiError";
+    this.status = status;
+  }
+}
+
+/** True for a rate-limit-shaped failure (HTTP 429) from either the action or the
+ *  confirmation call -- the bulk runner backs its retry off meaningfully further
+ *  for these than for an ordinary failure. */
+export function isRateLimited(error: unknown): boolean {
+  return error instanceof DirectApiError && error.status === 429;
+}
 
 export function getCookieValue(name: string): string {
   return (
@@ -40,10 +64,20 @@ function getXApiBaseUrl(): string {
     : "https://api.x.com";
 }
 
-function createDirectActionRequest(type: DirectActionType, username: string): DirectActionRequest {
+/** A validated (normalized username, CSRF token) pair, or a thrown Error naming
+ *  whichever check failed first -- shared by every request builder below so an
+ *  action POST and the relationship-lookup GET fail identically on a bad username
+ *  or a signed-out session. */
+function requireSessionAuth(
+  actionDescription: string,
+  username: string,
+): {
+  normalizedUsername: string;
+  csrfToken: string;
+} {
   const normalizedUsername = normalizeUsername(username);
   if (!normalizedUsername) {
-    throw new Error(`Missing valid username for direct ${type}.`);
+    throw new Error(`Missing valid username for ${actionDescription}.`);
   }
 
   const csrfToken = getCookieValue("ct0");
@@ -51,17 +85,31 @@ function createDirectActionRequest(type: DirectActionType, username: string): Di
     throw new Error("Missing X CSRF token; open x.com while signed in and try again.");
   }
 
+  return { normalizedUsername, csrfToken };
+}
+
+/** The bearer + ct0 + X-Twitter-* headers every direct-API request carries (ADR-0001);
+ *  a POST additionally sets Content-Type, added by its own caller. */
+function sessionAuthHeaders(csrfToken: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${X_AUTH_BEARER_TOKEN}`,
+    "X-Csrf-Token": csrfToken,
+    "X-Twitter-Active-User": "yes",
+    "X-Twitter-Auth-Type": "OAuth2Session",
+  };
+}
+
+function createDirectActionRequest(type: DirectActionType, username: string): DirectActionRequest {
+  const { normalizedUsername, csrfToken } = requireSessionAuth(`direct ${type}`, username);
+
   return {
     url: `${getXApiBaseUrl()}${DIRECT_ACTION_ENDPOINTS[type]}`,
     options: {
       method: "POST",
       credentials: "include",
       headers: {
-        Authorization: `Bearer ${X_AUTH_BEARER_TOKEN}`,
+        ...sessionAuthHeaders(csrfToken),
         "Content-Type": "application/x-www-form-urlencoded",
-        "X-Csrf-Token": csrfToken,
-        "X-Twitter-Active-User": "yes",
-        "X-Twitter-Auth-Type": "OAuth2Session",
       },
       body: new URLSearchParams({ screen_name: normalizedUsername }).toString(),
     },
@@ -76,6 +124,18 @@ export function createDirectMuteRequest(username: string): DirectActionRequest {
   return createDirectActionRequest("mute", username);
 }
 
+/** Throws a status-carrying DirectApiError when `response` isn't a 2xx; shared by
+ *  every call site below so an action POST and the relationship-lookup GET raise the
+ *  same shape of error (only the message prefix differs). */
+function ensureOk(response: Response, failureDescription: string): void {
+  if (!response.ok) {
+    throw new DirectApiError(
+      `${failureDescription} with HTTP ${response.status}.`,
+      response.status,
+    );
+  }
+}
+
 // Exported (not module-private) so the reply-batch orchestration in actions.ts can drive
 // a single direct call per reply; re-exported to callers via `export * from "./x-api"`.
 export async function performDirectAction(
@@ -84,10 +144,76 @@ export async function performDirectAction(
 ): Promise<Response> {
   const request = createDirectActionRequest(type, username);
   const response = await fetch(request.url, request.options);
-  if (!response.ok) {
-    throw new Error(`Direct ${type} failed with HTTP ${response.status}.`);
-  }
+  ensureOk(response, `Direct ${type} failed`);
   return response;
+}
+
+export type RelationshipLookupRequest = {
+  url: string;
+  options: RequestInit & {
+    method: "GET";
+    credentials: "include";
+    headers: Record<string, string>;
+  };
+};
+
+/** The authenticated session's own relationship to a target account, per
+ *  friendships/show.json's `relationship.source` object. */
+export type RelationshipStatus = { blocking: boolean; muting: boolean };
+
+// Same session-authenticated conventions as createDirectActionRequest (bearer + ct0),
+// per ADR-0001: the confirmation call rides the same plumbing as the action calls.
+export function createRelationshipLookupRequest(username: string): RelationshipLookupRequest {
+  const { normalizedUsername, csrfToken } = requireSessionAuth("relationship lookup", username);
+
+  const query = new URLSearchParams({ target_screen_name: normalizedUsername }).toString();
+  return {
+    url: `${getXApiBaseUrl()}${RELATIONSHIP_LOOKUP_ENDPOINT}?${query}`,
+    options: {
+      method: "GET",
+      credentials: "include",
+      headers: sessionAuthHeaders(csrfToken),
+    },
+  };
+}
+
+/** Parse friendships/show.json's body into the two flags the bulk runner confirms
+ *  against. Missing/malformed bodies read as `false` on both -- a confirmation that
+ *  cannot be read is not a confirmation, so the runner treats it as "not yet". */
+export function parseRelationshipResponse(text: string): RelationshipStatus {
+  const body = safeParseJson(text);
+  const relationship = readProp(body, "relationship");
+  const source = readProp(relationship, "source");
+  return {
+    blocking: readProp(source, "blocking") === true,
+    muting: readProp(source, "muting") === true,
+  };
+}
+
+async function fetchRelationshipStatus(username: string): Promise<RelationshipStatus> {
+  const request = createRelationshipLookupRequest(username);
+  const response = await fetch(request.url, request.options);
+  ensureOk(response, "Relationship lookup failed");
+  return parseRelationshipResponse(await response.text());
+}
+
+// Same shape as DIRECT_ACTION_ENDPOINTS above: which RelationshipStatus flag confirms
+// each action type, as a map rather than a recurring type === "block" ? ... : ... .
+const RELATIONSHIP_STATUS_FIELD: Record<DirectActionType, keyof RelationshipStatus> = {
+  block: "blocking",
+  mute: "muting",
+};
+
+/** Ground truth for whether the session user is actually blocking/muting `username`
+ *  right now -- an HTTP 2xx on the create call is no longer sufficient on its own
+ *  (see docs/adr/0004-bulk-confirm-and-retry.md). Propagates lookup failures so the
+ *  bulk runner's retry loop can classify and back off on them like any other attempt. */
+export async function confirmDirectAction(
+  type: DirectActionType,
+  username: string,
+): Promise<boolean> {
+  const status = await fetchRelationshipStatus(username);
+  return status[RELATIONSHIP_STATUS_FIELD[type]];
 }
 
 export type DirectBlockOutcome = { screen_name: string; id_str?: string };

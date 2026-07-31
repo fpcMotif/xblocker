@@ -3,17 +3,22 @@ import {
   blockReplies,
   blockTweet,
   blockUserDirectly,
+  confirmDirectAction,
   createDirectBlockRequest,
   createDirectMuteRequest,
+  createReplyBatchRunner,
+  createRelationshipLookupRequest,
   extractUsernameFromTweet,
   getCookieValue,
   getMaxReplies,
+  isRateLimited,
   isTweetPageUrl,
   muteReplies,
   muteTweet,
   performDirectAction,
   muteUserDirectly,
   normalizeUsername,
+  parseRelationshipResponse,
 } from "./actions";
 import { computeRailY } from "./position";
 import { QuickBlock, resolveQuickBlockMode, type QuickBlockMode } from "./quick-block";
@@ -34,14 +39,18 @@ type XBlockerTestHooks = {
   blockUserDirectly: typeof blockUserDirectly;
   checkPageAndAddButton: typeof checkPageAndAddButton;
   computeRailY: typeof computeRailY;
+  confirmDirectAction: typeof confirmDirectAction;
   createDirectBlockRequest: typeof createDirectBlockRequest;
   createDirectMuteRequest: typeof createDirectMuteRequest;
+  createRelationshipLookupRequest: typeof createRelationshipLookupRequest;
+  createReplyBatchRunner: typeof createReplyBatchRunner;
   extractUsernameFromTweet: typeof extractUsernameFromTweet;
   getCookieValue: typeof getCookieValue;
   getMaxReplies: typeof getMaxReplies;
   getQuickBlock: () => QuickBlock | null;
   getRail: () => ReplyRail | null;
   initializeXBlocker: typeof initializeXBlocker;
+  isRateLimited: typeof isRateLimited;
   isTweetPageUrl: typeof isTweetPageUrl;
   mountQuickBlock: typeof mountQuickBlock;
   muteReplies: typeof muteReplies;
@@ -50,6 +59,7 @@ type XBlockerTestHooks = {
   performDirectAction: typeof performDirectAction;
   normalizeUsername: typeof normalizeUsername;
   observeThemeChanges: typeof observeThemeChanges;
+  parseRelationshipResponse: typeof parseRelationshipResponse;
   railTimings: { dwellMs: number; collapseGraceMs: number };
   runContentScript: typeof runContentScript;
 };
@@ -187,14 +197,18 @@ if (typeof globalThis !== "undefined" && globalThis.__XB_TEST__) {
     blockUserDirectly,
     checkPageAndAddButton,
     computeRailY,
+    confirmDirectAction,
     createDirectBlockRequest,
     createDirectMuteRequest,
+    createRelationshipLookupRequest,
+    createReplyBatchRunner,
     extractUsernameFromTweet,
     getCookieValue,
     getMaxReplies,
     getQuickBlock: () => quickBlock,
     getRail: () => rail,
     initializeXBlocker,
+    isRateLimited,
     isTweetPageUrl,
     mountQuickBlock,
     muteReplies,
@@ -203,6 +217,7 @@ if (typeof globalThis !== "undefined" && globalThis.__XB_TEST__) {
     performDirectAction,
     normalizeUsername,
     observeThemeChanges,
+    parseRelationshipResponse,
     railTimings: { dwellMs: DWELL_MS, collapseGraceMs: COLLAPSE_GRACE_MS },
     runContentScript,
   };
