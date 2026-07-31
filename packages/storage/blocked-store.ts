@@ -68,7 +68,7 @@ function genId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// Deliberately NOT lib/chrome-storage.ts's storageGet: that helper degrades a failed
+// Deliberately NOT packages/storage/chrome-storage.ts's storageGet: that helper degrades a failed
 // get to `undefined`, but a read-modify-write mutation here must instead REJECT on a
 // failed read (a thrown TypeError on `result[key]` when the callback gets no result
 // object) so enqueueMutation's chain sees a rejection and skips the write rather than

@@ -4,8 +4,8 @@
 // convex-sync is imported lazily so the (heavier) Convex bundle only loads when a sync
 // actually runs — the popup renders instantly and pays the import on first use.
 
-import { blockedStore, type OutboxItem, type RemoteAccount } from "./blocked-store";
-import { CLOUD_BACKUP_KEY, storageGet, storageSet } from "./chrome-storage";
+import { blockedStore, type OutboxItem, type RemoteAccount } from "../storage/blocked-store";
+import { CLOUD_BACKUP_KEY, storageGet, storageSet } from "../storage/chrome-storage";
 
 /**
  * The cloud transport seam, spoken entirely in the store's own vocabulary
@@ -26,7 +26,7 @@ export type CloudAdapter = {
  *  or quiet surface never pays for it). Surfaces default to this; tests inject their own
  *  loader in its place. */
 export async function loadConvexAdapter(): Promise<CloudAdapter> {
-  const { convexAdapter } = await import("./convex-sync");
+  const { convexAdapter } = await import("./lib/convex-sync");
   return convexAdapter;
 }
 

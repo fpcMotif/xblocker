@@ -6,8 +6,8 @@
 //
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { RemoteAccount } from "../../entrypoints/lib/blocked-store.ts";
-import type { CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
+import type { RemoteAccount } from "../../packages/storage/blocked-store.ts";
+import type { CloudAdapter } from "../../packages/sync/sync-engine.ts";
 import { renderPopup } from "../../entrypoints/popup/main.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 

@@ -1,11 +1,11 @@
 // Catalog: CW-* (pure Convex wire-format mapping: OutboxItem -> recordAction args).
 //
 // Relocated verbatim from test/blocked-store.test.ts (see docs/adr/0003) now that the
-// mapping itself lives in a pure lib/cloud-wire.ts with no chrome.* dependency.
+// mapping itself lives in a pure packages/sync/cloud-wire.ts with no chrome.* dependency.
 import { describe, expect, test } from "bun:test";
 
-import { outboxItemToRecordArgs, outboxToRecordBatches } from "../entrypoints/lib/cloud-wire.ts";
-import type { OutboxItem } from "../entrypoints/lib/blocked-store.ts";
+import { outboxItemToRecordArgs, outboxToRecordBatches } from "../cloud-wire.ts";
+import type { OutboxItem } from "../../storage/blocked-store.ts";
 
 describe("outboxItemToRecordArgs (cloud key mapping)", () => {
   const baseAction = { actionId: "a1", kind: "block", at: 5, source: "reply-bar" } as const;

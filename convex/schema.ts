@@ -3,7 +3,7 @@ import { v } from "convex/values";
 
 // Cloud mirror of the local blocked-account store. The dedup invariant — one row per
 // (owner, xUserId), many action events — is enforced in the recordAction mutation
-// (Convex has no DB-level unique constraint), mirroring entrypoints/lib/blocked-merge.ts.
+// (Convex has no DB-level unique constraint), mirroring packages/storage/blocked-merge.ts.
 export default defineSchema({
   // ONE row per blocked X account per owner. Unique key: (owner, xUserId).
   blockedAccounts: defineTable({

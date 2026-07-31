@@ -1,13 +1,13 @@
 // Catalog: OS-* (options page shell: rail, hash routing, version footer, mount guard).
 // The "cloud" route is deliberately NOT exercised here — rendering it triggers cloud.ts's
-// lazy `import("../../lib/convex-sync")`, and this file must never cause the REAL
+// lazy `import("./lib/convex-sync")`, and this file must never cause the REAL
 // convex-sync module (live deployment URL, real HTTP client) to load in tests.
 // cloud.test.ts injects the pane's cloud ports and is the one place that exercises that
 // route, including through this same shell (via renderOptions' `cloud` opt).
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { mountOptionsIfPresent, renderOptions } from "../../entrypoints/options/main.ts";
-import { WHITELIST_KEY } from "../../entrypoints/lib/chrome-storage.ts";
+import { WHITELIST_KEY } from "../../packages/storage/chrome-storage.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 

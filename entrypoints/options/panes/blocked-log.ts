@@ -1,9 +1,9 @@
 // Blocked log pane: wires blockedStore.list() (previously unused) into a searchable,
 // filterable, virtualized ledger of every account the extension has ever acted on.
 
-import type { BlockedAccount } from "../../lib/blocked-merge";
-import { blockedStore } from "../../lib/blocked-store";
-import { CLOUD_BACKUP_KEY, storageGet } from "../../lib/chrome-storage";
+import type { BlockedAccount } from "../../../packages/storage/blocked-merge";
+import { blockedStore } from "../../../packages/storage/blocked-store";
+import { CLOUD_BACKUP_KEY, storageGet } from "../../../packages/storage/chrome-storage";
 import { createLiveNumber, formatCount } from "../../lib/live-number";
 import { createVirtualList, type VirtualList } from "../virtual-list";
 import { downloadJson } from "../download";

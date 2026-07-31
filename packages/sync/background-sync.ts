@@ -7,7 +7,7 @@
 // after it grows (debounced, so a bulk run becomes one batched push) and on a periodic
 // alarm as a safety net.
 
-import { CLOUD_BACKUP_KEY, storageGet, storageRemove, storageSet } from "./chrome-storage";
+import { CLOUD_BACKUP_KEY, storageGet, storageRemove, storageSet } from "../storage/chrome-storage";
 
 export const OUTBOX_SYNC_DEBOUNCE_MS = 10_000;
 export const PERIODIC_SYNC_ALARM = "xblocker-cloud-sync";

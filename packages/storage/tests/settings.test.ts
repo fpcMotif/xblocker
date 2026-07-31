@@ -1,12 +1,12 @@
-// Catalog: SET-* (lib/settings: the pure normalizer normalizeSettings, and the storage
+// Catalog: SET-* (packages/storage/settings: the pure normalizer normalizeSettings, and the storage
 // reader readSettings built on top of it). Used to be split — the normalizer's unit
 // tests lived as OG-01 in test/options/general.test.ts — but a lib-level module should
 // be tested at the lib level, so they moved here; the General pane suite now only tests
 // pane behavior.
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { DEFAULT_SETTINGS, normalizeSettings, readSettings } from "../entrypoints/lib/settings.ts";
-import { resetTestEnvironment, storageFake } from "./setup.ts";
+import { DEFAULT_SETTINGS, normalizeSettings, readSettings } from "../settings.ts";
+import { resetTestEnvironment, storageFake } from "../../../test/setup.ts";
 
 describe("normalizeSettings", () => {
   test("SET-01 top-level garbage (string, null, undefined) normalizes to the defaults", () => {

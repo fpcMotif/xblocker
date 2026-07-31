@@ -2,7 +2,7 @@
 // out of actions.ts — moved verbatim, kept as one module because both concerns read the
 // same reply <article> markup: extraction resolves who a reply is from, the boundary
 // decides which articles are genuine replies at all.
-import { normalizeUsername } from "../lib/settings";
+import { normalizeUsername } from "../../packages/storage/settings";
 // The reply-<article> selector is shared X vocabulary (x-dom.ts); the tweetText / quote /
 // socialContext selectors below stay module-private — they are author-extraction region
 // policy, not vocabulary other surfaces match against.

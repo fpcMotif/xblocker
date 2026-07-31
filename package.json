@@ -19,7 +19,7 @@
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware --deny-warnings .",
     "lint:fix": "oxlint --type-aware --fix .",
-    "lint:boundaries": "depcruise entrypoints packages",
+    "lint:boundaries": "depcruise entrypoints packages convex",
     "format": "oxfmt --write package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\"",
     "format:check": "oxfmt --check package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\"",
     "check": "bun run typecheck && bun run lint && bun run lint:boundaries && bun run format:check && bun test && bun run build",

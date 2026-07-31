@@ -3,7 +3,7 @@
 //
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { RemoteAccount } from "../../entrypoints/lib/blocked-store.ts";
+import type { RemoteAccount } from "../../packages/storage/blocked-store.ts";
 import type { RenderCloudPaneOptions } from "../../entrypoints/options/panes/cloud.ts";
 import {
   formatSyncAge,
@@ -11,7 +11,7 @@ import {
   WIPE_CONFIRM_WORD,
 } from "../../entrypoints/options/panes/cloud.ts";
 import { renderOptions } from "../../entrypoints/options/main.ts";
-import type { CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
+import type { CloudAdapter } from "../../packages/sync/sync-engine.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 

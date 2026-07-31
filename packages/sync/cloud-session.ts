@@ -1,5 +1,5 @@
-import { blockedStore } from "./blocked-store";
-import { CLOUD_BACKUP_KEY, storageSet } from "./chrome-storage";
+import { blockedStore } from "../storage/blocked-store";
+import { CLOUD_BACKUP_KEY, storageSet } from "../storage/chrome-storage";
 import {
   type CloudAdapter,
   formatSyncAge,
@@ -58,15 +58,16 @@ export type CloudSyncSession = {
 // probe goes further: cloud-config imports no Convex code at all, so the mount-time
 // configured check costs no chunk fetch either.
 const loadDefaultAdapter: LoadCloudAdapter = async () =>
-  (await import("./convex-sync")).convexAdapter;
+  (await import("./lib/convex-sync")).convexAdapter;
 
 const probeDefaultConfiguration: ProbeConfiguredPort = async () =>
-  (await import("./cloud-config")).isCloudConfigured();
+  (await import("./lib/cloud-config")).isCloudConfigured();
 
 // One-line delegate: the configured check and the live-Convex clear both live in
 // convex-sync (the coverage-exempt thin I/O module, same discipline as push/pull) —
 // keeping them here left the configured happy path structurally uncoverable.
-const clearDefaultCloud: ClearCloudPort = async () => (await import("./convex-sync")).clearCloud();
+const clearDefaultCloud: ClearCloudPort = async () =>
+  (await import("./lib/convex-sync")).clearCloud();
 
 // The formatter lives in sync-engine (it owns SyncMeta) — re-exported here so the
 // session's consumers (popup, options pane, tests) import one cloud-facing module.

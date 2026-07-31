@@ -2,20 +2,20 @@
 //
 // Watches the outbox the content script fills and drains it to Convex shortly after it
 // grows, plus a periodic alarm as a safety net — so cloud state no longer waits for the
-// user to open the popup. All scheduling logic lives in lib/background-sync (covered by
+// user to open the popup. All scheduling logic lives in packages/sync/background-sync (covered by
 // unit tests); this file is the thin chrome wiring.
 
 import { defineBackground } from "wxt/utils/define-background";
 
-import { OUTBOX_STORAGE_KEY } from "./lib/blocked-store";
+import { OUTBOX_STORAGE_KEY } from "../packages/storage/blocked-store";
 import {
   createBackgroundSyncScheduler,
   readCloudBackupEnabled,
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
-} from "./lib/background-sync";
+} from "../packages/sync/background-sync";
 import { isOpenOptionsMessage } from "./lib/messaging";
-import { runAutoCloudSync } from "./lib/sync-engine";
+import { runAutoCloudSync } from "../packages/sync/sync-engine";
 
 export function startBackgroundSync(): void {
   const scheduler = createBackgroundSyncScheduler({

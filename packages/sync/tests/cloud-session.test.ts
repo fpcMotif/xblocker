@@ -1,14 +1,10 @@
 // Catalog: CS-* (shared cloud-sync UI orchestration).
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { OutboxItem, RemoteAccount } from "../entrypoints/lib/blocked-store.ts";
-import {
-  createCloudSyncSession,
-  formatSyncAge,
-  mapSyncOutcomeToState,
-} from "../entrypoints/lib/cloud-session.ts";
-import { SYNC_META_KEY, SYNC_STALE_MS, type CloudAdapter } from "../entrypoints/lib/sync-engine.ts";
-import { resetTestEnvironment, storageFake } from "./setup.ts";
+import type { OutboxItem, RemoteAccount } from "../../storage/blocked-store.ts";
+import { createCloudSyncSession, formatSyncAge, mapSyncOutcomeToState } from "../cloud-session.ts";
+import { SYNC_META_KEY, SYNC_STALE_MS, type CloudAdapter } from "../sync-engine.ts";
+import { resetTestEnvironment, storageFake } from "../../../test/setup.ts";
 
 function pendingItem(actionId: string): OutboxItem {
   return {

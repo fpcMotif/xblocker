@@ -3,7 +3,7 @@
 // without ever opening X's own •••-menu confirmation flow. Split out of actions.ts —
 // moved verbatim so the cookie/bearer/ct0 request plumbing and response parsing stay a
 // separate concern from batch orchestration and DOM author extraction.
-import { normalizeUsername } from "../lib/settings";
+import { normalizeUsername } from "../../packages/storage/settings";
 
 export type DirectActionType = "block" | "mute";
 

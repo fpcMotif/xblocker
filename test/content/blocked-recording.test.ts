@@ -3,7 +3,7 @@
 // exercises the storage side-effect and the id_str capture from blocks/create.json.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { blockedStore } from "../../entrypoints/lib/blocked-store.ts";
+import { blockedStore } from "../../packages/storage/blocked-store.ts";
 import { createTweetArticle, hooks } from "../helpers/content-hooks.ts";
 import { resetTestEnvironment, setDocumentCookie } from "../setup.ts";
 

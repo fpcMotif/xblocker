@@ -15,10 +15,14 @@
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
-import { outboxItemToRecordArgs, outboxToRecordBatches, type RecordActionArgs } from "./cloud-wire";
-import type { OutboxItem, RemoteAccount } from "./blocked-store";
+import {
+  outboxItemToRecordArgs,
+  outboxToRecordBatches,
+  type RecordActionArgs,
+} from "../cloud-wire";
+import type { OutboxItem, RemoteAccount } from "../../storage/blocked-store";
 import { isCloudConfigured, readConvexUrl } from "./cloud-config";
-import type { CloudAdapter } from "./sync-engine";
+import type { CloudAdapter } from "../sync-engine";
 
 // The build-time configuration (URL read + configured check) lives in cloud-config,
 // which imports no Convex code — re-exported here so this module's consumers can keep

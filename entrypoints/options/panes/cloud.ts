@@ -1,9 +1,13 @@
 // Cloud backup pane. Cloud-session owns lazy transport loading and wipe orchestration.
 
-import { blockedStore } from "../../lib/blocked-store";
-import { CLOUD_BACKUP_KEY, storageSet } from "../../lib/chrome-storage";
-import { type CloudSyncDeps, createCloudSyncSession, formatSyncAge } from "../../lib/cloud-session";
-import { readCloudDisplayState, type SyncMeta } from "../../lib/sync-engine";
+import { blockedStore } from "../../../packages/storage/blocked-store";
+import { CLOUD_BACKUP_KEY, storageSet } from "../../../packages/storage/chrome-storage";
+import {
+  type CloudSyncDeps,
+  createCloudSyncSession,
+  formatSyncAge,
+} from "../../../packages/sync/cloud-session";
+import { readCloudDisplayState, type SyncMeta } from "../../../packages/sync/sync-engine";
 
 export const WIPE_CONFIRM_WORD = "WIPE";
 

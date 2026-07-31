@@ -2,14 +2,14 @@
 // persisted under the popup's existing 4-key settings blob (SETTINGS_KEY) so this page and
 // the popup read/write the exact same storage shape.
 
-import { storageSet, SETTINGS_KEY } from "../../lib/chrome-storage";
+import { storageSet, SETTINGS_KEY } from "../../../packages/storage/chrome-storage";
 import {
   clampMaxReplies,
   MAX_REPLIES_LIMIT,
   normalizeSettings,
   readSettings,
   type Settings,
-} from "../../lib/settings";
+} from "../../../packages/storage/settings";
 import { watchStorage } from "../storage-watch";
 
 type BooleanSettingKey = "protectWhitelist" | "confirmDestructiveActions" | "keyboardMode";

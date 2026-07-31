@@ -3,8 +3,8 @@
 // unit-tested in isolation, and convex-sync.ts (the only Convex-aware module) imports it
 // as a thin dependency rather than owning the mapping itself.
 
-import type { OutboxItem } from "./blocked-store";
-import type { BlockActionKind, BlockSource } from "./blocked-merge";
+import type { OutboxItem } from "../storage/blocked-store";
+import type { BlockActionKind, BlockSource } from "../storage/blocked-merge";
 
 /** Arguments for the Convex `recordAction` mutation. Built by `outboxItemToRecordArgs`
  *  (kept here, not in convex-sync.ts, so the pure mapping is unit-tested). */

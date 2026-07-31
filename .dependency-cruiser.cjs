@@ -79,12 +79,14 @@ module.exports = {
     // Layering controls WHICH packages may depend on which. Add your own rules
     // here, e.g.:
     //
-    // {
-    //   name: "ui-may-not-depend-on-billing",
-    //   severity: "error",
-    //   from: { path: `^${R}/ui/` },
-    //   to:   { path: `^${R}/billing/` },
-    // },
+    {
+      name: "storage-must-not-depend-on-sync",
+      comment:
+        "Layering: local persistence is the bottom layer — storage never reaches up into cloud sync. (Its tests/ are exempt, like everywhere else in this config: they may exercise any package's entry points.)",
+      severity: "error",
+      from: { path: `^${R}/storage/`, pathNot: `^${R}/storage/tests/` },
+      to: { path: `^${R}/sync/` },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },

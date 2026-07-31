@@ -12,11 +12,11 @@ import {
   type BlockedAccount,
   type BlockedStats,
   type RemoteAccountSnapshot,
-} from "../entrypoints/lib/blocked-merge.ts";
-import { createBlockedStore, type RemoteAccount } from "../entrypoints/lib/blocked-store.ts";
-import { outboxItemToRecordArgs, type RecordActionArgs } from "../entrypoints/lib/cloud-wire.ts";
-import { settleMicrotasks } from "./helpers/timers.ts";
-import { storageFake } from "./setup.ts";
+} from "../blocked-merge.ts";
+import { createBlockedStore, type RemoteAccount } from "../blocked-store.ts";
+import { outboxItemToRecordArgs, type RecordActionArgs } from "../../sync/cloud-wire.ts";
+import { settleMicrotasks } from "../../../test/helpers/timers.ts";
+import { storageFake } from "../../../test/setup.ts";
 
 let counter = 0;
 const fixedId = () => `action-${++counter}`;
