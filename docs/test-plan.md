@@ -37,7 +37,8 @@ here is the extension's only persistence and network surface:
 | `normalizeUsername`, `extractUsernameFromTweet` | `content/username.test.ts` | UN-01..15, EX-01..10 |
 | `isTweetPageUrl`, `getCookieValue` | `content/url-and-cookies.test.ts` | URL-01..07, CK-01..08 |
 | `createDirectBlockRequest`, `blockUserDirectly`, `blockTweet` | `content/direct-block.test.ts` | DB-01..11, BT-01..07 |
-| `blockFirst20CommentTweets`, `muteFirst50CommentTweets`, `muteTweet` | `content/bulk-actions.test.ts` | BULK-01..13 |
+| `createReplyBatchRunner` (act → confirm → retry-with-backoff → record, ADR-0004) | `content/bulk-actions.test.ts` | BULK-01..28 |
+| `createRelationshipLookupRequest`, `parseRelationshipResponse`, `confirmDirectAction`, `isRateLimited` | `content/relationship-lookup.test.ts` | RL-01..15 |
 | `getWhitelist`, `saveWhitelist`, `addToWhitelist` | `content/whitelist-storage.test.ts` | WL-01..12 |
 | `detectTheme`, `applyTheme`, `ensureStyles`, `createIcon`, `createActionButton`, `showToast`, `showWhitelistModal` | `content/ui-rendering.test.ts` | TH/ST/IC/BT/TO/MD |
 | `computeRailY`, `exceedsJitter`, `lerp` (pure geometry) | `content/position.test.ts` | RAIL/JIT/LERP/CONST |

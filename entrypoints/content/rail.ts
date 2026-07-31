@@ -482,15 +482,15 @@ export class ReplyRail {
         return;
       }
       if (kind === "block") {
-        this.incrementBlocked(summary.acted);
+        this.incrementBlocked(summary.confirmed);
       }
 
-      if (summary.acted > 0) {
+      if (summary.confirmed > 0) {
         const verb = kind === "block" ? "Blocked" : "Muted";
-        const noun = summary.acted === 1 ? "reply" : "replies";
+        const noun = summary.confirmed === 1 ? "reply" : "replies";
         const skipped = summary.skipped ? `, skipped ${summary.skipped}` : "";
-        showToast(`${verb} ${summary.acted} ${noun}${skipped}`, "success");
-      } else if (summary.failed > 0) {
+        showToast(`${verb} ${summary.confirmed} ${noun}${skipped}`, "success");
+      } else if (summary.unconfirmed > 0) {
         showToast(`Direct ${kind} failed. Please stay signed in to X and retry.`, "warning");
         throw new Error(`Batch ${kind} failed.`);
       }
