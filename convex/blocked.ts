@@ -40,6 +40,8 @@ const OWNER = "local";
 // makeFakeCloud in test/blocked-store.test.ts exercises the same shared operators and
 // BS-33/34/35 pin the +1/SUM distinction.
 const recordActionArgs = {
+  // A stale device must not recreate rows after another device wiped the mirror.
+  generation: v.number(),
   xUserId: v.string(),
   handle: v.string(),
   idUnknown: v.boolean(),
@@ -57,8 +59,23 @@ const recordActionArgs = {
 const recordActionArgsValidator = v.object(recordActionArgs);
 type RecordActionArgs = Infer<typeof recordActionArgsValidator>;
 
-async function applyRecordAction(ctx: MutationCtx, args: RecordActionArgs): Promise<void> {
+async function currentGeneration(ctx: MutationCtx): Promise<number> {
+  const meta = await ctx.db
+    .query("cloudOwners")
+    .withIndex("by_owner", (q) => q.eq("owner", OWNER))
+    .first();
+  if (meta) return meta.generation;
+  await ctx.db.insert("cloudOwners", { owner: OWNER, generation: 0 });
+  return 0;
+}
+
+async function applyRecordAction(
+  ctx: MutationCtx,
+  args: RecordActionArgs,
+): Promise<{ accepted: boolean; generation: number }> {
   const owner = OWNER;
+  const generation = await currentGeneration(ctx);
+  if (args.generation !== generation) return { accepted: false, generation };
 
   // Idempotency: if this exact client action was already recorded, do nothing.
   if (args.clientActionId) {
@@ -68,7 +85,7 @@ async function applyRecordAction(ctx: MutationCtx, args: RecordActionArgs): Prom
         q.eq("owner", owner).eq("clientActionId", args.clientActionId),
       )
       .first();
-    if (existingAction) return;
+    if (existingAction) return { accepted: true, generation };
   }
 
   const byXid = (xid: string) =>
@@ -147,14 +164,14 @@ async function applyRecordAction(ctx: MutationCtx, args: RecordActionArgs): Prom
     ...(args.fromAccount ? { fromAccount: args.fromAccount } : {}),
     ...(args.clientActionId ? { clientActionId: args.clientActionId } : {}),
   });
+  return { accepted: true, generation };
 }
 
 export const recordAction = mutation({
   args: recordActionArgs,
-  returns: v.null(),
+  returns: v.object({ accepted: v.boolean(), generation: v.number() }),
   handler: async (ctx, args) => {
-    await applyRecordAction(ctx, args);
-    return null;
+    return applyRecordAction(ctx, args);
   },
 });
 
@@ -165,45 +182,80 @@ export const recordAction = mutation({
 // retried chunk never double-records.
 export const recordActions = mutation({
   args: { actions: v.array(recordActionArgsValidator) },
-  returns: v.null(),
+  returns: v.object({ accepted: v.boolean(), generation: v.number() }),
   handler: async (ctx, args) => {
-    for (const action of args.actions) {
-      await applyRecordAction(ctx, action);
+    const generation = await currentGeneration(ctx);
+    if (args.actions.some((action) => action.generation !== generation)) {
+      return { accepted: false, generation };
     }
-    return null;
+    for (const action of args.actions) {
+      const result = await applyRecordAction(ctx, action);
+      if (!result.accepted) return result;
+    }
+    return { accepted: true, generation };
   },
 });
 
 // All of the signed-in owner's blocked accounts, shaped for the local store's mergeRemote.
 export const listBlocked = query({
   args: {},
-  returns: v.array(remoteAccountValidator),
+  returns: v.object({ generation: v.number(), accounts: v.array(remoteAccountValidator) }),
   handler: async (ctx) => {
     const owner = OWNER;
-    const accounts = await ctx.db
-      .query("blockedAccounts")
-      .withIndex("by_owner", (q) => q.eq("owner", owner))
-      .collect();
+    const [meta, accounts] = await Promise.all([
+      ctx.db
+        .query("cloudOwners")
+        .withIndex("by_owner", (q) => q.eq("owner", owner))
+        .first(),
+      ctx.db
+        .query("blockedAccounts")
+        .withIndex("by_owner", (q) => q.eq("owner", owner))
+        .collect(),
+    ]);
 
-    return accounts.map((account) => ({
-      xUserId: account.xUserId,
-      handle: account.handle,
-      idUnknown: account.idUnknown,
-      firstActionAt: account.firstActionAt,
-      lastActionAt: account.lastActionAt,
-      blockCount: account.blockCount,
-      muteCount: account.muteCount,
-      status: account.status,
-    }));
+    return {
+      generation: meta?.generation ?? 0,
+      accounts: accounts.map((account) => ({
+        xUserId: account.xUserId,
+        handle: account.handle,
+        idUnknown: account.idUnknown,
+        firstActionAt: account.firstActionAt,
+        lastActionAt: account.lastActionAt,
+        blockCount: account.blockCount,
+        muteCount: account.muteCount,
+        status: account.status,
+      })),
+    };
   },
 });
 
-// "Delete my cloud data": remove every account and action for the signed-in owner.
-export const clearOwner = mutation({
-  args: {},
-  returns: v.null(),
-  handler: async (ctx) => {
+// "Delete my cloud data": a durable receipt makes every retry a no-op, even after later
+// wipes. Convex runs this mutation transactionally, so the receipt, generation change,
+// and deletes commit together.
+export const wipeOwner = mutation({
+  args: { wipeId: v.string() },
+  returns: v.object({ generation: v.number() }),
+  handler: async (ctx, { wipeId }) => {
     const owner = OWNER;
+    const [meta, receipt] = await Promise.all([
+      ctx.db
+        .query("cloudOwners")
+        .withIndex("by_owner", (q) => q.eq("owner", owner))
+        .first(),
+      ctx.db
+        .query("cloudWipes")
+        .withIndex("by_owner_wipe", (q) => q.eq("owner", owner).eq("wipeId", wipeId))
+        .first(),
+    ]);
+    if (receipt) return { generation: meta?.generation ?? receipt.generation };
+
+    const generation = (meta?.generation ?? 0) + 1;
+    if (meta) {
+      await ctx.db.patch(meta._id, { generation });
+    } else {
+      await ctx.db.insert("cloudOwners", { owner, generation });
+    }
+    await ctx.db.insert("cloudWipes", { owner, wipeId, generation });
 
     const accounts = await ctx.db
       .query("blockedAccounts")
@@ -221,6 +273,6 @@ export const clearOwner = mutation({
       await ctx.db.delete(action._id);
     }
 
-    return null;
+    return { generation };
   },
 });

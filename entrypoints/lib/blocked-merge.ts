@@ -34,6 +34,18 @@ export type BlockAction = {
   source: BlockSource;
   // Which of the user's own X accounts performed the action, when known.
   fromAccount?: string;
+  // The normalized record request. Local action history is the durable receipt for
+  // an explicit actionId: a service-worker restart can compare a retry's whole
+  // request before deciding whether it is safe to return the prior result.
+  // Optional only for ledgers written before this field existed.
+  record?: {
+    handle: string;
+    xUserId?: string;
+    kind: BlockActionKind;
+    source: BlockSource;
+    fromAccount?: string;
+    at?: number;
+  };
 };
 
 export type BlockedAccount = {
@@ -78,13 +90,21 @@ export function accountKeyFor(input: { xUserId?: string; handle: string }): stri
   return input.xUserId ? input.xUserId : `@${stripAtPrefix(input.handle).toLowerCase()}`;
 }
 
-function makeAction(input: RecordInput, at: number, actionId: string): BlockAction {
+function makeAction(input: RecordInput, at: number, actionId: string, handle: string): BlockAction {
   return {
     actionId,
     kind: input.kind,
     at,
     source: input.source,
     ...(input.fromAccount ? { fromAccount: input.fromAccount } : {}),
+    record: {
+      handle,
+      ...(input.xUserId ? { xUserId: input.xUserId } : {}),
+      kind: input.kind,
+      source: input.source,
+      ...(input.fromAccount ? { fromAccount: input.fromAccount } : {}),
+      ...(input.at !== undefined ? { at: input.at } : {}),
+    },
   };
 }
 
@@ -200,8 +220,8 @@ export function mergeBlockedAccount(
 ): BlockedAccount {
   const at = input.at ?? now;
   const actionId = input.actionId ?? genId();
-  const action = makeAction(input, at, actionId);
   const handle = stripAtPrefix(input.handle);
+  const action = makeAction(input, at, actionId, handle);
 
   // We may now have learned a numeric id for an account previously keyed by handle. We
   // keep the existing map key stable (so the store never has to move entries) — only

@@ -23,7 +23,7 @@ produced the alternatives below.
 
 ## Options considered
 
-### A. Maximum depth: one `SyncEngine` object, delete `background-sync.ts` — REJECTED (for now)
+### A. Maximum depth: one `SyncEngine` object, delete `background-sync.ts` — DEFERRED
 
 `createSyncEngine(deps)` with `requestSync(reason)` absorbing debounce, staleness,
 enablement, and adapter selection. Deepest interface, but it deletes the MV3 due-at
@@ -45,7 +45,7 @@ gate; engine tests inject plain object fakes, no `mock.module`.
 
 Adopt C's core, scoped by B's collision discipline:
 
-- `sync-engine.ts` exports `CloudAdapter` (`isConfigured` / `push` / `pull`, spoken in
+- `sync-engine.ts` exports `CloudAdapter` (`isConfigured` / `push` / `pull` / `wipe`, spoken in
   the store's own vocabulary — `OutboxItem` in, accepted ids out, `RemoteAccount[]` on
   pull; the Convex wire shape never crosses this seam). `runCloudSync` gains an optional
   `loadAdapter` parameter defaulting to a lazy `import("./convex-sync")` → `convexAdapter`,
@@ -65,9 +65,8 @@ Adopt C's core, scoped by B's collision discipline:
   was only ever the background's missing gate. Its `mock.module`-based tests are
   accepted as temporary debt until the in-flight popup redesign settles (tracked in the
   wiring-review task), after which the popup should take a `loadCloudAdapter` dep.
-- `clearCloud` stays exported but unwired: its natural consumer is the settings page in
-  the gauge-and-ledger plan (docs/plans/2026-07-10-gauge-and-ledger/); wire it there or
-  delete it when that page ships.
+- Cloud wipe stays outside the automatic-sync policy: its natural consumer is the settings
+  page in the gauge-and-ledger plan (docs/plans/2026-07-10-gauge-and-ledger/).
 
 Behavior change (intended): a periodic alarm or caught-up debounce with an empty outbox
 and a fresh `lastSyncAt` now skips instead of running a full push+pull+merge. Manual
@@ -93,12 +92,18 @@ The two consciously-deferred pieces above are done (architecture-deepening pass,
   object fakes, exactly like the engine tests — the "popup test seam is deferred" debt is
   retired. The popup's open-time auto-sync flows through `runAutoCloudSync` (the single
   gate) rather than a hand-rolled `shouldAutoSync` copy.
-- `CloudAdapter` gained `clear()`; `convexAdapter` wires it to `clearCloud`, and the
-  pane's wipe now calls `adapter.clear()` through the port instead of lazy-importing
-  convex-sync directly. `clearCloud` is now module-private (reached only via the port),
-  not the unwired export it used to be.
-- New `readCloudDisplayState()` is the one storage read (enabled / meta / pending) both
+- `CloudAdapter` gained `wipe()`; `convexAdapter` wires it to cloud wipe, and the
+  pane's wipe now calls `adapter.wipe()` through the port instead of lazy-importing
+  `convex-sync` directly. Cloud wipe is module-private outside the adapter.
+- New `readCloudDisplayState()` supplies the shared display state (enabled / meta / pending) both
   surfaces render their initial rows from. `readCloudStatus(loadAdapter?)` layers the
   adapter's `configured` flag on top for the popup, which holds no adapter yet; the settings
   pane loads its adapter up front (it needs it for the wipe) and reads `readCloudDisplayState`
   directly, so it neither re-loads nor re-checks the adapter.
+
+## Update (2026-07-18) — state ownership moves inward
+
+ADR-0004 moves `CloudAdapter` inside the worker-owned `StateOwner`, alongside shared
+storage mutation. The `CloudAdapter` remains the canonical cloud vocabulary, including
+`wipe()`, but surfaces no longer own it directly. Option A is now justified: proven
+cross-context lost updates and a wipe race outweigh its earlier collision cost.

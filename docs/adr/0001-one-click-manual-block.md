@@ -22,7 +22,7 @@ control that targets the hovered reply's author (block / mute / whitelist that o
 Research into X's current block/mute mechanics (live web-client dispatch tables, two
 production extensions, X developer docs, devcommunity threads):
 
-### A. Direct internal v1.1 API per reply (Cursor Console) — CHOSEN DEFAULT
+### A. Direct internal v1.1 API per reply (Cursor Console) — inline mode
 
 Inject a small per-reply action group; one click calls the existing direct-API
 `blockTweet` / `muteTweet` (`POST /1.1/blocks/create.json`, `/1.1/mutes/users/create.json`
@@ -35,7 +35,7 @@ with the session bearer + `ct0` CSRF). Instant, silent, no API key.
 - Fully in-extension: no dependency on X's confirmation markup for the action itself.
 - Matches the documented Cursor Console intent.
 
-### B. Auto-confirm X's native confirmation sheet — SHIPPED AS FALLBACK (flagged)
+### B. Auto-confirm X's native confirmation sheet — default mode
 
 Watch for X's confirmation sheet and auto-click `[data-testid="confirmationSheetConfirm"]`
 so the native ••• → Block flow needs no manual confirm.
@@ -75,8 +75,6 @@ site-wide.
   into the ••• → Block / Mute menu items.
 - A is the **Cursor Console**: per-reply Block / Mute / Whitelist buttons reusing the
   existing direct-API path; one click, no confirmation. Kept as the robust opt-in.
-- The popup's unused `confirmDestructiveActions` toggle is intentionally left untouched.
-
 ### Revision (2026-06-15) — default flipped A → B
 
 Originally A (inline) was the default for robustness: it depends on no X dialog markup.

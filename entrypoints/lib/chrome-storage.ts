@@ -24,29 +24,67 @@ export const DOCK_POSITION_KEY = "dockPosition";
  */
 export function storageGet<T>(key: string): Promise<T | undefined> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(key, (result: { [storageKey: string]: T | undefined }) => {
-      resolve(chrome.runtime.lastError || result === undefined ? undefined : result[key]);
+    try {
+      chrome.storage.local.get(key, (result: { [storageKey: string]: T | undefined }) => {
+        resolve(chrome.runtime.lastError || result === undefined ? undefined : result[key]);
+      });
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
+
+/**
+ * Strict read for a state mutation. Missing keys are valid; an unusable callback
+ * result or callback-scoped chrome.runtime.lastError rejects.
+ */
+export function storageGetStrict<T>(key: string): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get<Record<string, T | undefined>>(key, (result) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(`storage get failed: ${error.message}`));
+        return;
+      }
+      if (result === undefined) {
+        reject(new Error("storage get returned no result"));
+        return;
+      }
+      resolve(result[key]);
     });
   });
 }
 
 /**
- * Fire-and-forget write: resolves once chrome's callback fires, even when
- * chrome.runtime.lastError is set — existing callers never awaited failures here.
+ * Strict write: resolves only after chrome confirms the write without a
+ * callback-scoped chrome.runtime.lastError.
  *
  * chrome.storage.local.set DROPS undefined values during serialization (the key keeps
  * its old value), so it can never clear a key — use storageRemove for that.
  */
 export function storageSet(items: Record<string, unknown>): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.set(items, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(items, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(`storage set failed: ${error.message}`));
+        return;
+      }
+      resolve();
+    });
   });
 }
 
-/** Delete `key` outright; the only way to clear a key (see storageSet). Same
- *  fire-and-forget contract as storageSet. */
+/** Delete `key` outright; the only way to clear a key (see storageSet). */
 export function storageRemove(key: string): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.remove(key, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.remove(key, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(`storage remove failed: ${error.message}`));
+        return;
+      }
+      resolve();
+    });
   });
 }

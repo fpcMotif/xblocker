@@ -9,6 +9,8 @@ import type { BlockActionKind, BlockSource } from "./blocked-merge";
 /** Arguments for the Convex `recordAction` mutation. Built by `outboxItemToRecordArgs`
  *  (kept here, not in convex-sync.ts, so the pure mapping is unit-tested). */
 export type RecordActionArgs = {
+  /** Server-side owner generation. A stale device cannot recreate a wiped mirror. */
+  generation: number;
   xUserId: string;
   handle: string;
   idUnknown: boolean;
@@ -22,6 +24,9 @@ export type RecordActionArgs = {
   aliasKey?: string;
 };
 
+/** Wire output sent by the current adapter. */
+export type FencedRecordActionArgs = RecordActionArgs;
+
 /**
  * Map a queued outbox item to the cloud `recordAction` arguments.
  *
@@ -30,9 +35,13 @@ export type RecordActionArgs = {
  * from the canonical key, which only happens after an id is learned for a handle-first
  * account — letting the cloud migrate the old row instead of creating a duplicate.
  */
-export function outboxItemToRecordArgs(item: OutboxItem): RecordActionArgs {
+export function outboxItemToRecordArgs(
+  item: OutboxItem,
+  generation: number,
+): FencedRecordActionArgs {
   const xUserId = item.xUserId ?? item.accountKey;
   return {
+    generation,
     xUserId,
     handle: item.handle,
     idUnknown: item.idUnknown,
@@ -49,7 +58,7 @@ export function outboxItemToRecordArgs(item: OutboxItem): RecordActionArgs {
  *  the mapped mutation args plus the action ids to mark synced once accepted, and the
  *  original items so a caller can fall back to per-item pushes. */
 export type RecordBatch = {
-  args: RecordActionArgs[];
+  args: FencedRecordActionArgs[];
   actionIds: string[];
   items: OutboxItem[];
 };
@@ -61,13 +70,17 @@ export type RecordBatch = {
  * (~300ms per queued action). Kept here rather than in convex-sync.ts so the mapping
  * is unit-tested; convex-sync stays a thin I/O wrapper.
  */
-export function outboxToRecordBatches(items: OutboxItem[], size: number): RecordBatch[] {
+export function outboxToRecordBatches(
+  items: OutboxItem[],
+  size: number,
+  generation: number,
+): RecordBatch[] {
   const chunkSize = Math.max(1, Math.trunc(size));
   const batches: RecordBatch[] = [];
   for (let start = 0; start < items.length; start += chunkSize) {
     const chunk = items.slice(start, start + chunkSize);
     batches.push({
-      args: chunk.map(outboxItemToRecordArgs),
+      args: chunk.map((item) => outboxItemToRecordArgs(item, generation)),
       actionIds: chunk.map((item) => item.action.actionId),
       items: chunk,
     });

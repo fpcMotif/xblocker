@@ -11,15 +11,21 @@ import { CLOUD_BACKUP_KEY, storageGet, storageSet } from "./chrome-storage";
  * The cloud transport seam, spoken entirely in the store's own vocabulary
  * (`OutboxItem` in, accepted action ids out, `RemoteAccount[]` on pull) — the Convex
  * wire shape never crosses this seam. `isConfigured` is synchronous and side-effect-free
- * and is always checked before any network I/O. `push`/`pull`/`clear` may reject;
+ * and is always checked before any network I/O. `push`/`pull`/`wipe` may reject;
  * `runCloudSync` does not catch, so callers own error handling.
  */
 export type CloudAdapter = {
   isConfigured(): boolean;
-  push(items: OutboxItem[]): Promise<string[]>;
-  pull(): Promise<RemoteAccount[]>;
-  clear(): Promise<void>;
+  push(items: OutboxItem[], generation: number): Promise<CloudPushResult>;
+  pull(): Promise<CloudPullResult>;
+  wipe(wipeId: string): Promise<number>;
 };
+
+export type CloudPushResult =
+  | { status: "accepted"; actionIds: string[]; generation: number }
+  | { status: "stale"; generation: number };
+
+export type CloudPullResult = { generation: number; accounts: RemoteAccount[] };
 
 /** The canonical lazy loader for the production Convex adapter (see the header: the
  *  Convex bundle loads only when a sync or status read actually runs, so an unconfigured
@@ -36,11 +42,13 @@ export const SYNC_META_KEY = "cloudSyncMeta";
  *  be before an auto-sync considers the local view stale. */
 export const SYNC_STALE_MS = 15 * 60 * 1000;
 
-export type SyncMeta = { lastSyncAt?: number };
+/** The last cloud generation this device has observed. Missing means legacy generation 0. */
+export type SyncMeta = { lastSyncAt?: number; cloudGeneration?: number };
 
 export type SyncOutcome =
   | { status: "unconfigured" }
-  | { status: "synced"; pushed: number; pulled: number; at: number };
+  | { status: "stale"; generation: number }
+  | { status: "synced"; pushed: number; pulled: number; at: number; generation: number };
 
 function isSyncMeta(value: unknown): value is SyncMeta {
   return typeof value === "object" && value !== null;
@@ -53,6 +61,13 @@ export async function getSyncMeta(): Promise<SyncMeta> {
 
 function writeSyncMeta(meta: SyncMeta): Promise<void> {
   return storageSet({ [SYNC_META_KEY]: meta });
+}
+
+function disableBackupForGeneration(generation: number): Promise<void> {
+  return storageSet({
+    [CLOUD_BACKUP_KEY]: false,
+    [SYNC_META_KEY]: { cloudGeneration: generation },
+  });
 }
 
 /**
@@ -71,7 +86,7 @@ export function shouldAutoSync(
   return typeof meta.lastSyncAt !== "number" || now - meta.lastSyncAt > SYNC_STALE_MS;
 }
 
-/** Push pending outbox actions, pull + merge remote accounts, stamp lastSyncAt. */
+/** Push pending actions only into the current cloud generation, then pull its snapshot. */
 export async function runCloudSync(
   now: () => number = Date.now,
   loadAdapter: () => Promise<CloudAdapter> = loadConvexAdapter,
@@ -81,17 +96,44 @@ export async function runCloudSync(
     return { status: "unconfigured" };
   }
 
-  const pending = await blockedStore.pending();
+  const [pending, meta] = await Promise.all([blockedStore.pending(), getSyncMeta()]);
+  const generation = meta.cloudGeneration ?? 0;
   if (pending.length > 0) {
-    const synced = await adapter.push(pending);
-    await blockedStore.markSynced(synced);
+    const pushed = await adapter.push(pending, generation);
+    if (pushed.status === "stale" || pushed.generation !== generation) {
+      await disableBackupForGeneration(pushed.generation);
+      return { status: "stale", generation: pushed.generation };
+    }
+    await blockedStore.markSynced(pushed.actionIds);
   }
-  const remote = await adapter.pull();
-  await blockedStore.mergeRemote(remote);
+  const pulled = await adapter.pull();
+  if (pulled.generation !== generation) {
+    await disableBackupForGeneration(pulled.generation);
+    return { status: "stale", generation: pulled.generation };
+  }
+  await blockedStore.mergeRemote(pulled.accounts);
 
   const at = now();
-  await writeSyncMeta({ lastSyncAt: at });
-  return { status: "synced", pushed: pending.length, pulled: remote.length, at };
+  await writeSyncMeta({ lastSyncAt: at, cloudGeneration: generation });
+  return {
+    status: "synced",
+    pushed: pending.length,
+    pulled: pulled.accounts.length,
+    at,
+    generation,
+  };
+}
+
+/** Wipe once, store the resulting generation, and stop future automatic pushes. */
+export async function wipeCloud(
+  wipeId: string,
+  loadAdapter: () => Promise<CloudAdapter> = loadConvexAdapter,
+): Promise<{ status: "unconfigured" } | { status: "wiped"; generation: number }> {
+  const adapter = await loadAdapter();
+  if (!adapter.isConfigured()) return { status: "unconfigured" };
+  const generation = await adapter.wipe(wipeId);
+  await disableBackupForGeneration(generation);
+  return { status: "wiped", generation };
 }
 
 /**

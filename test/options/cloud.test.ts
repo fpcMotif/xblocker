@@ -91,14 +91,14 @@ describe("Cloud backup pane (configured)", () => {
 
     expect(storageFake.data["cloudBackup"]).toBe(true);
     expect(rowValues()[0]).toBe("On");
-    expect(fake.calls).toEqual({ push: 0, pull: 0, clear: 0 });
+    expect(fake.calls).toEqual({ push: 0, pull: 0, wipe: 0 });
   });
 
   test("OC-05 Sync now shows a busy state mid-flight, then reports the fresh sync time and pending count", async () => {
     let resolvePull: (() => void) | undefined;
     fake.state.pull = () =>
       new Promise((resolve) => {
-        resolvePull = () => resolve([]);
+        resolvePull = () => resolve({ generation: 0, accounts: [] });
       });
     storageFake.data["blockedOutbox"] = [
       {
@@ -173,8 +173,8 @@ describe("Cloud backup pane (configured)", () => {
     byText("button", "Confirm wipe").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settleMicrotasks(50);
 
-    expect(fake.calls.clear).toBe(1);
-    expect(storageFake.data["cloudSyncMeta"]).toEqual({});
+    expect(fake.calls.wipe).toBe(1);
+    expect(storageFake.data["cloudSyncMeta"]).toEqual({ cloudGeneration: 1 });
     expect(document.querySelector(".xb-opt-wipe-panel")?.getAttribute("data-open")).toBe("false");
     expect(rowValues()[1]).toBe("Never synced.");
   });
@@ -190,7 +190,7 @@ describe("Cloud backup pane (configured)", () => {
 
     expect(document.querySelector(".xb-opt-wipe-panel")?.getAttribute("data-open")).toBe("false");
     expect(input.value).toBe("");
-    expect(fake.calls.clear).toBe(0);
+    expect(fake.calls.wipe).toBe(0);
   });
 
   test("OC-12 confirming the wipe drains the pending outbox, turns cloud backup off, and updates the UI", async () => {
@@ -227,7 +227,7 @@ describe("Cloud backup pane (configured)", () => {
   });
 
   test("OC-10 a wipe failure shows an inline error and re-enables the gate", async () => {
-    fake.state.clear = async () => {
+    fake.state.wipe = async () => {
       throw new Error("wipe boom");
     };
     await renderPane();

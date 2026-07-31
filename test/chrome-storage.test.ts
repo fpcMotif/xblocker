@@ -1,11 +1,12 @@
 // Catalog: CS-* (storageGet / storageSet / key constants).
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   CLOUD_BACKUP_KEY,
   DOCK_POSITION_KEY,
   SETTINGS_KEY,
   storageGet,
+  storageGetStrict,
   storageRemove,
   storageSet,
   WHITELIST_KEY,
@@ -42,24 +43,38 @@ describe("storageGet", () => {
     expect(await storageGet(CLOUD_BACKUP_KEY)).toBeUndefined();
   });
 
-  describe("with chrome.runtime.lastError set", () => {
-    // chrome.runtime.lastError is declared `const` in @types/chrome (it's normally
-    // stamped by the browser, never assigned by extension code), so poking it here
-    // needs a narrow escape hatch from that read-only typing.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- lastError is declared read-only in @types/chrome, so mutating it needs this narrow escape hatch.
-    const runtime = chrome.runtime as unknown as {
-      lastError: chrome.runtime.LastError | undefined;
-    };
+  test("CS-05 resolves undefined when the callback has runtime.lastError", async () => {
+    storageFake.data[DOCK_POSITION_KEY] = { x: 1, y: 2 };
+    storageFake.lastErrorNextGet = true;
+    expect(await storageGet(DOCK_POSITION_KEY)).toBeUndefined();
+  });
+});
 
-    afterEach(() => {
-      runtime.lastError = undefined;
-    });
+describe("storageGetStrict", () => {
+  beforeEach(() => {
+    resetTestEnvironment();
+  });
 
-    test("CS-05 resolves undefined even though a value is stored", async () => {
-      storageFake.data[DOCK_POSITION_KEY] = { x: 1, y: 2 };
-      runtime.lastError = { message: "boom" };
-      expect(await storageGet(DOCK_POSITION_KEY)).toBeUndefined();
+  test("CS-06 resolves a stored value", async () => {
+    storageFake.data[SETTINGS_KEY] = { maxReplies: 25 };
+    expect(await storageGetStrict<{ maxReplies: number }>(SETTINGS_KEY)).toEqual({
+      maxReplies: 25,
     });
+  });
+
+  test("CS-07 resolves undefined only when the key is absent", async () => {
+    expect(await storageGetStrict(WHITELIST_KEY)).toBeUndefined();
+  });
+
+  test("CS-08 rejects a callback-scoped runtime error", async () => {
+    storageFake.lastErrorNextGet = true;
+    await expect(storageGetStrict(CLOUD_BACKUP_KEY)).rejects.toThrow("storage get failed: fake get failure");
+    expect(chrome.runtime.lastError).toBeUndefined();
+  });
+
+  test("CS-09 rejects an unusable callback result", async () => {
+    storageFake.returnNoResultNextGet = true;
+    await expect(storageGetStrict(CLOUD_BACKUP_KEY)).rejects.toThrow("storage get returned no result");
   });
 });
 
@@ -68,19 +83,29 @@ describe("storageSet", () => {
     resetTestEnvironment();
   });
 
-  test("CS-06 persists the given items and resolves", async () => {
+  test("CS-10 persists the given items and resolves", async () => {
     await storageSet({ [SETTINGS_KEY]: { maxReplies: 10 } });
     expect(storageFake.data[SETTINGS_KEY]).toEqual({ maxReplies: 10 });
     expect(storageFake.setCalls).toEqual([{ [SETTINGS_KEY]: { maxReplies: 10 } }]);
   });
 
-  test("CS-07 resolves even when the underlying write fails", async () => {
-    storageFake.failNextSet = true;
-    await storageSet({ [WHITELIST_KEY]: ["frank"] });
+  test("CS-11 rejects a callback-scoped runtime error", async () => {
+    storageFake.lastErrorNextSet = true;
+    await expect(storageSet({ [WHITELIST_KEY]: ["frank"] })).rejects.toThrow(
+      "storage set failed: fake set failure",
+    );
     expect(storageFake.data[WHITELIST_KEY]).toBeUndefined();
+    expect(chrome.runtime.lastError).toBeUndefined();
   });
 
-  test("CS-08 set-to-undefined does NOT clear a key (chrome drops undefined values)", async () => {
+  test("CS-12 rejects a synchronous storage throw", async () => {
+    storageFake.throwNextSet = true;
+    await expect(storageSet({ [WHITELIST_KEY]: ["frank"] })).rejects.toThrow(
+      "fake set throw",
+    );
+  });
+
+  test("CS-13 set-to-undefined does NOT clear a key (chrome drops undefined values)", async () => {
     storageFake.data[CLOUD_BACKUP_KEY] = true;
     await storageSet({ [CLOUD_BACKUP_KEY]: undefined });
     expect(storageFake.data[CLOUD_BACKUP_KEY]).toBe(true);
@@ -92,9 +117,24 @@ describe("storageRemove", () => {
     resetTestEnvironment();
   });
 
-  test("CS-09 deletes the key outright", async () => {
+  test("CS-14 deletes the key outright", async () => {
     storageFake.data[CLOUD_BACKUP_KEY] = true;
     await storageRemove(CLOUD_BACKUP_KEY);
     expect(CLOUD_BACKUP_KEY in storageFake.data).toBe(false);
+  });
+
+  test("CS-15 rejects a callback-scoped runtime error", async () => {
+    storageFake.data[CLOUD_BACKUP_KEY] = true;
+    storageFake.lastErrorNextRemove = true;
+    await expect(storageRemove(CLOUD_BACKUP_KEY)).rejects.toThrow(
+      "storage remove failed: fake remove failure",
+    );
+    expect(storageFake.data[CLOUD_BACKUP_KEY]).toBe(true);
+    expect(chrome.runtime.lastError).toBeUndefined();
+  });
+
+  test("CS-16 rejects a synchronous storage throw", async () => {
+    storageFake.throwNextRemove = true;
+    await expect(storageRemove(CLOUD_BACKUP_KEY)).rejects.toThrow("fake remove throw");
   });
 });

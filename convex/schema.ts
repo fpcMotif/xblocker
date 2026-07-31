@@ -5,6 +5,19 @@ import { v } from "convex/values";
 // (owner, xUserId), many action events — is enforced in the recordAction mutation
 // (Convex has no DB-level unique constraint), mirroring entrypoints/lib/blocked-merge.ts.
 export default defineSchema({
+  // One generation fence per owner. A wipe increments it before removing mirrored rows.
+  cloudOwners: defineTable({
+    owner: v.string(),
+    generation: v.number(),
+  }).index("by_owner", ["owner"]),
+
+  // Durable wipe receipts. They outlive later wipes, so any retry is a no-op.
+  cloudWipes: defineTable({
+    owner: v.string(),
+    wipeId: v.string(),
+    generation: v.number(),
+  }).index("by_owner_wipe", ["owner", "wipeId"]),
+
   // ONE row per blocked X account per owner. Unique key: (owner, xUserId).
   blockedAccounts: defineTable({
     owner: v.string(), // always the fixed literal "local" — single-owner backup, no auth

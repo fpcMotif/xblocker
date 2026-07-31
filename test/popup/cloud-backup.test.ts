@@ -220,7 +220,9 @@ describe("popup cloud sync row", () => {
     await render();
     await flush();
 
-    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
+    let resolvePull:
+      | ((result: { generation: number; accounts: RemoteAccount[] }) => void)
+      | undefined;
     fake.state.pull = () =>
       new Promise((resolve) => {
         resolvePull = resolve;
@@ -240,7 +242,7 @@ describe("popup cloud sync row", () => {
     // Let the chain (adapter load -> outbox read -> adapter.pull()) advance up to the
     // point where it's actually blocked on our deferred pull promise.
     await flush();
-    resolvePull?.([]);
+    resolvePull?.({ generation: 0, accounts: [] });
     await flush();
 
     expect(telltaleState()).toBe("idle");
@@ -273,7 +275,9 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
 
-    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
+    let resolvePull:
+      | ((result: { generation: number; accounts: RemoteAccount[] }) => void)
+      | undefined;
     fake.state.pull = () =>
       new Promise((resolve) => {
         resolvePull = resolve;
@@ -300,7 +304,7 @@ describe("popup cloud sync row", () => {
     expect(syncDetail()).toBe("Syncing…");
     expect(syncButton()!.disabled).toBe(true);
 
-    resolvePull?.([]);
+    resolvePull?.({ generation: 0, accounts: [] });
     await flush();
 
     expect(telltaleState()).toBe("idle");
@@ -356,7 +360,9 @@ describe("popup cloud sync row", () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["blockedOutbox"] = [outboxItem("a1")]; // pending -> a sync is due
 
-    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
+    let resolvePull:
+      | ((result: { generation: number; accounts: RemoteAccount[] }) => void)
+      | undefined;
     fake.state.pull = () =>
       new Promise((resolve) => {
         resolvePull = resolve;
@@ -373,7 +379,7 @@ describe("popup cloud sync row", () => {
     expect(syncButton()!.disabled).toBe(true);
     expect(syncButton()!.textContent).toContain("Syncing…");
 
-    resolvePull?.([]);
+    resolvePull?.({ generation: 0, accounts: [] });
     await flush();
 
     expect(telltaleState()).toBe("idle");

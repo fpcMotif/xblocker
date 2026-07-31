@@ -18,7 +18,8 @@ describe("outboxItemToRecordArgs (cloud key mapping)", () => {
       idUnknown: false,
       action: baseAction,
     };
-    const args = outboxItemToRecordArgs(item);
+    const args = outboxItemToRecordArgs(item, 7);
+    expect(args.generation).toBe(7);
     expect(args.xUserId).toBe("1");
     expect(args.aliasKey).toBeUndefined();
     expect(args.idUnknown).toBe(false);
@@ -32,7 +33,7 @@ describe("outboxItemToRecordArgs (cloud key mapping)", () => {
       idUnknown: true,
       action: baseAction,
     };
-    const args = outboxItemToRecordArgs(item);
+    const args = outboxItemToRecordArgs(item, 7);
     expect(args.xUserId).toBe("@ghost");
     expect(args.aliasKey).toBeUndefined();
     expect(args.idUnknown).toBe(true);
@@ -46,7 +47,7 @@ describe("outboxItemToRecordArgs (cloud key mapping)", () => {
       idUnknown: false,
       action: baseAction,
     };
-    const args = outboxItemToRecordArgs(item);
+    const args = outboxItemToRecordArgs(item, 7);
     expect(args.xUserId).toBe("1");
     expect(args.aliasKey).toBe("@ghost");
   });
@@ -59,7 +60,7 @@ describe("outboxItemToRecordArgs (cloud key mapping)", () => {
       idUnknown: false,
       action: { ...baseAction, fromAccount: "alt1" },
     };
-    const args = outboxItemToRecordArgs(item);
+    const args = outboxItemToRecordArgs(item, 7);
     expect(args.fromAccount).toBe("alt1");
   });
 });
@@ -75,26 +76,29 @@ describe("outboxToRecordBatches (batched cloud push mapping)", () => {
 
   test("CW-05 splits the outbox into chunks of at most `size`, preserving order", () => {
     const items = [item("a"), item("b"), item("c"), item("d"), item("e")];
-    const batches = outboxToRecordBatches(items, 2);
+    const batches = outboxToRecordBatches(items, 2, 7);
 
     expect(batches.map((batch) => batch.items.length)).toEqual([2, 2, 1]);
     expect(batches.map((batch) => batch.actionIds)).toEqual([["a", "b"], ["c", "d"], ["e"]]);
     // Each chunk's args are exactly the per-item mapping, in order.
     expect(batches[0]!.args).toEqual([
-      outboxItemToRecordArgs(items[0]!),
-      outboxItemToRecordArgs(items[1]!),
+      outboxItemToRecordArgs(items[0]!, 7),
+      outboxItemToRecordArgs(items[1]!, 7),
     ]);
     expect(batches.flatMap((batch) => batch.items)).toEqual(items);
   });
 
   test("CW-06 an empty outbox maps to no batches", () => {
-    expect(outboxToRecordBatches([], 50)).toEqual([]);
+    expect(outboxToRecordBatches([], 50, 7)).toEqual([]);
   });
 
   test("CW-07 a degenerate chunk size clamps to 1 instead of looping forever", () => {
     const items = [item("a"), item("b")];
-    expect(outboxToRecordBatches(items, 0).map((batch) => batch.actionIds)).toEqual([["a"], ["b"]]);
-    expect(outboxToRecordBatches(items, -3)).toHaveLength(2);
-    expect(outboxToRecordBatches(items, 1.9)).toHaveLength(2); // fraction truncates to 1
+    expect(outboxToRecordBatches(items, 0, 7).map((batch) => batch.actionIds)).toEqual([
+      ["a"],
+      ["b"],
+    ]);
+    expect(outboxToRecordBatches(items, -3, 7)).toHaveLength(2);
+    expect(outboxToRecordBatches(items, 1.9, 7)).toHaveLength(2); // fraction truncates to 1
   });
 });

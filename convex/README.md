@@ -15,6 +15,12 @@ This directory is the optional cloud backup for XBlocker's blocked-account list.
   transaction each) instead of one mutation per action, so draining a bulk run's outbox
   costs ~0.5s rather than ~15s. Every action carries a client-generated idempotency id
   (`clientActionId`), so a retried chunk never double-records.
+- `cloudOwners` holds one generation per owner. Every push carries that generation; a
+  stale device is rejected after a wipe instead of recreating deleted rows. Pulls return
+  the generation with their accounts, and the extension turns backup off on a mismatch.
+- `cloudWipes` stores a durable receipt for every wipe id. `wipeOwner(wipeId)` increments
+  the generation and deletes the owner's rows in one transaction. Retrying any earlier
+  `wipeId` does no delete and returns the current generation.
 - Sync runs automatically: the background worker drains the outbox shortly after it grows
   (debounced) and on a 30-minute alarm, and the popup syncs on open when backup is on and
   something is queued or the last pull is stale.
@@ -63,11 +69,14 @@ toggling backup on) drains the local outbox to Convex and pulls remote accounts 
 
 ## Notes
 
-- The backup is driven from the popup, so it syncs when you toggle it on or click "Sync
-  now". Pushing in real time from a background service worker is a reasonable future upgrade.
-- `clearOwner` (`clearCloud()` in `convex-sync.ts`) deletes every cloud row for the owner.
-  It is implemented but not yet wired to a popup control; toggling backup off only stops
-  syncing, it does not delete the cloud copy.
+- The popup can sync on open or on demand. The background worker also drains queued
+  actions after its debounce and on its 30-minute alarm.
+- `wipeOwner` (`adapter.wipe(wipeId)` in `convex-sync.ts`) deletes every cloud row for
+  the owner behind a generation fence. Toggling backup off only stops syncing; it does
+  not delete the cloud copy.
 - The dedup/rollup arithmetic mirrors `entrypoints/lib/blocked-merge.ts`, and the
   client→cloud argument mapping (`outboxItemToRecordArgs`) is unit tested in
   `test/blocked-store.test.ts`.
+- Bun does not run Convex mutations in this repo. The Bun suite models durable receipt
+  behavior (wipe A, wipe B, retry A); the `wipeOwner` transaction itself needs a deployed
+  Convex check or a future Convex-compatible test harness.

@@ -20,8 +20,10 @@ import {
   SYNC_META_KEY,
   SYNC_STALE_MS,
   type CloudAdapter,
+  type CloudPullResult,
+  type CloudPushResult,
 } from "../entrypoints/lib/sync-engine.ts";
-import type { OutboxItem, RemoteAccount } from "../entrypoints/lib/blocked-store.ts";
+import type { OutboxItem } from "../entrypoints/lib/blocked-store.ts";
 import { CLOUD_BACKUP_KEY } from "../entrypoints/lib/chrome-storage.ts";
 import { resetTestEnvironment, storageFake } from "./setup.ts";
 
@@ -38,8 +40,8 @@ const pendingItem = (actionId: string): OutboxItem => ({
 function makeAdapter(
   overrides: {
     configured?: boolean;
-    push?: (items: OutboxItem[]) => Promise<string[]>;
-    pull?: () => Promise<RemoteAccount[]>;
+    push?: (items: OutboxItem[], generation: number) => Promise<CloudPushResult>;
+    pull?: () => Promise<CloudPullResult>;
   } = {},
 ) {
   const calls = { isConfigured: 0, push: 0, pull: 0 };
@@ -49,17 +51,19 @@ function makeAdapter(
       calls.isConfigured += 1;
       return configured;
     },
-    async push(items) {
+    async push(items, generation) {
       calls.push += 1;
-      return overrides.push ? overrides.push(items) : items.map((item) => item.action.actionId);
+      return overrides.push
+        ? overrides.push(items, generation)
+        : { status: "accepted", actionIds: items.map((item) => item.action.actionId), generation };
     },
     async pull() {
       calls.pull += 1;
-      return overrides.pull ? overrides.pull() : [];
+      return overrides.pull ? overrides.pull() : { generation: 0, accounts: [] };
     },
-    // The engine paths under test (runCloudSync / runAutoCloudSync / readCloudStatus)
-    // never wipe, so clear is a satisfy-the-port no-op with nothing to record.
-    async clear() {},
+    async wipe() {
+      return 1;
+    },
   };
   return { adapter, calls };
 }
@@ -95,6 +99,35 @@ describe("getSyncMeta", () => {
 });
 
 describe("runCloudSync", () => {
+  test("SE-05a fences a stale pre-wipe push: it turns backup off and leaves its outbox intact", async () => {
+    storageFake.data["blockedOutbox"] = [pendingItem("a1")];
+    storageFake.data[SYNC_META_KEY] = { cloudGeneration: 0 };
+    const adapter = {
+      isConfigured: () => true,
+      async push() {
+        return { status: "stale" as const, generation: 1 };
+      },
+      async pull() {
+        return { generation: 1, accounts: [] };
+      },
+      async wipe() {
+        return 1;
+      },
+    } as unknown as CloudAdapter;
+
+    expect(
+      await runCloudSync(
+        () => 123,
+        () => Promise.resolve(adapter),
+      ),
+    ).toEqual({
+      status: "stale",
+      generation: 1,
+    });
+    expect(storageFake.data[CLOUD_BACKUP_KEY]).toBe(false);
+    expect(storageFake.data["blockedOutbox"]).toHaveLength(1);
+  });
+
   test("SE-05 reports unconfigured without touching the store", async () => {
     const { adapter, calls } = makeAdapter({ configured: false });
     storageFake.data["blockedOutbox"] = [pendingItem("a1")];
@@ -110,18 +143,21 @@ describe("runCloudSync", () => {
   test("SE-06 pushes the outbox, pulls + merges remote rows, and stamps lastSyncAt", async () => {
     storageFake.data["blockedOutbox"] = [pendingItem("a1")];
     const { adapter, calls } = makeAdapter({
-      pull: async () => [
-        {
-          xUserId: "2",
-          handle: "other",
-          idUnknown: false,
-          firstActionAt: 1,
-          lastActionAt: 1,
-          blockCount: 1,
-          muteCount: 0,
-          status: "active",
-        },
-      ],
+      pull: async () => ({
+        generation: 0,
+        accounts: [
+          {
+            xUserId: "2",
+            handle: "other",
+            idUnknown: false,
+            firstActionAt: 1,
+            lastActionAt: 1,
+            blockCount: 1,
+            muteCount: 0,
+            status: "active",
+          },
+        ],
+      }),
     });
 
     const outcome = await runCloudSync(
@@ -129,10 +165,10 @@ describe("runCloudSync", () => {
       () => Promise.resolve(adapter),
     );
 
-    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 1, at: 12345 });
+    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 1, at: 12345, generation: 0 });
     expect(calls).toEqual({ isConfigured: 1, push: 1, pull: 1 });
     expect(storageFake.data["blockedOutbox"]).toEqual([]);
-    expect(storageFake.data[SYNC_META_KEY]).toEqual({ lastSyncAt: 12345 });
+    expect(storageFake.data[SYNC_META_KEY]).toEqual({ lastSyncAt: 12345, cloudGeneration: 0 });
     expect(storageFake.data["blockedAccounts"]).toMatchObject({ "2": { handle: "other" } });
   });
 
@@ -142,7 +178,7 @@ describe("runCloudSync", () => {
       () => 99,
       () => Promise.resolve(adapter),
     );
-    expect(outcome).toEqual({ status: "synced", pushed: 0, pulled: 0, at: 99 });
+    expect(outcome).toEqual({ status: "synced", pushed: 0, pulled: 0, at: 99, generation: 0 });
     expect(calls).toEqual({ isConfigured: 1, push: 0, pull: 1 });
   });
 
@@ -185,7 +221,7 @@ describe("runAutoCloudSync", () => {
       () => 1000,
       () => Promise.resolve(adapter),
     );
-    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 0, at: 1000 });
+    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 0, at: 1000, generation: 0 });
     expect(calls.push).toBe(1);
     expect(calls.pull).toBe(1);
   });
@@ -200,7 +236,13 @@ describe("runAutoCloudSync", () => {
       () => staleNow,
       () => Promise.resolve(adapter),
     );
-    expect(outcome).toEqual({ status: "synced", pushed: 0, pulled: 0, at: staleNow });
+    expect(outcome).toEqual({
+      status: "synced",
+      pushed: 0,
+      pulled: 0,
+      at: staleNow,
+      generation: 0,
+    });
     expect(calls.pull).toBe(1);
   });
 
@@ -245,7 +287,7 @@ describe("runAutoCloudSync", () => {
         willSync += 1;
       },
     );
-    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 0, at: 1000 });
+    expect(outcome).toEqual({ status: "synced", pushed: 1, pulled: 0, at: 1000, generation: 0 });
     expect(willSync).toBe(1);
   });
 

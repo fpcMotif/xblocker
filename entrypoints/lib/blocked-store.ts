@@ -19,7 +19,6 @@ import {
   type RecordInput,
   type RemoteAccountSnapshot,
 } from "./blocked-merge";
-import { storageSet } from "./chrome-storage";
 
 const ACCOUNTS_KEY = "blockedAccounts";
 const OUTBOX_KEY = "blockedOutbox";
@@ -68,17 +67,37 @@ function genId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// Deliberately NOT lib/chrome-storage.ts's storageGet: that helper degrades a failed
-// get to `undefined`, but a read-modify-write mutation here must instead REJECT on a
-// failed read (a thrown TypeError on `result[key]` when the callback gets no result
-// object) so enqueueMutation's chain sees a rejection and skips the write rather than
-// silently overwriting ACCOUNTS_KEY/OUTBOX_KEY with a `{}` built from a failed read.
+// Deliberately NOT lib/chrome-storage.ts's tolerant read/write helpers. A local
+// ledger mutation must reject on either storage error; treating a failed write as a
+// success loses the only durable receipt for a retried MV3 message.
 function readKey<T>(key: string): Promise<T | undefined> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     // Annotate the (inherently untyped) storage result so the value flows out as T
     // without an unsafe assertion.
     chrome.storage.local.get(key, (result: { [storageKey: string]: T | undefined }) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      if (result === undefined) {
+        reject(new Error(`chrome.storage.local.get(${key}) returned no result`));
+        return;
+      }
       resolve(result[key]);
+    });
+  });
+}
+
+function writeKeys(items: Record<string, unknown>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(items, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve();
     });
   });
 }
@@ -141,6 +160,34 @@ export function createBlockedStore(): BlockedStore {
     return undefined;
   }
 
+  function sameRecordPayload(action: BlockAction, input: RecordInput): boolean {
+    const record = action.record;
+    if (!record) return false;
+    return (
+      record.handle === input.handle.replace(/^@/, "").trim() &&
+      record.xUserId === input.xUserId &&
+      record.kind === input.kind &&
+      record.source === input.source &&
+      record.fromAccount === input.fromAccount &&
+      record.at === input.at
+    );
+  }
+
+  function priorAction(
+    map: AccountMap,
+    actionId: string,
+  ): { account: BlockedAccount; action: BlockAction } | undefined {
+    let found: { account: BlockedAccount; action: BlockAction } | undefined;
+    for (const account of Object.values(map)) {
+      for (const action of account.actions) {
+        if (action.actionId !== actionId) continue;
+        if (found) throw new Error(`blocked ledger contains duplicate action id: ${actionId}`);
+        found = { account, action };
+      }
+    }
+    return found;
+  }
+
   return {
     async has(key) {
       const map = await loadMap();
@@ -164,6 +211,15 @@ export function createBlockedStore(): BlockedStore {
     record(input) {
       return enqueueMutation(async () => {
         const map = await loadMap();
+        if (input.actionId) {
+          const prior = priorAction(map, input.actionId);
+          if (prior) {
+            if (!sameRecordPayload(prior.action, input)) {
+              throw new Error(`action id ${input.actionId} was retried with a different payload`);
+            }
+            return prior.account;
+          }
+        }
         const existingKey = findExistingKey(map, input);
         const existing = existingKey ? map[existingKey] : undefined;
         const merged = mergeBlockedAccount(existing, input, Date.now(), genId);
@@ -182,7 +238,7 @@ export function createBlockedStore(): BlockedStore {
           });
         }
 
-        await storageSet({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
+        await writeKeys({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
         return merged;
       });
     },
@@ -207,7 +263,7 @@ export function createBlockedStore(): BlockedStore {
         const done = new Set(actionIds);
         const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
         const remaining = outbox.filter((item) => !done.has(item.action.actionId));
-        await storageSet({ [OUTBOX_KEY]: remaining });
+        await writeKeys({ [OUTBOX_KEY]: remaining });
       });
     },
 
@@ -267,7 +323,7 @@ export function createBlockedStore(): BlockedStore {
           changed = true;
         }
 
-        if (changed) await storageSet({ [ACCOUNTS_KEY]: map });
+        if (changed) await writeKeys({ [ACCOUNTS_KEY]: map });
       });
     },
 

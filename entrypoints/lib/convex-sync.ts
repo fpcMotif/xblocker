@@ -15,9 +15,9 @@
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
-import { outboxItemToRecordArgs, outboxToRecordBatches, type RecordActionArgs } from "./cloud-wire";
+import { outboxToRecordBatches, type FencedRecordActionArgs } from "./cloud-wire";
 import type { OutboxItem, RemoteAccount } from "./blocked-store";
-import type { CloudAdapter } from "./sync-engine";
+import type { CloudAdapter, CloudPullResult, CloudPushResult } from "./sync-engine";
 
 // The Convex `listBlocked` query returns exactly the shape the local store's mergeRemote
 // consumes, so re-export the single definition rather than maintaining a twin here.
@@ -25,17 +25,18 @@ export type { RemoteAccount };
 
 // Reference Convex functions by name so this bundle does not depend on the generated
 // `convex/_generated/api`, which only exists after `npx convex dev`.
-const recordActionRef = makeFunctionReference<"mutation", RecordActionArgs, null>(
-  "blocked:recordAction",
-);
-const recordActionsRef = makeFunctionReference<"mutation", { actions: RecordActionArgs[] }, null>(
-  "blocked:recordActions",
-);
-const listBlockedRef = makeFunctionReference<"query", Record<string, never>, RemoteAccount[]>(
+type RecordResult = { accepted: boolean; generation: number };
+
+const recordActionsRef = makeFunctionReference<
+  "mutation",
+  { actions: FencedRecordActionArgs[] },
+  RecordResult
+>("blocked:recordActions");
+const listBlockedRef = makeFunctionReference<"query", Record<string, never>, CloudPullResult>(
   "blocked:listBlocked",
 );
-const clearOwnerRef = makeFunctionReference<"mutation", Record<string, never>, null>(
-  "blocked:clearOwner",
+const wipeOwnerRef = makeFunctionReference<"mutation", { wipeId: string }, { generation: number }>(
+  "blocked:wipeOwner",
 );
 
 function readEnv(name: string): string | undefined {
@@ -63,50 +64,34 @@ function client(): ConvexHttpClient {
  *  limits (each item costs one index read plus at most three writes). */
 const PUSH_BATCH_SIZE = 50;
 
-// A deployment that predates the batched mutation rejects it with a "could not find
-// public function" error; that is the only error worth degrading on.
-function isMissingFunctionError(error: unknown): boolean {
-  return error instanceof Error && /could not find.*function/i.test(error.message);
-}
-
 /** Push queued local actions to Convex; returns the action ids that were accepted.
  *  Batches of PUSH_BATCH_SIZE go through one `recordActions` round-trip each (pushing
  *  item-by-item made sync latency scale linearly with the outbox: ~300ms per action).
- *  Falls back to per-item `recordAction` when the deployment lacks the batched
- *  mutation. The OutboxItem -> args mapping lives in cloud-wire
- *  (`outboxToRecordBatches`) so it is unit-tested; this is the thin live-Convex I/O
- *  wrapper around it. */
-export async function pushOutbox(items: OutboxItem[]): Promise<string[]> {
+ *  A missing fenced batch endpoint is an upgrade error, never a legacy per-item fallback. */
+export async function pushOutbox(
+  items: OutboxItem[],
+  generation: number,
+): Promise<CloudPushResult> {
   const synced: string[] = [];
-  let batchUnsupported = false;
-  for (const batch of outboxToRecordBatches(items, PUSH_BATCH_SIZE)) {
-    if (!batchUnsupported) {
-      try {
-        await client().mutation(recordActionsRef, { actions: batch.args });
-        synced.push(...batch.actionIds);
-        continue;
-      } catch (error) {
-        if (!isMissingFunctionError(error)) throw error;
-        batchUnsupported = true;
-      }
+  for (const batch of outboxToRecordBatches(items, PUSH_BATCH_SIZE, generation)) {
+    const result = await client().mutation(recordActionsRef, { actions: batch.args });
+    if (!result.accepted || result.generation !== generation) {
+      return { status: "stale", generation: result.generation };
     }
-    for (const item of batch.items) {
-      await client().mutation(recordActionRef, outboxItemToRecordArgs(item));
-      synced.push(item.action.actionId);
-    }
+    synced.push(...batch.actionIds);
   }
-  return synced;
+  return { status: "accepted", actionIds: synced, generation };
 }
 
 /** Pull all blocked accounts from Convex. */
-export async function pullBlocked(): Promise<RemoteAccount[]> {
+export async function pullBlocked(): Promise<CloudPullResult> {
   return client().query(listBlockedRef, {});
 }
 
-/** Delete every cloud row ("delete my cloud data"). Reached only through the adapter's
- *  `clear` port below — surfaces call `adapter.clear()`, never this directly. */
-async function clearCloud(): Promise<void> {
-  await client().mutation(clearOwnerRef, {});
+/** Delete one generation of cloud data. Retrying the same wipeId is idempotent. */
+async function wipeCloud(wipeId: string): Promise<number> {
+  const result = await client().mutation(wipeOwnerRef, { wipeId });
+  return result.generation;
 }
 
 /** This adapter, wired to `sync-engine.ts`'s `CloudAdapter` seam: `runCloudSync` and
@@ -115,5 +100,5 @@ export const convexAdapter = {
   isConfigured: isCloudConfigured,
   push: pushOutbox,
   pull: pullBlocked,
-  clear: clearCloud,
+  wipe: wipeCloud,
 } satisfies CloudAdapter;

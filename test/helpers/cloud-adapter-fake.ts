@@ -7,27 +7,31 @@ import type { OutboxItem, RemoteAccount } from "../../entrypoints/lib/blocked-st
 import type { CloudAdapter } from "../../entrypoints/lib/sync-engine.ts";
 
 export function makeCloudAdapterFake() {
-  const calls = { push: 0, pull: 0, clear: 0 };
+  const calls = { push: 0, pull: 0, wipe: 0 };
   const state = {
     configured: true,
-    push: async (items: OutboxItem[]): Promise<string[]> =>
-      items.map((item) => item.action.actionId),
-    pull: async (): Promise<RemoteAccount[]> => [],
-    clear: async (): Promise<void> => {},
+    generation: 0,
+    push: async (items: OutboxItem[], generation: number) => ({
+      status: "accepted" as const,
+      actionIds: items.map((item) => item.action.actionId),
+      generation,
+    }),
+    pull: async () => ({ generation: state.generation, accounts: [] as RemoteAccount[] }),
+    wipe: async (_wipeId: string) => ++state.generation,
   };
   const adapter: CloudAdapter = {
     isConfigured: () => state.configured,
-    push: async (items) => {
+    push: async (items, generation) => {
       calls.push += 1;
-      return state.push(items);
+      return state.push(items, generation);
     },
     pull: async () => {
       calls.pull += 1;
       return state.pull();
     },
-    clear: async () => {
-      calls.clear += 1;
-      return state.clear();
+    wipe: async (wipeId) => {
+      calls.wipe += 1;
+      return state.wipe(wipeId);
     },
   };
   return { adapter, calls, state };

@@ -57,23 +57,47 @@ export type StorageGetCallback = (items?: StorageItems) => void;
 
 type DispatchMode = "sync" | "manual";
 
+type FakeRuntime = {
+  lastError: { message: string } | undefined;
+  onMessage: { addListener: () => void; removeListener: () => void };
+};
+
+const runtimeFake: FakeRuntime = {
+  lastError: undefined,
+  onMessage: { addListener: () => {}, removeListener: () => {} },
+};
+
 export class FakeChromeStorageArea {
   data: StorageItems = {};
   getCalls: StorageGetKeys[] = [];
   setCalls: StorageItems[] = [];
   failNextGet = false;
   failNextSet = false;
+  failNextRemove = false;
+  lastErrorNextGet = false;
+  lastErrorNextSet = false;
+  lastErrorNextRemove = false;
+  returnNoResultNextGet = false;
+  throwNextSet = false;
+  throwNextRemove = false;
   private mode: DispatchMode = "sync";
   private pending: Array<() => void> = [];
 
   get(keys: StorageGetKeys, callback: StorageGetCallback): void {
     this.getCalls.push(keys);
     this.dispatch(() => {
+      if (this.lastErrorNextGet) {
+        this.lastErrorNextGet = false;
+        this.withRuntimeError("fake get failure", () => callback(undefined));
+        return;
+      }
       if (this.failNextGet) {
         this.failNextGet = false;
-        // Real chrome invokes the callback with no items and sets
-        // chrome.runtime.lastError. The extension never reads lastError, so the
-        // observable contract is simply "callback receives nothing usable".
+        callback(undefined);
+        return;
+      }
+      if (this.returnNoResultNextGet) {
+        this.returnNoResultNextGet = false;
         callback(undefined);
         return;
       }
@@ -83,7 +107,16 @@ export class FakeChromeStorageArea {
 
   set(items: StorageItems, callback?: () => void): void {
     this.setCalls.push(structuredClone(items));
+    if (this.throwNextSet) {
+      this.throwNextSet = false;
+      throw new Error("fake set throw");
+    }
     this.dispatch(() => {
+      if (this.lastErrorNextSet) {
+        this.lastErrorNextSet = false;
+        this.withRuntimeError("fake set failure", () => callback?.());
+        return;
+      }
       if (this.failNextSet) {
         this.failNextSet = false;
         callback?.();
@@ -102,7 +135,21 @@ export class FakeChromeStorageArea {
   /** Mirrors chrome.storage.local.remove: deletes the key(s) outright — the only way
    *  to clear a key, since set() drops undefined values. */
   remove(keys: string | string[], callback?: () => void): void {
+    if (this.throwNextRemove) {
+      this.throwNextRemove = false;
+      throw new Error("fake remove throw");
+    }
     this.dispatch(() => {
+      if (this.lastErrorNextRemove) {
+        this.lastErrorNextRemove = false;
+        this.withRuntimeError("fake remove failure", () => callback?.());
+        return;
+      }
+      if (this.failNextRemove) {
+        this.failNextRemove = false;
+        callback?.();
+        return;
+      }
       for (const key of Array.isArray(keys) ? keys : [keys]) {
         delete this.data[key];
       }
@@ -142,6 +189,14 @@ export class FakeChromeStorageArea {
     this.setCalls = [];
     this.failNextGet = false;
     this.failNextSet = false;
+    this.failNextRemove = false;
+    this.lastErrorNextGet = false;
+    this.lastErrorNextSet = false;
+    this.lastErrorNextRemove = false;
+    this.returnNoResultNextGet = false;
+    this.throwNextSet = false;
+    this.throwNextRemove = false;
+    runtimeFake.lastError = undefined;
     this.mode = "sync";
     this.pending = [];
   }
@@ -152,6 +207,15 @@ export class FakeChromeStorageArea {
       return;
     }
     task();
+  }
+
+  private withRuntimeError(message: string, callback: () => void): void {
+    runtimeFake.lastError = { message };
+    try {
+      callback();
+    } finally {
+      runtimeFake.lastError = undefined;
+    }
   }
 
   private snapshotFor(keys: StorageGetKeys): StorageItems {
@@ -178,10 +242,7 @@ g.chrome = {
   // their own capturing fake. openOptionsPage/sendMessage are intentionally ABSENT here —
   // the popup probes openOptionsPage's absence (PU-17) and rail/background tests install
   // their own per-case.
-  runtime: {
-    lastError: undefined,
-    onMessage: { addListener: () => {}, removeListener: () => {} },
-  },
+  runtime: runtimeFake,
   storage: {
     local: {
       get: (keys: StorageGetKeys, callback: StorageGetCallback) => storageFake.get(keys, callback),

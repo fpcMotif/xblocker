@@ -20,6 +20,13 @@ export const WIPE_CONFIRM_WORD = "WIPE";
 
 type PaneHandle = { destroy(): void };
 
+function createWipeId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function renderUnconfigured(container: HTMLElement): void {
   const wrapper = document.createElement("div");
   wrapper.className = "xb-opt-pane-form";
@@ -246,7 +253,9 @@ export async function renderCloudPane(
     confirmButton.disabled = true;
     cancelButton.disabled = true;
     try {
-      await adapter.clear();
+      // One id per confirmed attempt makes transport retries idempotent. This pane still
+      // owns no cross-context ordering; StateOwner will move that responsibility next.
+      const generation = await adapter.wipe(createWipeId());
       // The cloud rows are gone, so the queued outbox actions that produced them must
       // never re-push (that would silently repopulate the cloud the user just wiped) —
       // drain the outbox by marking every pending item synced.
@@ -256,7 +265,10 @@ export async function renderCloudPane(
       }
       // A wiped cloud with backup left on would just refill on the next auto-sync, so
       // the wipe also turns cloud backup off.
-      await storageSet({ [SYNC_META_KEY]: {}, [CLOUD_BACKUP_KEY]: false });
+      await storageSet({
+        [SYNC_META_KEY]: { cloudGeneration: generation },
+        [CLOUD_BACKUP_KEY]: false,
+      });
       enabled = false;
       toggleInput.checked = false;
       currentMeta = {};

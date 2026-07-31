@@ -553,6 +553,81 @@ describe("summarizeAccounts", () => {
 });
 
 describe("BlockedStore (through chrome.storage.local)", () => {
+  test("BS-49 explicit action ids are durable idempotency keys", async () => {
+    const firstWorker = createBlockedStore();
+    const input = {
+      handle: "spammer",
+      kind: "block" as const,
+      source: "reply-bar" as const,
+      xUserId: "111",
+      fromAccount: "alt",
+      at: 123,
+      actionId: "reply-123",
+    };
+
+    const first = await firstWorker.record(input);
+    // A service-worker restart must not turn a retried content-script message into
+    // a second local action or a second cloud outbox item.
+    const restartedWorker = createBlockedStore();
+    const retried = await restartedWorker.record(input);
+
+    expect(retried).toEqual(first);
+    expect((await restartedWorker.list())[0]?.blockCount).toBe(1);
+    expect((await restartedWorker.pending()).map((item) => item.action.actionId)).toEqual([
+      "reply-123",
+    ]);
+  });
+
+  test("BS-50 rejects an action-id retry with a different full payload", async () => {
+    const store = createBlockedStore();
+    await store.record({
+      handle: "spammer",
+      kind: "block",
+      source: "reply-bar",
+      xUserId: "111",
+      at: 123,
+      actionId: "reply-123",
+    });
+
+    await expect(
+      store.record({
+        handle: "spammer",
+        kind: "mute",
+        source: "reply-bar",
+        xUserId: "111",
+        at: 123,
+        actionId: "reply-123",
+      }),
+    ).rejects.toThrow("different payload");
+
+    const account = await store.get("111");
+    expect(account?.blockCount).toBe(1);
+    expect(account?.muteCount).toBe(0);
+    expect(await store.pending()).toHaveLength(1);
+  });
+
+  test("BS-51 rejects a failed durable ledger write", async () => {
+    const store = createBlockedStore();
+    const local = chrome.storage.local as unknown as {
+      set: (items: Record<string, unknown>, callback?: () => void) => void;
+    };
+    const runtime = chrome.runtime as unknown as { lastError: { message: string } | undefined };
+    const originalSet = local.set;
+    local.set = (_items, callback) => {
+      runtime.lastError = { message: "disk full" };
+      callback?.();
+      runtime.lastError = undefined;
+    };
+    try {
+      await expect(
+        store.record({ handle: "spammer", kind: "block", source: "reply-bar", xUserId: "111" }),
+      ).rejects.toThrow("disk full");
+    } finally {
+      local.set = originalSet;
+    }
+    expect(await store.list()).toEqual([]);
+  });
+
   test("BS-12 records the same id twice as one account with two actions", async () => {
     const store = createBlockedStore();
 
@@ -831,8 +906,11 @@ describe("cloud round-trip parity", () => {
   function makeFakeCloud() {
     const rows = new Map<string, RemoteAccount>();
     const seen = new Set<string>();
+    const wipes = new Map<string, number>();
+    let generation = 0;
     return {
       recordAction(args: RecordActionArgs): void {
+        if (args.generation !== generation) return;
         if (seen.has(args.clientActionId)) return;
         seen.add(args.clientActionId);
 
@@ -869,6 +947,16 @@ describe("cloud round-trip parity", () => {
       listBlocked(): RemoteAccount[] {
         return structuredClone(Array.from(rows.values()));
       },
+      // Bun cannot run Convex mutations. This models only the durable receipt rule;
+      // convex/blocked.ts remains the integration point for the real transaction.
+      wipe(wipeId: string): number {
+        if (wipes.has(wipeId)) return generation;
+        generation += 1;
+        wipes.set(wipeId, generation);
+        rows.clear();
+        seen.clear();
+        return generation;
+      },
     };
   }
 
@@ -879,7 +967,7 @@ describe("cloud round-trip parity", () => {
 
     const cloud = makeFakeCloud();
     for (const item of await deviceA.pending()) {
-      cloud.recordAction(outboxItemToRecordArgs(item));
+      cloud.recordAction(outboxItemToRecordArgs(item, 0));
     }
 
     const remote = cloud.listBlocked();
@@ -909,6 +997,7 @@ describe("cloud round-trip parity", () => {
   test("BS-33 recordAction is idempotent on clientActionId", () => {
     const cloud = makeFakeCloud();
     const args: RecordActionArgs = {
+      generation: 0,
       xUserId: "1",
       handle: "x",
       idUnknown: false,
@@ -928,6 +1017,7 @@ describe("cloud round-trip parity", () => {
   test("BS-34 a same-account upsert increments by +1 (never max)", () => {
     const cloud = makeFakeCloud();
     cloud.recordAction({
+      generation: 0,
       xUserId: "1",
       handle: "x",
       idUnknown: false,
@@ -937,6 +1027,7 @@ describe("cloud round-trip parity", () => {
       clientActionId: "a1",
     });
     cloud.recordAction({
+      generation: 0,
       xUserId: "1",
       handle: "x",
       idUnknown: false,
@@ -953,6 +1044,7 @@ describe("cloud round-trip parity", () => {
   test("BS-35 an aliasKey fold SUMs the legacy handle row into the numeric row", () => {
     const cloud = makeFakeCloud();
     const handleRow = (clientActionId: string, at: number): RecordActionArgs => ({
+      generation: 0,
       xUserId: "@ghost",
       handle: "ghost",
       idUnknown: true,
@@ -965,6 +1057,7 @@ describe("cloud round-trip parity", () => {
     cloud.recordAction(handleRow("h1", 1));
     cloud.recordAction(handleRow("h2", 2));
     cloud.recordAction({
+      generation: 0,
       xUserId: "1",
       handle: "ghost",
       idUnknown: false,
@@ -975,6 +1068,7 @@ describe("cloud round-trip parity", () => {
     });
     // ...then an action carrying the alias folds the handle row in and adds its own +1.
     cloud.recordAction({
+      generation: 0,
       xUserId: "1",
       handle: "ghost",
       idUnknown: false,
@@ -994,6 +1088,7 @@ describe("cloud round-trip parity", () => {
 
   test("BS-36 a batched push lands exactly like the same singles, and a retried batch is idempotent", () => {
     const args = (clientActionId: string, at: number): RecordActionArgs => ({
+      generation: 0,
       xUserId: "1",
       handle: "spammer",
       idUnknown: false,
@@ -1014,6 +1109,35 @@ describe("cloud round-trip parity", () => {
     // A network retry of the whole chunk re-sends every item; clientActionId dedups.
     batched.recordActions(batch);
     expect(batched.listBlocked()).toEqual(single.listBlocked());
+  });
+
+  test("BS-37 retrying wipe A after later wipe B returns B's generation and leaves B's rows alone", () => {
+    const cloud = makeFakeCloud();
+    const wipeA = cloud.wipe("wipe-a");
+    cloud.recordAction({
+      generation: wipeA,
+      xUserId: "1",
+      handle: "after-a",
+      idUnknown: false,
+      kind: "block",
+      at: 1,
+      source: "reply-bar",
+      clientActionId: "after-a",
+    });
+    const wipeB = cloud.wipe("wipe-b");
+    cloud.recordAction({
+      generation: wipeB,
+      xUserId: "2",
+      handle: "after-b",
+      idUnknown: false,
+      kind: "block",
+      at: 2,
+      source: "reply-bar",
+      clientActionId: "after-b",
+    });
+
+    expect(cloud.wipe("wipe-a")).toBe(wipeB);
+    expect(cloud.listBlocked().map((row) => row.xUserId)).toEqual(["2"]);
   });
 });
 
