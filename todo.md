@@ -12,6 +12,11 @@
   Direct block already avoids the X "More" menu. Mute, not-interested, hide, and
   future algorithm-training actions still need guarded X menu automation or a
   stable API path if one is available.
+  The menu-automation adapter should consume the shared vocabulary in
+  `entrypoints/content/x-dom.ts` and route through `actions.ts`. Deferred until a
+  live-verify session pins the not-interested menu-item selectors and their
+  confirmation flow — shipping blind DOM automation would be untested destructive
+  behavior. (Supersedes the earlier "actOnUser gateway" (C3) work item.)
 
 - [ ] may you plz update a new action, when you filnd some need to filterout, you
 click （there is not api, you shooud simualte as a humand） to click not interested
