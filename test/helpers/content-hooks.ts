@@ -159,19 +159,89 @@ export function appendDiscoverMoreSection(
 
 export type FetchCall = { url: string; init: RequestInit | undefined };
 
-/** Install a fetch stub; returns the recorded calls. */
+// Since ADR-0004 a confirmed bulk account makes two direct-API calls per attempt: the
+// action POST (blocks/create.json or mutes/users/create.json) and this relationship-
+// lookup GET that confirms it. Exported so every test file that needs to tell the two
+// apart (bulk-actions.test.ts, rail-actions.test.ts, max-replies.test.ts) shares one
+// definition instead of redeclaring the literal.
+export const RELATIONSHIP_LOOKUP_PATH = "/1.1/friendships/show.json";
+
+/** The action (create) calls only, in call order -- confirm calls filtered out. */
+export function actionCalls(calls: readonly FetchCall[]): FetchCall[] {
+  return calls.filter((call) => !call.url.includes(RELATIONSHIP_LOOKUP_PATH));
+}
+
+/** The relationship-lookup (confirm) calls only, in call order. */
+export function confirmCalls(calls: readonly FetchCall[]): FetchCall[] {
+  return calls.filter((call) => call.url.includes(RELATIONSHIP_LOOKUP_PATH));
+}
+
+/** A POST call's `screen_name=...` body, or throws -- for asserting the exact
+ *  sequence of accounts a batch acted on. Relationship-lookup GETs have no body;
+ *  filter through `actionCalls` first. */
+export function requestBodyText(call: { init: RequestInit | undefined }): string {
+  const body = call.init?.body;
+  if (typeof body !== "string") {
+    throw new Error("Expected request body to be a string");
+  }
+  return body;
+}
+
+/** `fetch`'s first argument, resolved to a plain URL string -- shared by every fetch
+ *  stub/override in this file and in tests that install their own raw fetch. */
+export function urlOf(input: string | URL | Request): string {
+  return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+}
+
+/** The target screen_name a direct-API call addresses, whether it's an action POST
+ *  body (`screen_name=...`) or a relationship-lookup GET query (`target_screen_name=...`). */
+function targetUsernameFromCall(url: string, init: RequestInit | undefined): string | undefined {
+  if (typeof init?.body === "string") {
+    return new URLSearchParams(init.body).get("screen_name") ?? undefined;
+  }
+  const queryIndex = url.indexOf("?");
+  if (queryIndex === -1) {
+    return undefined;
+  }
+  return new URLSearchParams(url.slice(queryIndex + 1)).get("target_screen_name") ?? undefined;
+}
+
+/**
+ * Install a fetch stub; returns the recorded calls. `responder` decides ok/status for
+ * every call the direct-API layer makes -- action POSTs (blocks/mutes create.json) AND
+ * relationship-lookup GETs (friendships/show.json) alike -- and is handed the resolved
+ * target username as a third argument so a test can key off it without parsing the
+ * POST body vs GET query itself.
+ *
+ * A relationship-lookup call's JSON body is synthesized from that SAME decision: a
+ * responder that says "ok" for a user is also reported as blocking/muting them, and one
+ * that fails a user is reported as not (yet) confirmed. This mirrors the ground truth
+ * the bulk runner's confirm step (ADR-0004) now requires, so a test whose responder
+ * only decides success/failure per user -- most of them -- gets confirm-consistent
+ * behavior for free without knowing the lookup endpoint exists. Tests that need act and
+ * confirm to disagree (retry/backoff/rate-limit scenarios) install their own fetch
+ * directly, the same way BULK-15/16 already do.
+ */
 export function installFetchStub(
-  responder: (url: string, init: RequestInit | undefined) => { ok: boolean; status: number },
+  responder: (
+    url: string,
+    init: RequestInit | undefined,
+    target: string | undefined,
+  ) => { ok: boolean; status: number },
 ): { calls: FetchCall[]; uninstall: () => void } {
   const original = globalThis.fetch;
   const calls: FetchCall[] = [];
   const globals = globalThis as Record<string, unknown>;
 
   globals["fetch"] = async (input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const response = responder(url, init);
+    const url = urlOf(input);
+    const target = targetUsernameFromCall(url, init);
+    const response = responder(url, init, target);
     calls.push({ url, init });
-    return new Response(null, { status: response.status });
+    const body = url.includes(RELATIONSHIP_LOOKUP_PATH)
+      ? JSON.stringify({ relationship: { source: { blocking: response.ok, muting: response.ok } } })
+      : null;
+    return new Response(body, { status: response.status });
   };
 
   return {
@@ -187,19 +257,35 @@ export function installRejectingFetch(message = "network down"): {
   calls: FetchCall[];
   uninstall: () => void;
 } {
-  const original = globalThis.fetch;
   const calls: FetchCall[] = [];
-  const globals = globalThis as Record<string, unknown>;
-
-  globals["fetch"] = async (input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    calls.push({ url, init });
+  const raw = installRawFetch(async (input, init) => {
+    calls.push({ url: urlOf(input), init });
     throw new Error(message);
-  };
+  });
 
+  return { calls, uninstall: raw.restore };
+}
+
+export type RawFetchHandler = (
+  input: string | URL | Request,
+  init: RequestInit | undefined,
+) => Promise<Response> | Response;
+
+/**
+ * Install an arbitrary raw fetch override, for scenarios `installFetchStub`'s
+ * ok/fail-mirrored confirm body can't express -- the act and confirm calls need to
+ * disagree (a flaky account that succeeds on a later attempt, a rate-limited action
+ * with a still-unconfirmed lookup, an already-confirmed account whose action call
+ * keeps failing). `handler` sees fetch's raw arguments and decides the Response itself
+ * (typically branching on `url.includes(RELATIONSHIP_LOOKUP_PATH)`); `urlOf` resolves
+ * its `input` to a plain string. Returns `restore()` to call in a `finally`.
+ */
+export function installRawFetch(handler: RawFetchHandler): { restore: () => void } {
+  const original = globalThis.fetch;
+  const globals = globalThis as Record<string, unknown>;
+  globals["fetch"] = handler;
   return {
-    calls,
-    uninstall() {
+    restore() {
       globals["fetch"] = original;
     },
   };

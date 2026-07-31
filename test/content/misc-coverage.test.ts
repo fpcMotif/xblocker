@@ -24,7 +24,7 @@ describe("isReplyArticle", () => {
   });
 
   test("MC-01 a mute batch over a page with no articles acts on nothing", async () => {
-    expect(await hooks.muteReplies()).toEqual({ acted: 0, skipped: 0, failed: 0 });
+    expect(await hooks.muteReplies()).toEqual({ confirmed: 0, skipped: 0, unconfirmed: 0 });
   });
 
   test("MC-02 elements that are not tweet articles are never replies", () => {

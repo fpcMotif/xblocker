@@ -21,10 +21,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { ReplyRail } from "../../entrypoints/content/rail.ts";
 import {
+  actionCalls,
   appendDiscoverMoreSection,
   installFetchStub,
   installRejectingFetch,
   populateTweetPage,
+  RELATIONSHIP_LOOKUP_PATH,
 } from "../helpers/content-hooks.ts";
 import { installManualTimers, settleMicrotasks, type ManualTimers } from "../helpers/timers.ts";
 import {
@@ -114,11 +116,31 @@ function pointerEvent(type: string, clientX: number, clientY: number): MouseEven
   return new MouseEvent(type, { bubbles: true, clientX, clientY });
 }
 
-/** Drive a manual-timer batch to completion: settle microtasks, flush only waitFor delays. */
-async function driveBatch(manual: ManualTimers, rounds = 8): Promise<void> {
+// A cap that clears the schedule's own delays while staying below buttons.ts's
+// STATE_RESET_MS (1400ms, the button's own "success"/"error" -> "idle" revert timer) --
+// draining that timer too would flip a just-completed batch's button back to "idle"
+// before the test ever gets to assert its "success"/"error" state. These tests drive
+// the real, UNSEEDED shared runner (no `random` override), so the cap must clear the
+// worst case, not just the common one: 250ms inter-account pacing, and (ADR-0004)
+// ordinary-retry backoff up to attempt 2 of MAX_ACCOUNT_ATTEMPTS=3 -- up to
+// RETRY_BASE_DELAY_MS * 2 + RETRY_JITTER_MS = 500*2 + 250 = 1250ms at the jitter
+// ceiling. 1200 here was BELOW that worst case (a real, jitter-dependent flake this
+// pinned down: the queued backoff timer could exceed the flush cap, so it never fired,
+// the batch's promise never settled, and the shared runner's `running` flag stayed
+// stuck `true` for every later test in the process). Keep this above 1250 and below 1400.
+const DRIVE_BATCH_FLUSH_CEILING_MS = 1300;
+
+/**
+ * Drive a manual-timer batch to completion: settle microtasks, flush pending timers up
+ * to the ceiling above, repeat. Since ADR-0004 a failing/unconfirmed account retries with
+ * backoff between the fixed inter-account pacing ticks, and each hop is separated by
+ * microtask-only work (the act + confirm fetch calls) -- so this needs enough
+ * settle/flush rounds to drain a whole batch's worth of retries.
+ */
+async function driveBatch(manual: ManualTimers, rounds = 24): Promise<void> {
   for (let i = 0; i < rounds; i++) {
     await settleMicrotasks(30);
-    manual.flushUpTo(250);
+    manual.flushUpTo(DRIVE_BATCH_FLUSH_CEILING_MS);
   }
   await settleMicrotasks(30);
 }
@@ -311,7 +333,9 @@ describe("rail batch actions", () => {
     for (const reply of replies) {
       expect(reply.dataset["xbBlocked"]).toBe("true");
     }
-    expect(fetchStub.calls).toHaveLength(3);
+    // Each confirmed account makes two calls (action POST + relationship-lookup GET).
+    expect(fetchStub.calls).toHaveLength(6);
+    expect(actionCalls(fetchStub.calls)).toHaveLength(3);
     expect(fetchStub.calls[0]?.url).toBe("https://api.x.com/1.1/blocks/create.json");
     expect(fetchStub.calls[0]?.init?.method).toBe("POST");
   });
@@ -326,7 +350,9 @@ describe("rail batch actions", () => {
 
     expect(getSessionCount()).toBe("1");
     expect(queryToast()?.textContent).toContain("Blocked 1 reply, skipped 1");
-    expect(fetchStub.calls).toHaveLength(1);
+    // bob is whitelisted and never scheduled; alice makes an action + confirm call.
+    expect(fetchStub.calls).toHaveLength(2);
+    expect(actionCalls(fetchStub.calls)).toHaveLength(1);
   });
 
   test("RA-15 bulk actions do nothing off tweet pages", async () => {
@@ -406,8 +432,15 @@ describe("rail batch actions", () => {
     expect(blockButton.dataset["state"]).toBe("success");
     expect(muteButton.disabled).toBe(false);
     expect(muteButton.dataset["state"]).toBe("idle");
-    expect(fetchStub.calls).toHaveLength(3);
-    expect(fetchStub.calls.every((call) => call.url.includes("/blocks/create.json"))).toBe(true);
+    // 3 accounts x (action + confirm); only the block endpoint was ever called.
+    expect(fetchStub.calls).toHaveLength(6);
+    expect(actionCalls(fetchStub.calls)).toHaveLength(3);
+    expect(
+      fetchStub.calls.every(
+        (call) =>
+          call.url.includes("/blocks/create.json") || call.url.includes(RELATIONSHIP_LOOKUP_PATH),
+      ),
+    ).toBe(true);
   });
 
   test("RA-20 the default isBatchRunning pins the rail on the real actions-module flag, not an injected fake", async () => {

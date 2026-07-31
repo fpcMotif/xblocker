@@ -3,7 +3,13 @@
 // bounds how many reply articles a batch run touches.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { hooks, installFetchStub, populateTweetPage } from "../helpers/content-hooks.ts";
+import {
+  actionCalls,
+  hooks,
+  installFetchStub,
+  populateTweetPage,
+  requestBodyText,
+} from "../helpers/content-hooks.ts";
 import { installImmediateTimers } from "../helpers/timers.ts";
 import {
   resetTestEnvironment,
@@ -107,6 +113,11 @@ describe("max replies setting", () => {
     expect(await hooks.getMaxReplies()).toBe(50);
   });
 
+  // Since ADR-0004, a confirmed account makes two direct-API calls (the action POST plus
+  // a relationship-lookup GET that confirms it) -- see bulk-actions.test.ts's header
+  // comment. `installFetchStub` mirrors its ok decision onto the lookup's body, so a flat
+  // `() => ({ ok: true, ... })` responder still confirms every account on the first try.
+
   test("MR-11 blocks only up to the configured max replies", async () => {
     storageFake.data["settings"] = { maxReplies: 2 };
     fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
@@ -115,13 +126,13 @@ describe("max replies setting", () => {
 
     const summary = await hooks.blockReplies((update) => progress.push(update));
 
-    expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
-    expect(fetchStub.calls.map((call) => call.init?.body)).toEqual([
+    expect(summary).toEqual({ confirmed: 2, skipped: 0, unconfirmed: 0 });
+    expect(actionCalls(fetchStub.calls).map(requestBodyText)).toEqual([
       "screen_name=reply_user_1",
       "screen_name=reply_user_2",
     ]);
     for (const call of fetchStub.calls) {
-      expect(call.url).toBe("https://api.x.com/1.1/blocks/create.json");
+      expect(call.url).toMatch(/\/1\.1\/(blocks\/create|friendships\/show)\.json/);
     }
     expect(progress).toEqual([
       { done: 1, total: 2 },
@@ -142,14 +153,14 @@ describe("max replies setting", () => {
 
     const summary = await hooks.muteReplies();
 
-    expect(summary).toEqual({ acted: 3, skipped: 0, failed: 0 });
-    expect(fetchStub.calls.map((call) => call.init?.body)).toEqual([
+    expect(summary).toEqual({ confirmed: 3, skipped: 0, unconfirmed: 0 });
+    expect(actionCalls(fetchStub.calls).map(requestBodyText)).toEqual([
       "screen_name=reply_user_1",
       "screen_name=reply_user_2",
       "screen_name=reply_user_3",
     ]);
     for (const call of fetchStub.calls) {
-      expect(call.url).toBe("https://api.x.com/1.1/mutes/users/create.json");
+      expect(call.url).toMatch(/\/1\.1\/(mutes\/users\/create|friendships\/show)\.json/);
     }
   });
 
@@ -160,7 +171,8 @@ describe("max replies setting", () => {
 
     const summary = await hooks.blockReplies();
 
-    expect(summary).toEqual({ acted: 2, skipped: 0, failed: 0 });
-    expect(fetchStub.calls).toHaveLength(2);
+    expect(summary).toEqual({ confirmed: 2, skipped: 0, unconfirmed: 0 });
+    expect(actionCalls(fetchStub.calls)).toHaveLength(2);
+    expect(fetchStub.calls).toHaveLength(4);
   });
 });
