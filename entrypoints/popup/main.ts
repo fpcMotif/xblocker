@@ -61,7 +61,8 @@ function ensurePopupStyles(): void {
 			padding: 14px 16px;
 		}
 
-		.xb-region + .xb-region {
+		.xb-region + .xb-region,
+		.xb-header + .xb-popup-main > .xb-region:first-child {
 			border-top: 1px solid var(--xb-border);
 		}
 
@@ -760,11 +761,14 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
     blockedStore.stats(),
   ]);
 
-  const popup = document.createElement("main");
+  const popup = document.createElement("div");
   popup.className = "xb-popup";
   popup.dataset.xbSurface = "popup";
 
   const header = buildHeader();
+  const main = document.createElement("main");
+  main.className = "xb-popup-main";
+
   const statStrip = buildStatStrip(opts.clock);
   const toggles = buildToggles(settings);
   const syncTrigger: { run?: () => void } = {};
@@ -772,7 +776,8 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
   const syncSession = createCloudSyncSession(opts);
   const footer = buildFooter();
 
-  popup.append(header, statStrip.element, toggles, syncRow.element, footer);
+  main.append(statStrip.element, toggles, syncRow.element);
+  popup.append(header, main, footer);
   root.replaceChildren(popup);
 
   // The first set() on a fresh createLiveNumber renders instantly with no debounce or

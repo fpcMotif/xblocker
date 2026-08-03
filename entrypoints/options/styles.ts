@@ -93,7 +93,7 @@ body {
 .xb-opt-nav-item svg { color: inherit; }
 .xb-opt-nav-item[aria-current="page"] {
 	background: oklch(0.63 0.16 246 / 0.12);
-	color: var(--xb-primary);
+	color: var(--xb-primary-text);
 }
 .xb-opt-nav-item[aria-current="page"]::before {
 	content: "";
@@ -255,7 +255,7 @@ body {
 .xb-opt-btn:active { transform: scale(0.96); }
 .xb-opt-btn:focus-visible { outline: 2px solid var(--xb-primary); outline-offset: 2px; }
 .xb-opt-btn:disabled { opacity: 0.45; cursor: default; }
-.xb-opt-btn[data-variant="primary"] { background: var(--xb-primary); color: white; }
+.xb-opt-btn[data-variant="primary"] { background: var(--xb-primary-btn-bg); color: white; }
 .xb-opt-btn[data-variant="secondary"] { background: transparent; border-color: var(--xb-border); color: var(--xb-ink); }
 .xb-opt-btn[data-variant="danger"] { background: var(--xb-danger); color: white; }
 .xb-opt-btn[data-reserve] { min-width: var(--xb-opt-btn-reserve, auto); }

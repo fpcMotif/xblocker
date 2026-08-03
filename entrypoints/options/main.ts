@@ -196,8 +196,9 @@ export async function renderOptions(
   const shell = document.createElement("div");
   shell.className = "xb-opt-root";
 
-  const rail = document.createElement("div");
+  const rail = document.createElement("aside");
   rail.className = "xb-opt-rail";
+  rail.setAttribute("aria-label", "Sidebar");
   rail.appendChild(buildBrandRow());
 
   const content = document.createElement("main");
