@@ -10,24 +10,29 @@ import {
 import { readCloudDisplayState, type SyncMeta } from "../../../packages/sync/sync-engine";
 
 export const WIPE_CONFIRM_WORD = "WIPE";
+import * as stylex from "@stylexjs/stylex";
+import { optionsShellStyles as shellStyles } from "../options-shell.stylex";
+import { optionsTableStyles as tableStyles } from "../options-table.stylex";
 
 export { formatSyncAge };
 type PaneHandle = { destroy(): void };
 
 function renderUnconfigured(container: HTMLElement): void {
   const wrapper = document.createElement("div");
-  wrapper.className = "xb-opt-pane-form";
+  wrapper.className = `${stylex.props(shellStyles.paneForm).className} xb-opt-pane-form`;
 
   const header = document.createElement("div");
-  header.className = "xb-opt-pane-header";
+  header.className = `${stylex.props(shellStyles.paneHeader).className} xb-opt-pane-header`;
   const h1 = document.createElement("h1");
+  h1.className = `${stylex.props(shellStyles.paneHeaderH1).className}`;
   h1.textContent = "Cloud backup";
   const desc = document.createElement("p");
+  desc.className = `${stylex.props(shellStyles.paneHeaderP).className}`;
   desc.textContent = "Mirror your blocked list to your private Convex project.";
   header.append(h1, desc);
 
   const card = document.createElement("div");
-  card.className = "xb-opt-empty";
+  card.className = `${stylex.props(shellStyles.empty).className} xb-opt-empty`;
   const title = document.createElement("p");
   title.textContent = "Cloud backup isn't configured for this build.";
   card.appendChild(title);
@@ -52,70 +57,71 @@ export async function renderCloudPane(
   let enabled = display.enabled;
 
   const wrapper = document.createElement("div");
-  wrapper.className = "xb-opt-pane-form";
+  wrapper.className = `${stylex.props(shellStyles.paneForm).className} xb-opt-pane-form`;
 
   const header = document.createElement("div");
-  header.className = "xb-opt-pane-header";
+  header.className = `${stylex.props(shellStyles.paneHeader).className} xb-opt-pane-header`;
   const h1 = document.createElement("h1");
+  h1.className = `${stylex.props(shellStyles.paneHeaderH1).className}`;
   h1.textContent = "Cloud backup";
   const desc = document.createElement("p");
+  desc.className = `${stylex.props(shellStyles.paneHeaderP).className}`;
   desc.textContent = "Mirror your blocked list to your private Convex project.";
   header.append(h1, desc);
 
   const statusCard = document.createElement("div");
-  statusCard.className = "xb-opt-card";
+  statusCard.className = `${stylex.props(shellStyles.card).className} xb-opt-card`;
 
   const toggleRow = document.createElement("label");
-  toggleRow.className = "xb-opt-row";
+  toggleRow.className = `${stylex.props(shellStyles.row).className} xb-opt-row`;
   const toggleCopy = document.createElement("span");
-  toggleCopy.className = "xb-opt-row-copy";
+  toggleCopy.className = `${stylex.props(shellStyles.rowCopy).className} xb-opt-row-copy`;
   const toggleTitle = document.createElement("span");
-  toggleTitle.className = "xb-opt-row-title";
+  toggleTitle.className = `${stylex.props(shellStyles.rowTitle).className} xb-opt-row-title`;
   toggleTitle.textContent = "Back up blocked list to cloud";
   const toggleCaption = document.createElement("span");
-  toggleCaption.className = "xb-opt-row-caption";
+  toggleCaption.className = `${stylex.props(shellStyles.rowCaption).className} xb-opt-row-caption`;
   toggleCaption.textContent = "Mirror your blocked accounts to your Convex project.";
   toggleCopy.append(toggleTitle, toggleCaption);
   const toggleInput = document.createElement("input");
   toggleInput.type = "checkbox";
-  toggleInput.className = "xb-opt-switch";
+  toggleInput.className = `${stylex.props(shellStyles.switchInput).className} xb-opt-switch`;
   toggleInput.checked = enabled;
   toggleRow.append(toggleCopy, toggleInput);
 
   const statusRow = document.createElement("div");
-  statusRow.className = "xb-opt-row xb-opt-row-meta";
+  statusRow.className = `${stylex.props(shellStyles.row, shellStyles.rowMeta).className} xb-opt-row xb-opt-row-meta`;
   const statusLabel = document.createElement("span");
-  statusLabel.className = "xb-opt-row-title";
+  statusLabel.className = `${stylex.props(shellStyles.rowTitle).className} xb-opt-row-title`;
   statusLabel.textContent = "Status";
   const statusValue = document.createElement("span");
-  statusValue.className = "xb-opt-row-value";
+  statusValue.className = `${stylex.props(shellStyles.rowValue).className} xb-opt-row-value`;
   statusRow.append(statusLabel, statusValue);
 
   const lastSyncedRow = document.createElement("div");
-  lastSyncedRow.className = "xb-opt-row xb-opt-row-meta";
+  lastSyncedRow.className = `${stylex.props(shellStyles.row, shellStyles.rowMeta).className} xb-opt-row xb-opt-row-meta`;
   const lastSyncedLabel = document.createElement("span");
-  lastSyncedLabel.className = "xb-opt-row-title";
+  lastSyncedLabel.className = `${stylex.props(shellStyles.rowTitle).className} xb-opt-row-title`;
   lastSyncedLabel.textContent = "Last synced";
   const lastSyncedValue = document.createElement("span");
-  lastSyncedValue.className = "xb-opt-row-value";
+  lastSyncedValue.className = `${stylex.props(shellStyles.rowValue).className} xb-opt-row-value`;
   lastSyncedRow.append(lastSyncedLabel, lastSyncedValue);
 
   const pendingRow = document.createElement("div");
-  pendingRow.className = "xb-opt-row xb-opt-row-meta";
+  pendingRow.className = `${stylex.props(shellStyles.row, shellStyles.rowMeta).className} xb-opt-row xb-opt-row-meta`;
   const pendingLabel = document.createElement("span");
-  pendingLabel.className = "xb-opt-row-title";
+  pendingLabel.className = `${stylex.props(shellStyles.rowTitle).className} xb-opt-row-title`;
   pendingLabel.textContent = "Pending actions";
   const pendingValue = document.createElement("span");
-  pendingValue.className = "xb-opt-row-value";
+  pendingValue.className = `${stylex.props(shellStyles.rowValue).className} xb-opt-row-value`;
   pendingRow.append(pendingLabel, pendingValue);
 
   const syncRow = document.createElement("div");
-  syncRow.className = "xb-opt-row";
+  syncRow.className = `${stylex.props(shellStyles.row, shellStyles.rowLast).className} xb-opt-row`;
   const syncButton = document.createElement("button");
   syncButton.type = "button";
-  syncButton.className = "xb-opt-btn";
+  syncButton.className = `${stylex.props(tableStyles.btn, tableStyles.btnSecondary).className} xb-opt-btn`;
   syncButton.dataset.variant = "secondary";
-  syncButton.dataset.reserve = "true";
   syncButton.style.setProperty("--xb-opt-btn-reserve", "88px");
   syncButton.textContent = "Sync now";
   syncRow.append(syncButton);
@@ -160,57 +166,58 @@ export async function renderCloudPane(
   });
 
   const dangerCard = document.createElement("div");
-  dangerCard.className = "xb-opt-card";
+  dangerCard.className = `${stylex.props(shellStyles.card, shellStyles.cardNext, shellStyles.cardDanger).className} xb-opt-card`;
   dangerCard.dataset.danger = "true";
 
   const dangerHeader = document.createElement("div");
-  dangerHeader.className = "xb-opt-card-header";
+  dangerHeader.className = `${stylex.props(shellStyles.cardHeader).className} xb-opt-card-header`;
   const dangerTitle = document.createElement("h2");
+  dangerTitle.className = `${stylex.props(shellStyles.cardHeaderH2, shellStyles.cardHeaderH2Danger).className}`;
   dangerTitle.textContent = "Danger zone";
   dangerHeader.appendChild(dangerTitle);
 
   const dangerBody = document.createElement("p");
-  dangerBody.className = "xb-opt-danger-body";
+  dangerBody.className = `${stylex.props(shellStyles.dangerBody).className} xb-opt-danger-body`;
   dangerBody.textContent =
     "Permanently delete every account this owner has synced to the cloud. This cannot be undone and does not touch your local block/mute list. Turns cloud backup off.";
 
   const dangerActions = document.createElement("div");
-  dangerActions.className = "xb-opt-danger-actions";
+  dangerActions.className = `${stylex.props(shellStyles.dangerActions).className} xb-opt-danger-actions`;
   const wipeButton = document.createElement("button");
   wipeButton.type = "button";
-  wipeButton.className = "xb-opt-btn";
+  wipeButton.className = `${stylex.props(tableStyles.btn, tableStyles.btnDanger).className} xb-opt-btn`;
   wipeButton.dataset.variant = "danger";
   wipeButton.textContent = "Wipe cloud data";
   dangerActions.appendChild(wipeButton);
 
   const wipePanel = document.createElement("div");
-  wipePanel.className = "xb-opt-wipe-panel";
+  wipePanel.className = `${stylex.props(shellStyles.wipePanel).className} xb-opt-wipe-panel`;
   wipePanel.dataset.open = "false";
 
   const wipeCaption = document.createElement("p");
-  wipeCaption.className = "xb-opt-field-caption";
+  wipeCaption.className = `${stylex.props(tableStyles.fieldCaption).className} xb-opt-field-caption`;
   wipeCaption.textContent = `Type ${WIPE_CONFIRM_WORD} to confirm.`;
 
   const wipeRow = document.createElement("div");
-  wipeRow.className = "xb-opt-wipe-row";
+  wipeRow.className = `${stylex.props(shellStyles.wipeRow).className} xb-opt-wipe-row`;
   const wipeInput = document.createElement("input");
-  wipeInput.className = "xb-opt-input";
+  wipeInput.className = `${stylex.props(tableStyles.input).className} xb-opt-input`;
   wipeInput.setAttribute("aria-label", "Type WIPE to confirm");
   const cancelButton = document.createElement("button");
   cancelButton.type = "button";
-  cancelButton.className = "xb-opt-btn";
+  cancelButton.className = `${stylex.props(tableStyles.btn, tableStyles.btnSecondary).className} xb-opt-btn`;
   cancelButton.dataset.variant = "secondary";
   cancelButton.textContent = "Cancel";
   const confirmButton = document.createElement("button");
   confirmButton.type = "button";
-  confirmButton.className = "xb-opt-btn";
+  confirmButton.className = `${stylex.props(tableStyles.btn, tableStyles.btnDanger).className} xb-opt-btn`;
   confirmButton.dataset.variant = "danger";
   confirmButton.textContent = "Confirm wipe";
   confirmButton.disabled = true;
   wipeRow.append(wipeInput, cancelButton, confirmButton);
 
   const wipeResult = document.createElement("p");
-  wipeResult.className = "xb-opt-field-caption";
+  wipeResult.className = `${stylex.props(tableStyles.fieldCaption, tableStyles.fieldCaptionDanger).className} xb-opt-field-caption`;
   wipeResult.hidden = true;
 
   wipePanel.append(wipeCaption, wipeRow, wipeResult);

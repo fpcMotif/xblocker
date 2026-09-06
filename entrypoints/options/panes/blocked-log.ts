@@ -1,8 +1,11 @@
-// Blocked log pane: wires blockedStore.list() (previously unused) into a searchable,
-// filterable, virtualized ledger of every account the extension has ever acted on.
+// Blocked-log pane: virtualized table of all blocked/muted accounts with client-side
+// search, action filter, and sync status filter.
 
 import type { BlockedAccount } from "../../../packages/storage/blocked-merge";
 import { blockedStore } from "../../../packages/storage/blocked-store";
+import * as stylex from "@stylexjs/stylex";
+import { optionsShellStyles as shellStyles } from "../options-shell.stylex";
+import { optionsTableStyles as styles } from "../options-table.stylex";
 import { CLOUD_BACKUP_KEY, storageGet } from "../../../packages/storage/chrome-storage";
 import { createLiveNumber, formatCount } from "../../lib/live-number";
 import { createVirtualList, type VirtualList } from "../virtual-list";
@@ -105,21 +108,23 @@ export async function renderBlockedLogPane(
   let focusedIndex = 0;
 
   const wrapper = document.createElement("div");
-  wrapper.className = "xb-opt-pane-table";
+  wrapper.className = `${stylex.props(styles.paneTable).className} xb-opt-pane-table`;
 
   const header = document.createElement("div");
-  header.className = "xb-opt-pane-header";
+  header.className = `${stylex.props(shellStyles.paneHeader).className} xb-opt-pane-header`;
   const h1 = document.createElement("h1");
+  h1.className = `${stylex.props(shellStyles.paneHeaderH1).className}`;
   h1.textContent = "Blocked log";
   const desc = document.createElement("p");
+  desc.className = `${stylex.props(shellStyles.paneHeaderP).className}`;
   desc.textContent = "Every account block and mute runs have acted on.";
   header.append(h1, desc);
 
   const toolbar = document.createElement("div");
-  toolbar.className = "xb-opt-toolbar";
+  toolbar.className = `${stylex.props(styles.toolbar).className} xb-opt-toolbar`;
 
   const searchInput = document.createElement("input");
-  searchInput.className = "xb-opt-input";
+  searchInput.className = `${stylex.props(styles.input).className} xb-opt-input`;
   searchInput.type = "search";
   searchInput.placeholder = "Search handle";
   searchInput.setAttribute("aria-label", "Search blocked log");
@@ -131,7 +136,7 @@ export async function renderBlockedLogPane(
     onSelect: (value: T) => void,
   ): HTMLDivElement {
     const group = document.createElement("div");
-    group.className = "xb-opt-chip-group";
+    group.className = `${stylex.props(styles.chipGroup).className} xb-opt-chip-group`;
     group.setAttribute("role", "group");
     group.setAttribute("aria-label", label);
 
@@ -139,9 +144,10 @@ export async function renderBlockedLogPane(
     for (const [value, text] of options) {
       const chip = document.createElement("button");
       chip.type = "button";
-      chip.className = "xb-opt-chip";
+      const isSelected = value === active;
+      chip.className = `${stylex.props(styles.chip, isSelected && styles.chipActive).className} xb-opt-chip`;
       chip.textContent = text;
-      chip.setAttribute("aria-pressed", String(value === active));
+      chip.setAttribute("aria-pressed", String(isSelected));
       chip.addEventListener("click", () => {
         for (const other of buttons) other.setAttribute("aria-pressed", "false");
         chip.setAttribute("aria-pressed", "true");
@@ -183,11 +189,11 @@ export async function renderBlockedLogPane(
   );
 
   const spacer = document.createElement("div");
-  spacer.className = "xb-opt-toolbar-spacer";
+  spacer.className = `${stylex.props(styles.toolbarSpacer).className} xb-opt-toolbar-spacer`;
 
   const exportButton = document.createElement("button");
   exportButton.type = "button";
-  exportButton.className = "xb-opt-btn";
+  exportButton.className = `${stylex.props(styles.btn, styles.btnSecondary).className} xb-opt-btn`;
   exportButton.dataset.variant = "secondary";
   exportButton.textContent = "Export JSON";
   exportButton.addEventListener("click", () => {
@@ -207,16 +213,16 @@ export async function renderBlockedLogPane(
   const bodyArea = document.createElement("div");
 
   const footer = document.createElement("div");
-  footer.className = "xb-opt-footer";
+  footer.className = `${stylex.props(styles.footer).className} xb-opt-footer`;
   const footerCount = document.createElement("p");
-  footerCount.className = "xb-opt-footer-count";
+  footerCount.className = `${stylex.props(shellStyles.rowCaption).className} xb-opt-footer-count`;
   const countNumber = document.createElement("span");
-  countNumber.className = "xb-opt-tabular";
+  countNumber.className = `${stylex.props(styles.tabular).className} xb-opt-tabular`;
   const countNoun = document.createElement("span");
   footerCount.append(countNumber, countNoun);
   const jumpTopButton = document.createElement("button");
   jumpTopButton.type = "button";
-  jumpTopButton.className = "xb-opt-jump-top";
+  jumpTopButton.className = `${stylex.props(styles.jumpTop).className} xb-opt-jump-top`;
   jumpTopButton.textContent = "Jump to top";
   jumpTopButton.hidden = true;
   footer.append(footerCount, jumpTopButton);
@@ -239,38 +245,37 @@ export async function renderBlockedLogPane(
 
   function renderRow(row: Row, index: number): HTMLElement {
     const el = document.createElement("div");
-    el.className = "xb-opt-table-row";
+    el.className = `${stylex.props(styles.tableRow).className} xb-opt-table-row`;
     el.style.gridTemplateColumns = ROW_GRID;
     el.tabIndex = index === focusedIndex ? 0 : -1;
     el.setAttribute("role", "row");
 
     const handleCell = document.createElement("span");
-    handleCell.className = "xb-opt-cell-handle";
+    handleCell.className = `${stylex.props(styles.cellHandle).className} xb-opt-cell-handle`;
     handleCell.textContent = `@${row.account.handle}`;
 
     const actionCell = document.createElement("span");
-    actionCell.className = "xb-opt-cell-action";
+    actionCell.className = `${stylex.props(styles.cellAction).className} xb-opt-cell-action`;
     const dot = document.createElement("span");
-    dot.className = "xb-opt-tone-dot";
+    dot.className = `${stylex.props(styles.toneDot, row.action === "block" ? styles.toneDotDanger : styles.toneDotWarning).className} xb-opt-tone-dot`;
     dot.dataset.tone = row.action === "block" ? "danger" : "warning";
     const actionText = document.createElement("span");
     actionText.textContent = actionLabel(row.action);
     actionCell.append(dot, actionText);
 
     const whenCell = document.createElement("span");
-    whenCell.className = "xb-opt-cell-when";
+    whenCell.className = `${stylex.props(styles.cellWhen).className} xb-opt-cell-when`;
     whenCell.textContent = formatRelativeShort(now() - row.account.lastActionAt);
     whenCell.title = new Date(row.account.lastActionAt).toLocaleString();
 
     const syncCell = document.createElement("span");
-    syncCell.className = "xb-opt-cell-action";
+    syncCell.className = `${stylex.props(styles.cellAction).className} xb-opt-cell-action`;
     const syncDot = document.createElement("span");
-    syncDot.className = "xb-opt-sync-dot";
+    syncDot.className = `${stylex.props(styles.syncDot, row.sync === "synced" ? styles.syncDotSynced : row.sync === "pending" ? styles.syncDotPending : styles.syncDotLocal).className} xb-opt-sync-dot`;
     syncDot.dataset.sync = row.sync;
     const syncText = document.createElement("span");
     syncText.textContent = syncLabel(row.sync);
     syncCell.append(syncDot, syncText);
-
     el.append(handleCell, actionCell, whenCell, syncCell);
     return el;
   }
@@ -279,7 +284,7 @@ export async function renderBlockedLogPane(
     tableScroll = undefined;
     virtualList = undefined;
     const empty = document.createElement("div");
-    empty.className = "xb-opt-empty";
+    empty.className = `${stylex.props(shellStyles.empty).className} xb-opt-empty`;
     const title = document.createElement("p");
     title.textContent = trueEmpty ? "No blocked accounts yet." : "No accounts match these filters.";
     const hint = document.createElement("p");
@@ -292,10 +297,10 @@ export async function renderBlockedLogPane(
 
   function buildTable(): void {
     const table = document.createElement("div");
-    table.className = "xb-opt-table";
+    table.className = `${stylex.props(styles.table).className} xb-opt-table`;
 
     const head = document.createElement("div");
-    head.className = "xb-opt-table-head";
+    head.className = `${stylex.props(styles.tableHead).className} xb-opt-table-head`;
     head.style.gridTemplateColumns = ROW_GRID;
     for (const label of ["Handle", "Action", "When", "Sync"]) {
       const cell = document.createElement("span");
@@ -305,7 +310,7 @@ export async function renderBlockedLogPane(
     table.appendChild(head);
 
     const scroll = document.createElement("div");
-    scroll.className = "xb-opt-table-scroll";
+    scroll.className = `${stylex.props(styles.tableScroll).className} xb-opt-table-scroll`;
     scroll.setAttribute("role", "rowgroup");
     table.appendChild(scroll);
     bodyArea.replaceChildren(table);

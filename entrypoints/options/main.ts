@@ -16,14 +16,15 @@
 // means a superseded navigation never touches the shared container at all — the winning
 // navigation is always the one that renders last.
 
+import * as stylex from "@stylexjs/stylex";
 import { createIcon } from "../lib/icons";
+import { optionsShellStyles as styles } from "./options-shell.stylex";
 import { renderAboutPane } from "./panes/about";
 import { renderBlockedLogPane } from "./panes/blocked-log";
 import { renderCloudPane, type RenderCloudPaneOptions } from "./panes/cloud";
 import { renderGeneralPane } from "./panes/general";
 import { renderWhitelistPane } from "./panes/whitelist";
 import { ensureOptionsStyles } from "./styles";
-
 export type OptionsRoute = "about" | "blocked-log" | "cloud" | "general" | "whitelist";
 
 const DEFAULT_ROUTE: OptionsRoute = "general";
@@ -67,14 +68,14 @@ function routeFromHash(): OptionsRoute {
 
 function buildBrandRow(): HTMLElement {
   const brand = document.createElement("div");
-  brand.className = "xb-opt-brand";
+  brand.className = `${stylex.props(styles.brand).className} xb-opt-brand`;
 
   const mark = document.createElement("span");
-  mark.className = "xb-opt-brand-mark";
+  mark.className = `${stylex.props(styles.brandMark).className} xb-opt-brand-mark`;
   mark.appendChild(createIcon("shield", 14));
 
   const name = document.createElement("span");
-  name.className = "xb-opt-brand-name";
+  name.className = `${stylex.props(styles.brandName).className} xb-opt-brand-name`;
   name.textContent = "XBlocker";
 
   brand.append(mark, name);
@@ -88,14 +89,15 @@ function buildNav(
   onNavigate: (route: OptionsRoute) => void,
 ): NavControl {
   const nav = document.createElement("nav");
-  nav.className = "xb-opt-nav";
+  nav.className = `${stylex.props(styles.nav).className} xb-opt-nav`;
   nav.setAttribute("aria-label", "Settings sections");
 
   const links = new Map<OptionsRoute, HTMLAnchorElement>();
 
   for (const route of ROUTES) {
     const link = document.createElement("a");
-    link.className = "xb-opt-nav-item";
+    const isActive = route.id === activeRoute;
+    link.className = `${stylex.props(styles.navItem, isActive && styles.navItemActive).className} xb-opt-nav-item`;
     link.href = `#${route.id}`;
     link.dataset.route = route.id;
     link.appendChild(route.icon());
@@ -104,7 +106,7 @@ function buildNav(
     label.textContent = route.label;
     link.appendChild(label);
 
-    if (route.id === activeRoute) link.setAttribute("aria-current", "page");
+    if (isActive) link.setAttribute("aria-current", "page");
 
     link.addEventListener("click", (event) => {
       event.preventDefault();
@@ -120,7 +122,9 @@ function buildNav(
     element: nav,
     setActive(route) {
       for (const [id, link] of links) {
-        if (id === route) link.setAttribute("aria-current", "page");
+        const isTarget = id === route;
+        link.className = `${stylex.props(styles.navItem, isTarget && styles.navItemActive).className} xb-opt-nav-item`;
+        if (isTarget) link.setAttribute("aria-current", "page");
         else link.removeAttribute("aria-current");
       }
     },
@@ -129,7 +133,7 @@ function buildNav(
 
 function buildVersionFooter(): HTMLElement {
   const el = document.createElement("div");
-  el.className = "xb-opt-version";
+  el.className = `${stylex.props(styles.version).className} xb-opt-version`;
   const version = chrome.runtime.getManifest?.()?.version;
   el.textContent = version ? `v${version}` : "";
   return el;
@@ -142,14 +146,14 @@ type PaneHandle = { destroy(): void };
  *  new CSS shape for what is, visually, just another "nothing to show here" card. */
 function renderPaneLoadError(container: HTMLElement, onRetry: () => void): void {
   const wrapper = document.createElement("div");
-  wrapper.className = "xb-opt-empty";
+  wrapper.className = `${stylex.props(styles.empty).className} xb-opt-empty`;
 
   const message = document.createElement("p");
   message.textContent = "Couldn't load this page.";
 
   const retry = document.createElement("a");
   retry.href = "#";
-  retry.className = "xb-opt-link-row";
+  retry.className = `${stylex.props(styles.linkRow).className} xb-opt-link-row`;
   retry.textContent = "Try again";
   retry.addEventListener("click", (event) => {
     event.preventDefault();
@@ -194,15 +198,15 @@ export async function renderOptions(
   ensureOptionsStyles();
 
   const shell = document.createElement("div");
-  shell.className = "xb-opt-root";
+  shell.className = `${stylex.props(styles.root).className} xb-opt-root`;
 
   const rail = document.createElement("aside");
-  rail.className = "xb-opt-rail";
+  rail.className = `${stylex.props(styles.rail).className} xb-opt-rail`;
   rail.setAttribute("aria-label", "Sidebar");
   rail.appendChild(buildBrandRow());
 
   const content = document.createElement("main");
-  content.className = "xb-opt-content";
+  content.className = `${stylex.props(styles.content).className} xb-opt-content`;
 
   let currentRoute: OptionsRoute | undefined;
   let currentHandle: PaneHandle | undefined;

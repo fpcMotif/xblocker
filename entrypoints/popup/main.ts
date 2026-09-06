@@ -2,8 +2,10 @@
 // docs/plans/2026-07-10-gauge-and-ledger/plan.md, "Popup"). Whitelist management and
 // max-replies now live on the settings page; this surface only shows the stat strip,
 // two behavior toggles, the cloud sync row, and a link out to settings.
+import * as stylex from "@stylexjs/stylex";
 import type { BlockedStats } from "../../packages/storage/blocked-merge";
 import { blockedStore } from "../../packages/storage/blocked-store";
+import { popupStyles as styles } from "./popup.stylex";
 import {
   CLOUD_BACKUP_KEY,
   SETTINGS_KEY,
@@ -11,12 +13,7 @@ import {
   storageSet,
 } from "../../packages/storage/chrome-storage";
 import { createCloudSyncSession, type CloudSyncDeps } from "../../packages/sync/cloud-session";
-import {
-  XB_DARK_TOKENS,
-  XB_FONT_STACK,
-  XB_LIGHT_TOKENS,
-  XB_TONE_TOKENS,
-} from "../lib/design-tokens";
+import { XB_FONT_STACK } from "../lib/design-tokens";
 import { createIcon } from "../lib/icons";
 import { createLiveNumber, type LiveNumber, type LiveNumberClock } from "../lib/live-number";
 import { readSettings, type Settings } from "../../packages/storage/settings";
@@ -40,405 +37,34 @@ function ensurePopupStyles(): void {
   const style = document.createElement("style");
   style.id = "xblocker-popup-styles";
   style.textContent = `
-		:root {${XB_TONE_TOKENS}${XB_LIGHT_TOKENS}	color-scheme: light dark;
-		}
-		@media (prefers-color-scheme: dark) {
-			:root {${XB_DARK_TOKENS}}
+		:root {
+			color-scheme: light dark;
 		}
 
 		body {
 			width: 360px;
 			margin: 0;
-			background: var(--xb-surface);
-			color: var(--xb-ink);
 			font-family: ${XB_FONT_STACK};
 			-webkit-font-smoothing: antialiased;
-		}
-
-		.xb-popup {
-			box-sizing: border-box;
-			width: 360px;
-			padding: 14px 16px;
-		}
-
-		.xb-region + .xb-region,
-		.xb-header + .xb-popup-main > .xb-region:first-child {
-			border-top: 1px solid var(--xb-border);
-		}
-
-		.xb-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			padding-bottom: 12px;
-		}
-
-		.xb-brand {
-			display: flex;
-			align-items: center;
-			gap: 8px;
-			min-width: 0;
-		}
-
-		.xb-brand-mark {
-			display: grid;
-			place-items: center;
-			flex: 0 0 auto;
-			width: 22px;
-			height: 22px;
-			border-radius: 8px;
-			background: oklch(0.63 0.16 246 / 0.12);
-			color: var(--xb-primary);
-		}
-
-		.xb-header h1 {
-			margin: 0;
-			font-size: 15px;
-			line-height: 1.2;
-			font-weight: 700;
-			color: var(--xb-ink);
-		}
-
-		.xb-status {
-			display: inline-flex;
-			align-items: center;
-			gap: 6px;
-			color: var(--xb-ink-muted);
-			font-size: 12px;
-			font-weight: 600;
-			white-space: nowrap;
-		}
-
-		.xb-status-dot {
-			flex: 0 0 auto;
-			width: 6px;
-			height: 6px;
-			border-radius: 50%;
-			background: var(--xb-success);
-		}
-
-		.xb-stat-strip {
-			display: grid;
-			grid-template-columns: repeat(3, 1fr);
-			align-items: center;
-			min-height: 64px;
-			padding: 10px 0;
-		}
-
-		.xb-stat-cell {
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			justify-content: center;
-			gap: 4px;
-			padding: 0 4px;
-			border-left: 1px solid var(--xb-border);
-		}
-
-		.xb-stat-cell:first-child {
-			border-left: 0;
-		}
-
-		.xb-stat-value {
-			font-size: 26px;
-			line-height: 1;
-			font-weight: 700;
-			color: var(--xb-ink);
-			font-variant-numeric: tabular-nums;
-		}
-
-		.xb-stat-tick {
-			width: 20px;
-			height: 2px;
-			border-radius: 1px;
-		}
-
-		.xb-stat-tick[data-tone="danger"] { background: var(--xb-danger); }
-		.xb-stat-tick[data-tone="warning"] { background: var(--xb-warning); }
-		.xb-stat-tick[data-tone="success"] { background: var(--xb-success); }
-
-		.xb-stat-label {
-			font-size: 11px;
-			font-weight: 600;
-			letter-spacing: 0.06em;
-			text-transform: uppercase;
-			color: var(--xb-ink-muted);
-		}
-
-		.xb-toggles {
-			padding: 2px 0;
-		}
-
-		.xb-toggle-row {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 12px;
-			min-height: 44px;
-			padding: 8px 0;
-			cursor: pointer;
-		}
-
-		.xb-toggle-row + .xb-toggle-row {
-			border-top: 1px solid var(--xb-border);
-		}
-
-		.xb-toggle-copy {
-			display: grid;
-			gap: 2px;
-			min-width: 0;
-		}
-
-		.xb-toggle-title {
-			font-size: 13px;
-			font-weight: 600;
-			color: var(--xb-ink);
-		}
-
-		.xb-toggle-caption {
-			font-size: 11px;
-			font-weight: 500;
-			line-height: 1.3;
-			color: var(--xb-ink-muted);
-		}
-
-		.xb-switch {
-			appearance: none;
-			position: relative;
-			flex: 0 0 auto;
-			box-sizing: border-box;
-			width: 42px;
-			height: 24px;
-			margin: 0;
-			border-radius: 999px;
-			border: 1px solid var(--xb-border);
-			background: var(--xb-track);
-			cursor: pointer;
-			transition: background-color 160ms var(--xb-ease-out), border-color 160ms var(--xb-ease-out);
 		}
 
 		.xb-switch::before {
 			content: "";
 			position: absolute;
-			top: 3px;
-			left: 3px;
-			width: 16px;
-			height: 16px;
+			top: 2px;
+			left: 2px;
+			width: 14px;
+			height: 14px;
 			border-radius: 50%;
 			background: oklch(1 0 0);
 			transition: transform 160ms var(--xb-ease-out);
 		}
 
-		.xb-switch:checked {
-			border-color: var(--xb-primary);
-			background: var(--xb-primary);
-		}
-
-		.xb-switch:checked::before {
-			transform: translateX(18px);
-		}
-
-		.xb-switch:active {
-			transform: scale(0.96);
-		}
-
-		.xb-switch:focus-visible {
-			outline: 2px solid var(--xb-primary);
-			outline-offset: 2px;
-		}
-
-		.xb-sync-row {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 12px;
-			min-height: 48px;
-			padding: 10px 0;
-		}
-
-		.xb-sync-left {
-			display: flex;
-			align-items: center;
-			gap: 8px;
-			min-width: 0;
-		}
-
-		.xb-telltale {
-			box-sizing: border-box;
-			flex: 0 0 auto;
-			width: 8px;
-			height: 8px;
-			border-radius: 50%;
-			border: 1.5px solid var(--xb-ink-muted);
-			background: transparent;
-		}
-
-		.xb-telltale[data-state="idle"] {
-			border-color: var(--xb-success);
-			background: var(--xb-success);
-		}
-
-		.xb-telltale[data-state="syncing"] {
-			border-color: var(--xb-primary);
-			background: var(--xb-primary);
-			animation: xb-breathe 900ms ease-in-out infinite;
-		}
-
-		.xb-telltale[data-state="error"] {
-			border-color: var(--xb-danger);
-			background: var(--xb-danger);
-			animation: xb-blink-error 900ms ease-in-out 1;
-		}
-
-		@keyframes xb-breathe {
-			0%, 100% { opacity: 1; }
-			50% { opacity: 0.4; }
-		}
-
-		@keyframes xb-blink-error {
-			0%, 100% { opacity: 1; }
-			15% { opacity: 0.25; }
-			30% { opacity: 1; }
-			45% { opacity: 0.25; }
-			60% { opacity: 1; }
-		}
-
-		.xb-sync-copy {
-			display: grid;
-			gap: 2px;
-			min-width: 0;
-		}
-
-		.xb-sync-title {
-			font-size: 12px;
-			font-weight: 600;
-			color: var(--xb-ink);
-		}
-
-		.xb-sync-detail {
-			font-size: 11px;
-			font-weight: 500;
-			color: var(--xb-ink-muted);
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-		}
-
-		.xb-sync-action {
-			flex: 0 0 auto;
-		}
-
-		.xb-sync-note {
-			font-size: 11px;
-			font-weight: 500;
-			color: var(--xb-ink-muted);
-			white-space: nowrap;
-		}
-
-		.xb-ghost-link {
-			border: 0;
-			background: transparent;
-			padding: 4px 0;
-			color: var(--xb-primary);
-			font: inherit;
-			font-size: 12px;
-			font-weight: 600;
-			cursor: pointer;
-			white-space: nowrap;
-		}
-
-		.xb-ghost-link:focus-visible {
-			outline: 2px solid var(--xb-primary);
-			outline-offset: 2px;
-			border-radius: 4px;
-		}
+		.xb-switch:checked { background: var(--xb-primary); border-color: var(--xb-primary); }
+		.xb-switch:checked::before { transform: translateX(16px); }
 
 		.xb-sync-button {
-			box-sizing: border-box;
-			display: inline-flex;
-			align-items: center;
-			justify-content: center;
-			gap: 6px;
-			height: 30px;
 			min-width: 9ch;
-			padding: 0 10px;
-			border: 1px solid var(--xb-border);
-			border-radius: 8px;
-			background: transparent;
-			color: var(--xb-ink);
-			font: inherit;
-			font-size: 12px;
-			font-weight: 600;
-			cursor: pointer;
-			white-space: nowrap;
-			transition: transform 160ms var(--xb-ease-out), background-color 150ms ease, opacity 150ms ease;
-		}
-
-		.xb-sync-button:disabled {
-			opacity: 0.45;
-			cursor: default;
-		}
-
-		.xb-sync-button:active {
-			transform: scale(0.96);
-		}
-
-		.xb-sync-button:focus-visible {
-			outline: 2px solid var(--xb-primary);
-			outline-offset: 2px;
-		}
-
-		.xb-spin {
-			animation: xb-spin 0.8s linear infinite;
-		}
-
-		@keyframes xb-spin {
-			from { transform: rotate(0deg); }
-			to { transform: rotate(360deg); }
-		}
-
-		@media (hover: hover) and (pointer: fine) {
-			.xb-sync-button:not(:disabled):hover { background: var(--xb-track); }
-			.xb-ghost-link:hover { color: var(--xb-ink); }
-			.xb-footer-button:hover { background: var(--xb-elevated); }
-		}
-
-		.xb-footer {
-			margin-top: 8px;
-		}
-
-		.xb-footer-button {
-			box-sizing: border-box;
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			width: 100%;
-			height: 40px;
-			padding: 0 4px;
-			border: 0;
-			border-radius: 8px;
-			background: transparent;
-			color: var(--xb-ink);
-			font: inherit;
-			font-size: 13px;
-			font-weight: 600;
-			cursor: pointer;
-			transition: background-color 150ms ease, transform 160ms var(--xb-ease-out);
-		}
-
-		.xb-footer-button:active {
-			transform: scale(0.98);
-		}
-
-		.xb-footer-button:focus-visible {
-			outline: 2px solid var(--xb-primary);
-			outline-offset: 2px;
-		}
-
-		.xb-footer-chevron {
-			color: var(--xb-ink-muted);
-			font-size: 15px;
-			line-height: 1;
 		}
 
 		@media (prefers-reduced-motion: reduce) {
@@ -459,25 +85,26 @@ function ensurePopupStyles(): void {
 
 function buildHeader(): HTMLElement {
   const header = document.createElement("header");
-  header.className = "xb-region xb-header";
+  header.className = `${stylex.props(styles.header).className} xb-region xb-header`;
 
   const brand = document.createElement("div");
-  brand.className = "xb-brand";
+  brand.className = `${stylex.props(styles.brand).className} xb-brand`;
 
   const mark = document.createElement("span");
-  mark.className = "xb-brand-mark";
+  mark.className = `${stylex.props(styles.brandMark).className} xb-brand-mark`;
   mark.appendChild(createIcon("shield", 14));
 
   const title = document.createElement("h1");
+  title.className = `${stylex.props(styles.title).className}`;
   title.textContent = "XBlocker";
 
   brand.append(mark, title);
 
   const status = document.createElement("div");
-  status.className = "xb-status";
+  status.className = `${stylex.props(styles.status).className} xb-status`;
 
   const dot = document.createElement("span");
-  dot.className = "xb-status-dot";
+  dot.className = `${stylex.props(styles.statusDot).className} xb-status-dot`;
   dot.setAttribute("aria-hidden", "true");
 
   const label = document.createElement("span");
@@ -500,28 +127,27 @@ function buildStatCell(
   live: LiveNumber;
 } {
   const cell = document.createElement("div");
-  cell.className = "xb-stat-cell";
+  cell.className = `${stylex.props(styles.statCell).className} xb-stat-cell`;
   cell.setAttribute("role", "group");
   cell.setAttribute("aria-label", label);
 
   const value = document.createElement("span");
-  value.className = "xb-stat-value";
+  value.className = `${stylex.props(styles.statValue).className} xb-stat-value`;
   cell.appendChild(value);
   const live = createLiveNumber(value, clock ? { clock } : {});
 
   const tick = document.createElement("span");
-  tick.className = "xb-stat-tick";
+  tick.className = `${stylex.props(styles.statTick, tone === "danger" ? styles.statTickDanger : tone === "warning" ? styles.statTickWarning : styles.statTickSuccess).className} xb-stat-tick`;
   tick.dataset.tone = tone;
   cell.appendChild(tick);
 
   const labelNode = document.createElement("span");
-  labelNode.className = "xb-stat-label";
+  labelNode.className = `${stylex.props(styles.statLabel).className} xb-stat-label`;
   labelNode.textContent = label;
   cell.appendChild(labelNode);
 
   return { element: cell, live };
 }
-
 function buildStatStrip(clock: Partial<LiveNumberClock> | undefined): {
   element: HTMLElement;
   blockedLive: LiveNumber;
@@ -529,13 +155,13 @@ function buildStatStrip(clock: Partial<LiveNumberClock> | undefined): {
   whitelistLive: LiveNumber;
 } {
   const strip = document.createElement("div");
-  strip.className = "xb-region xb-stat-strip";
+  strip.className = `${stylex.props(styles.regionBorder, styles.statStrip).className} xb-region xb-stat-strip`;
 
   const blocked = buildStatCell("Blocked", "danger", clock);
+  blocked.element.classList.add(stylex.props(styles.statCellFirst).className!);
   const muted = buildStatCell("Muted", "warning", clock);
   const whitelisted = buildStatCell("Whitelisted", "success", clock);
   strip.append(blocked.element, muted.element, whitelisted.element);
-
   return {
     element: strip,
     blockedLive: blocked.live,
@@ -551,24 +177,24 @@ function buildToggleRow(
   onChange: (checked: boolean) => void,
 ): HTMLElement {
   const row = document.createElement("label");
-  row.className = "xb-toggle-row";
+  row.className = `${stylex.props(styles.toggleRow).className} xb-toggle-row`;
 
   const copy = document.createElement("span");
-  copy.className = "xb-toggle-copy";
+  copy.className = `${stylex.props(styles.toggleCopy).className} xb-toggle-copy`;
 
   const title = document.createElement("span");
-  title.className = "xb-toggle-title";
+  title.className = `${stylex.props(styles.toggleTitle).className} xb-toggle-title`;
   title.textContent = label;
 
   const captionNode = document.createElement("span");
-  captionNode.className = "xb-toggle-caption";
+  captionNode.className = `${stylex.props(styles.toggleCaption).className} xb-toggle-caption`;
   captionNode.textContent = caption;
 
   copy.append(title, captionNode);
 
   const input = document.createElement("input");
   input.type = "checkbox";
-  input.className = "xb-switch";
+  input.className = `${stylex.props(styles.switchInput).className} xb-switch`;
   input.checked = checked;
   input.addEventListener("change", () => onChange(input.checked));
 
@@ -578,8 +204,7 @@ function buildToggleRow(
 
 function buildToggles(settings: Settings): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "xb-region xb-toggles";
-
+  wrap.className = `${stylex.props(styles.regionBorder, styles.toggles).className} xb-region xb-toggles`;
   wrap.appendChild(
     buildToggleRow(
       "Protect whitelist",
@@ -641,31 +266,31 @@ type SyncRowHandles = {
  */
 function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
   const row = document.createElement("div");
-  row.className = "xb-region xb-sync-row";
+  row.className = `${stylex.props(styles.regionBorder, styles.syncRow).className} xb-region xb-sync-row`;
 
   const left = document.createElement("div");
-  left.className = "xb-sync-left";
+  left.className = `${stylex.props(styles.syncLeft).className} xb-sync-left`;
 
   const dot = document.createElement("span");
-  dot.className = "xb-telltale";
+  dot.className = `${stylex.props(styles.telltale).className} xb-telltale`;
   dot.setAttribute("aria-hidden", "true");
 
   const copy = document.createElement("div");
-  copy.className = "xb-sync-copy";
+  copy.className = `${stylex.props(styles.syncCopy).className} xb-sync-copy`;
   // Screen-reader feedback for syncing/success/error transitions — the telltale dot
   // itself stays aria-hidden, so this text is the only accessible signal.
   copy.setAttribute("aria-live", "polite");
   copy.setAttribute("aria-atomic", "true");
   const title = document.createElement("span");
-  title.className = "xb-sync-title";
+  title.className = `${stylex.props(styles.syncTitle).className} xb-sync-title`;
   const detail = document.createElement("span");
-  detail.className = "xb-sync-detail";
+  detail.className = `${stylex.props(styles.syncDetail).className} xb-sync-detail`;
   copy.append(title, detail);
 
   left.append(dot, copy);
 
   const action = document.createElement("div");
-  action.className = "xb-sync-action";
+  action.className = `${stylex.props(styles.syncAction).className} xb-sync-action`;
 
   row.append(left, action);
 
@@ -674,7 +299,7 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
 
     if (state === "unconfigured") {
       const note = document.createElement("span");
-      note.className = "xb-sync-note";
+      note.className = `${stylex.props(styles.syncNote).className} xb-sync-note`;
       note.textContent = "Not configured";
       action.appendChild(note);
       return;
@@ -683,17 +308,16 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
     if (state === "off") {
       const link = document.createElement("button");
       link.type = "button";
-      link.className = "xb-ghost-link";
+      link.className = `${stylex.props(styles.ghostLink).className} xb-ghost-link`;
       link.textContent = "Turn on in settings";
       link.addEventListener("click", openSettings);
       action.appendChild(link);
       return;
     }
-
     // idle | syncing | error: the one available action is (re)running a sync.
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "xb-sync-button";
+    button.className = `${stylex.props(styles.syncButton).className} xb-sync-button`;
     const busy = state === "syncing";
     button.disabled = busy;
     if (busy) {
@@ -719,17 +343,17 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
 
 function buildFooter(): HTMLElement {
   const footer = document.createElement("footer");
-  footer.className = "xb-footer";
+  footer.className = `${stylex.props(styles.regionBorder, styles.footer).className} xb-footer`;
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "xb-footer-button";
+  button.className = `${stylex.props(styles.footerButton).className} xb-footer-button`;
 
   const label = document.createElement("span");
   label.textContent = "Open settings";
 
   const chevron = document.createElement("span");
-  chevron.className = "xb-footer-chevron";
+  chevron.className = `${stylex.props(styles.footerChevron).className} xb-footer-chevron`;
   chevron.setAttribute("aria-hidden", "true");
   chevron.textContent = "›";
 
@@ -762,12 +386,12 @@ export async function renderPopup(root: HTMLElement, opts: RenderPopupOptions = 
   ]);
 
   const popup = document.createElement("div");
-  popup.className = "xb-popup";
+  popup.className = `${stylex.props(styles.popup).className} xb-popup`;
   popup.dataset.xbSurface = "popup";
 
   const header = buildHeader();
   const main = document.createElement("main");
-  main.className = "xb-popup-main";
+  main.className = `${stylex.props(styles.popupMain).className} xb-popup-main`;
 
   const statStrip = buildStatStrip(opts.clock);
   const toggles = buildToggles(settings);

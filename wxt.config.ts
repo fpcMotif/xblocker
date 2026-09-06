@@ -1,6 +1,41 @@
+import stylex from "@stylexjs/unplugin/vite";
 import { defineConfig } from "wxt";
 
+const HTML_ENTRYPOINT_TYPES: Record<string, true> = {
+  popup: true,
+  options: true,
+  "unlisted-page": true,
+};
+
 export default defineConfig({
+  hooks: {
+    "vite:build:extendConfig"(entrypoints, viteConfig) {
+      if (entrypoints.some((e) => HTML_ENTRYPOINT_TYPES[e.type])) {
+        viteConfig.plugins = viteConfig.plugins ?? [];
+        viteConfig.plugins.push(
+          stylex({
+            useCSSLayers: true,
+            unstable_moduleResolution: {
+              type: "commonJS",
+              rootDir: process.cwd(),
+            },
+          }),
+        );
+      }
+    },
+    "vite:devServer:extendConfig"(viteConfig) {
+      viteConfig.plugins = viteConfig.plugins ?? [];
+      viteConfig.plugins.push(
+        stylex({
+          useCSSLayers: true,
+          unstable_moduleResolution: {
+            type: "commonJS",
+            rootDir: process.cwd(),
+          },
+        }),
+      );
+    },
+  },
   manifest: {
     name: "X Blocker",
     description: "Analyzes and filters content on X.com based on configured topics",

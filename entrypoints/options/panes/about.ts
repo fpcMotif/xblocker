@@ -3,7 +3,9 @@
 // bundler-safe way to read package.json at runtime, and this value never changes
 // without a source edit anyway.
 
+import * as stylex from "@stylexjs/stylex";
 import { createIcon } from "../../lib/icons";
+import { optionsShellStyles as styles } from "../options-shell.stylex";
 
 const REPO_URL = "https://github.com/daymade/Twitter-Block-Porn";
 
@@ -17,32 +19,34 @@ function manifestVersion(): string | undefined {
 
 export function renderAboutPane(container: HTMLElement): PaneHandle {
   const wrapper = document.createElement("div");
-  wrapper.className = "xb-opt-pane-form";
+  wrapper.className = `${stylex.props(styles.paneForm).className} xb-opt-pane-form`;
 
   const header = document.createElement("div");
-  header.className = "xb-opt-pane-header";
+  header.className = `${stylex.props(styles.paneHeader).className} xb-opt-pane-header`;
   const h1 = document.createElement("h1");
+  h1.className = `${stylex.props(styles.paneHeaderH1).className}`;
   h1.textContent = "About";
   const desc = document.createElement("p");
+  desc.className = `${stylex.props(styles.paneHeaderP).className}`;
   desc.textContent = "Build information and links.";
   header.append(h1, desc);
 
   const mark = document.createElement("div");
-  mark.className = "xb-opt-about-mark";
+  mark.className = `${stylex.props(styles.aboutMark).className} xb-opt-about-mark`;
   mark.appendChild(createIcon("shield", 18));
 
   const version = document.createElement("p");
-  version.className = "xb-opt-about-version";
+  version.className = `${stylex.props(styles.aboutVersion).className} xb-opt-about-version`;
   const versionNumber = manifestVersion();
   version.textContent = versionNumber ? `Version ${versionNumber}` : "Version unknown";
 
   const tagline = document.createElement("p");
-  tagline.className = "xb-opt-about-tagline";
+  tagline.className = `${stylex.props(styles.aboutTagline).className} xb-opt-about-tagline`;
   tagline.textContent =
     "Local-first reply-spam blocking for X, with optional private cloud backup.";
 
   const link = document.createElement("a");
-  link.className = "xb-opt-link-row";
+  link.className = `${stylex.props(styles.linkRow).className} xb-opt-link-row`;
   link.style.marginBottom = "16px";
   link.href = REPO_URL;
   link.target = "_blank";
@@ -50,7 +54,7 @@ export function renderAboutPane(container: HTMLElement): PaneHandle {
   link.textContent = "View source on GitHub ↗";
 
   const privacy = document.createElement("p");
-  privacy.className = "xb-opt-row-caption";
+  privacy.className = `${stylex.props(styles.rowCaption).className} xb-opt-row-caption`;
   privacy.textContent = "Data stays on this device unless cloud backup is turned on.";
 
   wrapper.append(header, mark, version, tagline, link, privacy);

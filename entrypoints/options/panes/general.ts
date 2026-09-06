@@ -2,7 +2,9 @@
 // persisted under the popup's existing 4-key settings blob (SETTINGS_KEY) so this page and
 // the popup read/write the exact same storage shape.
 
+import * as stylex from "@stylexjs/stylex";
 import { storageSet, SETTINGS_KEY } from "../../../packages/storage/chrome-storage";
+import { optionsShellStyles as styles } from "../options-shell.stylex";
 import {
   clampMaxReplies,
   MAX_REPLIES_LIMIT,
@@ -24,19 +26,20 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
   const settings = await readSettings();
 
   const wrapper = document.createElement("div");
-  wrapper.className = "xb-opt-pane-form";
+  wrapper.className = `${stylex.props(styles.paneForm).className} xb-opt-pane-form`;
 
   const header = document.createElement("div");
-  header.className = "xb-opt-pane-header";
+  header.className = `${stylex.props(styles.paneHeader).className} xb-opt-pane-header`;
   const h1 = document.createElement("h1");
+  h1.className = `${stylex.props(styles.paneHeaderH1).className}`;
   h1.textContent = "General";
   const desc = document.createElement("p");
+  desc.className = `${stylex.props(styles.paneHeaderP).className}`;
   desc.textContent = "Core behavior for block and mute runs from the reply rail.";
   header.append(h1, desc);
 
   const switchesCard = document.createElement("div");
-  switchesCard.className = "xb-opt-card";
-
+  switchesCard.className = `${stylex.props(styles.card).className} xb-opt-card`;
   const switchInputs: Partial<Record<BooleanSettingKey, HTMLInputElement>> = {};
 
   const rows: Array<[BooleanSettingKey, string, string]> = [
@@ -55,21 +58,21 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
 
   for (const [key, label, caption] of rows) {
     const row = document.createElement("label");
-    row.className = "xb-opt-row";
+    row.className = `${stylex.props(styles.row).className} xb-opt-row`;
 
     const copy = document.createElement("span");
-    copy.className = "xb-opt-row-copy";
+    copy.className = `${stylex.props(styles.rowCopy).className} xb-opt-row-copy`;
     const title = document.createElement("span");
-    title.className = "xb-opt-row-title";
+    title.className = `${stylex.props(styles.rowTitle).className} xb-opt-row-title`;
     title.textContent = label;
     const captionEl = document.createElement("span");
-    captionEl.className = "xb-opt-row-caption";
+    captionEl.className = `${stylex.props(styles.rowCaption).className} xb-opt-row-caption`;
     captionEl.textContent = caption;
     copy.append(title, captionEl);
 
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.className = "xb-opt-switch";
+    input.className = `${stylex.props(styles.switchInput).className} xb-opt-switch`;
     input.checked = settings[key];
     input.addEventListener("change", () => {
       settings[key] = input.checked;
@@ -82,27 +85,27 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
   }
 
   const maxRepliesCard = document.createElement("div");
-  maxRepliesCard.className = "xb-opt-card";
+  maxRepliesCard.className = `${stylex.props(styles.card, styles.cardNext).className} xb-opt-card`;
 
   const maxRepliesRow = document.createElement("div");
-  maxRepliesRow.className = "xb-opt-row";
+  maxRepliesRow.className = `${stylex.props(styles.row, styles.rowLast).className} xb-opt-row`;
 
   const maxRepliesCopy = document.createElement("span");
-  maxRepliesCopy.className = "xb-opt-row-copy";
+  maxRepliesCopy.className = `${stylex.props(styles.rowCopy).className} xb-opt-row-copy`;
   const maxRepliesTitle = document.createElement("span");
-  maxRepliesTitle.className = "xb-opt-row-title";
+  maxRepliesTitle.className = `${stylex.props(styles.rowTitle).className} xb-opt-row-title`;
   maxRepliesTitle.textContent = "Max replies per run";
   const maxRepliesCaption = document.createElement("span");
-  maxRepliesCaption.className = "xb-opt-row-caption";
+  maxRepliesCaption.className = `${stylex.props(styles.rowCaption).className} xb-opt-row-caption`;
   maxRepliesCaption.textContent = `Cap on accounts processed per bulk action, 1–${MAX_REPLIES_LIMIT}.`;
   maxRepliesCopy.append(maxRepliesTitle, maxRepliesCaption);
 
   const sliderRow = document.createElement("div");
-  sliderRow.className = "xb-opt-slider-row";
+  sliderRow.className = `${stylex.props(styles.sliderRow).className} xb-opt-slider-row`;
 
   const slider = document.createElement("input");
   slider.type = "range";
-  slider.className = "xb-opt-slider";
+  slider.className = `${stylex.props(styles.slider).className} xb-opt-slider`;
   slider.min = "1";
   slider.max = String(MAX_REPLIES_LIMIT);
   slider.value = String(settings.maxReplies);
@@ -110,7 +113,7 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
 
   const numberInput = document.createElement("input");
   numberInput.type = "number";
-  numberInput.className = "xb-opt-number";
+  numberInput.className = `${stylex.props(styles.numberInput).className} xb-opt-number`;
   numberInput.min = "1";
   numberInput.max = String(MAX_REPLIES_LIMIT);
   numberInput.value = String(settings.maxReplies);

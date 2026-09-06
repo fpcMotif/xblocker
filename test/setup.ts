@@ -1,3 +1,65 @@
+import { mock } from "bun:test";
+import { Window } from "happy-dom";
+
+void mock.module("@stylexjs/stylex", () => {
+  return {
+    default: {
+      create(styles: Record<string, unknown>) {
+        const out: Record<string, unknown> = {};
+        for (const [key] of Object.entries(styles)) {
+          out[key] = { $$css: true, className: `x-${key}` };
+        }
+        return out;
+      },
+      props(...args: unknown[]) {
+        const classNames: string[] = [];
+        for (const arg of args) {
+          if (arg && typeof arg === "object" && "className" in arg) {
+            const name = arg.className;
+            if (typeof name === "string") classNames.push(name);
+          }
+        }
+        return { className: classNames.join(" ") };
+      },
+      defineVars(vars: Record<string, unknown>) {
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(vars)) {
+          out[key] = `var(${key})`;
+        }
+        return out;
+      },
+      keyframes: () => "keyframes",
+      firstThatWorks: (...args: unknown[]) => args[0],
+    },
+    create(styles: Record<string, unknown>) {
+      const out: Record<string, unknown> = {};
+      for (const [key] of Object.entries(styles)) {
+        out[key] = { $$css: true, className: `x-${key}` };
+      }
+      return out;
+    },
+    props(...args: unknown[]) {
+      const classNames: string[] = [];
+      for (const arg of args) {
+        if (arg && typeof arg === "object" && "className" in arg) {
+          const name = arg.className;
+          if (typeof name === "string") classNames.push(name);
+        }
+      }
+      return { className: classNames.join(" ") };
+    },
+    defineVars(vars: Record<string, unknown>) {
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(vars)) {
+        out[key] = `var(${key})`;
+      }
+      return out;
+    },
+    keyframes: () => "keyframes",
+    firstThatWorks: (...args: unknown[]) => args[0],
+  };
+});
+
 // Shared test environment: happy-dom globals + a stateful chrome.storage fake.
 //
 // Design goals (see docs/test-plan.md):
@@ -9,7 +71,6 @@
 //   synchronous fake can never reproduce.
 // - Failures can be injected per call (failNextGet/failNextSet) to assert the
 //   extension degrades gracefully when chrome.storage errors.
-import { Window } from "happy-dom";
 
 const happyWindow = new Window();
 const happyDocument = happyWindow.document;
