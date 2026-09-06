@@ -22,6 +22,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
 	.xb-opt-root, .xb-opt-root * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
+
 .xb-opt-nav-item[aria-current="page"]::before {
 	content: "";
 	position: absolute;
@@ -47,6 +48,7 @@ body {
 .xb-opt-switch:checked::before { transform: translateX(18px); }
 .xb-opt-switch:disabled { opacity: 0.45; cursor: default; }
 .xb-opt-switch:active { transform: scale(0.96); }
+
 `;
 
 export function ensureOptionsStyles(): void {

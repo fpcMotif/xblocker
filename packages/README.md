@@ -23,6 +23,9 @@ template: copy it to start a new package, or delete it if you don't need it.
 - `sync/` — cloud sync: the sync engine, cloud session, background scheduling,
   and the public wire format, with cloud-config and the Convex client adapter
   hidden in `lib/`.
+- `crx/` — packaging: signs a built extension ZIP into an offline `.crx`, with
+  the CRX3 container and its protobuf header hidden in `lib/`. Used by
+  `scripts/pack-crx.ts` and by `wxt.config.ts` to pin the extension ID.
 
 An active layering rule enforces that storage never depends on sync.
 `example/` is the copy-me template.

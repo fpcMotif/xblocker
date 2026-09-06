@@ -493,6 +493,9 @@ export class ReplyRail {
       } else if (summary.unconfirmed > 0) {
         showToast(`Direct ${kind} failed. Please stay signed in to X and retry.`, "warning");
         throw new Error(`Batch ${kind} failed.`);
+      } else if (summary.skipped > 0) {
+        const noun = summary.skipped === 1 ? "reply" : "replies";
+        showToast(`Skipped ${summary.skipped} protected ${noun}`, "info");
       }
     } finally {
       sibling.disabled = false;

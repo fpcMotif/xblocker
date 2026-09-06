@@ -1,5 +1,13 @@
+import { existsSync, readFileSync } from "node:fs";
 import stylex from "@stylexjs/unplugin/vite";
 import { defineConfig } from "wxt";
+
+import { crxIdentity } from "./packages/crx/pack.ts";
+
+const keyPath = process.env.XBLOCKER_CRX_KEY ?? ".keys/crx.pem";
+const crxKey = existsSync(keyPath)
+  ? { key: crxIdentity(readFileSync(keyPath, "utf8")).publicKeyBase64 }
+  : {};
 
 const HTML_ENTRYPOINT_TYPES: Record<string, true> = {
   popup: true,
@@ -37,6 +45,7 @@ export default defineConfig({
     },
   },
   manifest: {
+    ...crxKey,
     name: "X Blocker",
     description: "Analyzes and filters content on X.com based on configured topics",
     version: "1.0.0",

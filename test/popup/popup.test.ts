@@ -79,6 +79,7 @@ function seedSettings(overrides: {
   keyboardMode?: boolean;
   maxReplies?: unknown;
   protectWhitelist?: boolean;
+  autoBlockSpam?: boolean;
 }): void {
   storageFake.data["settings"] = overrides;
 }
@@ -237,7 +238,7 @@ describe("popup settings toggles", () => {
     expect(toggles().map((toggle) => toggle.checked)).toEqual([true, true]);
   });
 
-  test("PU-12 toggling protectWhitelist persists the full 4-key settings object", async () => {
+  test("PU-12 toggling protectWhitelist persists the full settings object", async () => {
     await renderPopup(document.body);
     const [protectToggle] = toggles();
     protectToggle!.checked = false;
@@ -248,10 +249,13 @@ describe("popup settings toggles", () => {
       keyboardMode: false,
       maxReplies: 50,
       protectWhitelist: false,
+      protectThreadAuthor: true,
+      protectResearchLinks: true,
+      autoBlockSpam: false,
     });
   });
 
-  test("PU-13 toggling confirmDestructiveActions persists the full 4-key settings object", async () => {
+  test("PU-13 toggling confirmDestructiveActions persists the full settings object", async () => {
     await renderPopup(document.body);
     const [, confirmToggle] = toggles();
     confirmToggle!.checked = false;
@@ -262,11 +266,14 @@ describe("popup settings toggles", () => {
       keyboardMode: false,
       maxReplies: 50,
       protectWhitelist: true,
+      protectThreadAuthor: true,
+      protectResearchLinks: true,
+      autoBlockSpam: false,
     });
   });
 
-  test("PU-14 a stored keyboardMode/maxReplies pass through untouched when a toggle saves", async () => {
-    seedSettings({ keyboardMode: true, maxReplies: 75 });
+  test("PU-14 a stored keyboardMode/maxReplies/autoBlockSpam pass through untouched when a toggle saves", async () => {
+    seedSettings({ keyboardMode: true, maxReplies: 75, autoBlockSpam: true });
     await renderPopup(document.body);
     const [protectToggle] = toggles();
     protectToggle!.checked = false;
@@ -277,6 +284,9 @@ describe("popup settings toggles", () => {
       keyboardMode: true,
       maxReplies: 75,
       protectWhitelist: false,
+      protectThreadAuthor: true,
+      protectResearchLinks: true,
+      autoBlockSpam: true,
     });
   });
 

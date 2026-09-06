@@ -17,7 +17,9 @@ export const JUMP_TO_TOP_THRESHOLD = 800;
 
 export type ActionFilter = "all" | "block" | "mute";
 export type SyncFilter = "all" | "synced" | "pending" | "local";
+export type SourceFilter = "all" | "auto" | "manual";
 export type RowSyncStatus = "synced" | "pending" | "local";
+export type RowSource = "auto" | "manual";
 
 /** The account's headline action for the log's single Action column. An account can carry
  *  both block and mute history (it is one ledger row per person, not per action) — this
@@ -29,6 +31,20 @@ export function primaryActionKind(account: BlockedAccount): "block" | "mute" {
     if (kind === "block" || kind === "mute") return kind;
   }
   return account.muteCount > 0 && account.blockCount === 0 ? "mute" : "block";
+}
+
+/** Whether the same headline action (see primaryActionKind) came from the Bot Sentry
+ *  auto-blocker (source "auto") rather than a manual reply-bar/popup/import action. An
+ *  account folded in from a cloud pull with an empty `actions[]` carries no source
+ *  history, so it defaults to "manual" rather than guessing. */
+export function primaryActionSource(account: BlockedAccount): RowSource {
+  for (let i = account.actions.length - 1; i >= 0; i--) {
+    const action = account.actions[i];
+    if (action?.kind === "block" || action?.kind === "mute") {
+      return action.source === "auto" ? "auto" : "manual";
+    }
+  }
+  return "manual";
 }
 
 /** Local-only when cloud backup is off entirely (nothing will ever sync); otherwise
@@ -58,6 +74,7 @@ export function formatRelativeShort(deltaMs: number): string {
 type Row = {
   account: BlockedAccount;
   action: "block" | "mute";
+  source: RowSource;
   sync: RowSyncStatus;
 };
 
@@ -97,6 +114,7 @@ export async function renderBlockedLogPane(
     .map((account) => ({
       account,
       action: primaryActionKind(account),
+      source: primaryActionSource(account),
       sync: computeSyncStatus(account.key, pendingKeys, cloudEnabled),
     }))
     .toSorted((a, b) => b.account.lastActionAt - a.account.lastActionAt);
@@ -104,6 +122,7 @@ export async function renderBlockedLogPane(
   let searchQuery = "";
   let actionFilter: ActionFilter = "all";
   let syncFilter: SyncFilter = "all";
+  let sourceFilter: SourceFilter = "all";
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
   let focusedIndex = 0;
 
@@ -188,6 +207,22 @@ export async function renderBlockedLogPane(
     },
   );
 
+  // Surfaces which entries came from the Bot Sentry auto-blocker vs. a manual reply-bar/
+  // popup/import action — the direct answer to "where can I see what got auto-blocked".
+  const sourceChips = createChipGroup<SourceFilter>(
+    "Filter by source",
+    [
+      ["all", "All"],
+      ["auto", "Auto"],
+      ["manual", "Manual"],
+    ],
+    sourceFilter,
+    (value) => {
+      sourceFilter = value;
+      applyFilters();
+    },
+  );
+
   const spacer = document.createElement("div");
   spacer.className = `${stylex.props(styles.toolbarSpacer).className} xb-opt-toolbar-spacer`;
 
@@ -202,13 +237,14 @@ export async function renderBlockedLogPane(
       rows.map((row) => ({
         handle: row.account.handle,
         action: row.action,
+        source: row.source,
         lastActionAt: row.account.lastActionAt,
         sync: row.sync,
       })),
     );
   });
 
-  toolbar.append(searchInput, actionChips, syncChips, spacer, exportButton);
+  toolbar.append(searchInput, actionChips, syncChips, sourceChips, spacer, exportButton);
 
   const bodyArea = document.createElement("div");
 
@@ -262,6 +298,13 @@ export async function renderBlockedLogPane(
     const actionText = document.createElement("span");
     actionText.textContent = actionLabel(row.action);
     actionCell.append(dot, actionText);
+    if (row.source === "auto") {
+      const autoTag = document.createElement("span");
+      autoTag.className = `${stylex.props(styles.tag).className} xb-opt-tag`;
+      autoTag.textContent = "Auto";
+      autoTag.title = "Auto-blocked by the Bot Sentry spam classifier";
+      actionCell.appendChild(autoTag);
+    }
 
     const whenCell = document.createElement("span");
     whenCell.className = `${stylex.props(styles.cellWhen).className} xb-opt-cell-when`;
@@ -365,6 +408,7 @@ export async function renderBlockedLogPane(
     filtered = rows.filter((row) => {
       if (actionFilter !== "all" && row.action !== actionFilter) return false;
       if (syncFilter !== "all" && row.sync !== syncFilter) return false;
+      if (sourceFilter !== "all" && row.source !== sourceFilter) return false;
       if (searchQuery && !row.account.handle.toLowerCase().includes(searchQuery)) return false;
       return true;
     });

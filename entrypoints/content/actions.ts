@@ -1,4 +1,5 @@
 import { blockedStore } from "../../packages/storage/blocked-store";
+import type { BlockSource } from "../../packages/storage/blocked-merge";
 import { normalizeUsername, readSettings } from "../../packages/storage/settings";
 // Whitelist persistence lives in ../../packages/storage/whitelist-store (verified behavior-identical to
 // the implementation this module used to carry).
@@ -12,7 +13,12 @@ import {
   readBlockOutcome,
   type DirectActionType,
 } from "./x-api";
-import { getConversationReplies, extractUsernameFromTweet } from "./author";
+import {
+  extractThreadAuthor,
+  extractUsernameFromTweet,
+  getConversationReplies,
+  hasResearchOrCodeLinks,
+} from "./author";
 
 // Every symbol the modules above used to export from here is re-exported so no existing
 // import path (or test) — modal.ts, quick-block.ts, rail.ts, index.ts hooks — has to change.
@@ -135,11 +141,15 @@ async function actOnTweet(
  *  call's response when one exists (the single-reply path always has one; the bulk
  *  runner may confirm an account as blocked/muted without ever seeing a successful
  *  create response of its own -- e.g. a prior run already did it -- in which case it
- *  omits `response` and this records by screen name instead of the response body). */
-async function recordAction(
+ *  omits `response` and this records by screen name instead of the response body).
+ *  `source` defaults to "reply-bar" for this module's own call sites; exported so the
+ *  Bot Sentry auto-blocker (auto-block.ts) can record its verdicts under "auto" instead,
+ *  through the same id-capture/normalization logic rather than a second copy of it. */
+export async function recordAction(
   type: DirectActionType,
   username: string,
   response?: Response,
+  source: BlockSource = "reply-bar",
 ): Promise<void> {
   try {
     if (type === "block") {
@@ -149,11 +159,11 @@ async function recordAction(
       await blockedStore.record({
         handle: outcome.screen_name,
         kind: "block",
-        source: "reply-bar",
+        source,
         ...(outcome.id_str ? { xUserId: outcome.id_str } : {}),
       });
     } else {
-      await blockedStore.record({ handle: username, kind: "mute", source: "reply-bar" });
+      await blockedStore.record({ handle: username, kind: "mute", source });
     }
   } catch (error) {
     console.warn(`Recorded ${type} of @${username} to the local store failed:`, error);
@@ -282,6 +292,7 @@ export function createReplyBatchRunner(options: ReplyBatchRunnerOptions = {}): R
       // caption promises exactly that ("skipped during bulk actions") — so when it is off
       // we pass an empty set (skip nobody) and never even read the whitelist.
       const settings = await readSettings();
+      const threadAuthor = settings.protectThreadAuthor ? extractThreadAuthor() : null;
       const replies = getConversationReplies().slice(0, settings.maxReplies);
       const whitelist = settings.protectWhitelist
         ? new Set((await getWhitelist()).map((entry) => entry.toLowerCase()))
@@ -296,6 +307,12 @@ export function createReplyBatchRunner(options: ReplyBatchRunnerOptions = {}): R
           // Whitelisted accounts are skipped before they are ever scheduled: no act,
           // no confirm, no network traffic at all.
           console.log(`Skipping @${username}, as they are in the whitelist.`);
+          summary.skipped++;
+        } else if (threadAuthor !== null && username.toLowerCase() === threadAuthor.toLowerCase()) {
+          console.log(`Skipping @${username}: original thread author.`);
+          summary.skipped++;
+        } else if (settings.protectResearchLinks && hasResearchOrCodeLinks(article)) {
+          console.log(`Skipping @${username}: contains arXiv/GitHub link.`);
           summary.skipped++;
         } else {
           const outcome = await runAccountLifecycle(type, username, random);

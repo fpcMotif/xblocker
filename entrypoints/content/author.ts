@@ -69,6 +69,38 @@ function isStatusPermalink(link: Element): boolean {
   return /^\/[^/]+\/status\//.test(path);
 }
 
+// Best-effort display-name extraction for the Bot Sentry classifier (auto-block.ts). Unlike
+// the byline/tweetText/quote/socialContext selectors above (verified against a live zh-Hant
+// x.com DOM), this has NOT been live-verified: X nests the display name in styling spans
+// with no dedicated testid, so it is inferred rather than matched on a stable attribute. The
+// heuristic: within the byline, the display-name anchor's text is the one that does NOT
+// start with "@" (that's the handle anchor) and isn't empty (an avatar-only link). A miss
+// degrades safely to "" -- the classifier just runs with less signal, never a wrong one.
+function displayNameFromByline(byline: Element): string {
+  for (const link of byline.querySelectorAll('a[href^="/"]')) {
+    const text = (link.textContent ?? "").trim();
+    if (text && !text.startsWith("@")) {
+      return text;
+    }
+  }
+  return "";
+}
+
+/** The author's visible display name, or "" when it cannot be confidently isolated (see
+ *  displayNameFromByline's caveat). Never a quoted tweet's nested byline. */
+export function extractDisplayNameFromTweet(tweetArticle: Element): string {
+  const byline = tweetArticle.querySelector('[data-testid="User-Name"]');
+  if (!byline || isInsideNestedRegion(byline, tweetArticle)) {
+    return "";
+  }
+  return displayNameFromByline(byline);
+}
+
+/** The reply's own body text (verified `tweetText` selector), or "" when absent. */
+export function extractReplyBodyFromTweet(tweetArticle: Element): string {
+  return (tweetArticle.querySelector(TWEET_TEXT_SELECTOR)?.textContent ?? "").trim();
+}
+
 export function extractUsernameFromTweet(tweetArticle: Element): string | null {
   // The author's byline — but never a quoted tweet's nested byline.
   const byline = tweetArticle.querySelector('[data-testid="User-Name"]');
@@ -89,6 +121,46 @@ export function extractUsernameFromTweet(tweetArticle: Element): string | null {
   );
 
   return firstAuthorHandle(candidates.filter(isStatusPermalink)) ?? firstAuthorHandle(candidates);
+}
+
+/** Resolve the conversation owner once for bulk/automatic protection checks. The main
+ * tweet's byline is authoritative; the status pathname is a fallback for incomplete DOM. */
+export function extractThreadAuthor(
+  doc: Document = document,
+  url: string = window.location.href,
+): string | null {
+  const mainTweet = doc.querySelector(TWEET_ARTICLE_SELECTOR);
+  const byline = mainTweet?.querySelector('[data-testid="User-Name"]');
+  if (byline) {
+    const author = firstAuthorHandle(byline.querySelectorAll('a[href^="/"]'));
+    if (author) {
+      return author;
+    }
+  }
+
+  const match = new URL(url).pathname.match(/^\/([A-Za-z0-9_]+)\/status\/\d+(?:\/|$)/);
+  return normalizeUsername(match?.[1]);
+}
+
+const RESEARCH_OR_CODE_LINK_PATTERN =
+  /(?:^|[^A-Za-z0-9-])(?:(?:[A-Za-z0-9-]+\.)*arxiv\.org|(?:[A-Za-z0-9-]+\.)*github\.(?:com|io))\b|\barxiv:\s*\d{4}\.\d{4,5}\b/i;
+
+/** Whether the reply body exposes an arXiv or GitHub destination in text or link metadata. */
+export function hasResearchOrCodeLinks(article: Element): boolean {
+  const body = article.querySelector(TWEET_TEXT_SELECTOR);
+  if (!body) {
+    return false;
+  }
+
+  if (RESEARCH_OR_CODE_LINK_PATTERN.test(body.textContent ?? "")) {
+    return true;
+  }
+
+  return Array.from(body.querySelectorAll("a")).some((link) =>
+    [link.getAttribute("href"), link.textContent, link.getAttribute("title")].some(
+      (value) => value !== null && RESEARCH_OR_CODE_LINK_PATTERN.test(value),
+    ),
+  );
 }
 
 // X appends a "Discover more" module of recommended posts beneath the genuine

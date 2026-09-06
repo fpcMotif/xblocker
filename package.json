@@ -11,6 +11,7 @@
     "dev": "wxt --port 5555",
     "build": "wxt build",
     "zip": "wxt zip",
+    "crx": "bun run scripts/pack-crx.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
@@ -20,9 +21,12 @@
     "lint": "oxlint --type-aware --deny-warnings .",
     "lint:fix": "oxlint --type-aware --fix .",
     "lint:boundaries": "depcruise entrypoints packages convex",
-    "format": "oxfmt --write package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\"",
-    "format:check": "oxfmt --check package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\"",
+    "format": "oxfmt --write package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\" \"scripts/**/*.ts\"",
+    "format:check": "oxfmt --check package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\" \"scripts/**/*.ts\"",
     "check": "bun run typecheck && bun run lint && bun run lint:boundaries && bun run format:check && bun test && bun run build",
+    "prepare": "varlock codegen",
+    "env:check": "varlock load",
+    "env:scan": "varlock scan",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
@@ -41,6 +45,7 @@
     "oxlint": "^1.69.0",
     "oxlint-tsgolint": "^0.23.0",
     "typescript": "^6.0.3",
+    "varlock": "^1.16.0",
     "wxt": "^0.20.26"
   },
   "packageManager": "bun@1.4.0"

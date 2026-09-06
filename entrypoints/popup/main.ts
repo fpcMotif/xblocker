@@ -48,6 +48,7 @@ function ensurePopupStyles(): void {
 			-webkit-font-smoothing: antialiased;
 		}
 
+
 		.xb-switch::before {
 			content: "";
 			position: absolute;

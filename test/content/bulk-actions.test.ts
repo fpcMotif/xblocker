@@ -387,6 +387,101 @@ describe("blockReplies", () => {
     expect(settingsReads).toHaveLength(1);
   });
 
+  test("BULK-29 skips the original thread author without making direct API requests", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["thread_author", "other_user"]);
+    const main = document.querySelector('article[data-testid="tweet"]');
+    const byline = document.createElement("div");
+    byline.setAttribute("data-testid", "User-Name");
+    const authorLink = document.createElement("a");
+    authorLink.href = "/thread_author";
+    byline.appendChild(authorLink);
+    main?.appendChild(byline);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ confirmed: 1, skipped: 1, unconfirmed: 0 });
+    expect(actionCalls(fetchStub.calls).map(requestBodyText)).toEqual(["screen_name=other_user"]);
+    expect(confirmCalls(fetchStub.calls)).toHaveLength(1);
+  });
+
+  test("BULK-30 acts on the original thread author when its protection is disabled", async () => {
+    storageFake.data["settings"] = { protectThreadAuthor: false };
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["author"]);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ confirmed: 1, skipped: 0, unconfirmed: 0 });
+    expect(actionCalls(fetchStub.calls).map(requestBodyText)).toEqual(["screen_name=author"]);
+  });
+
+  test("BULK-34 falls back to the status URL when the main byline has no valid handle", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["author"]);
+    const main = document.querySelector('article[data-testid="tweet"]');
+    const byline = document.createElement("div");
+    byline.setAttribute("data-testid", "User-Name");
+    const invalidLink = document.createElement("a");
+    invalidLink.href = "/home";
+    byline.appendChild(invalidLink);
+    main?.appendChild(byline);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ confirmed: 0, skipped: 1, unconfirmed: 0 });
+    expect(fetchStub.calls).toHaveLength(0);
+  });
+
+  test("BULK-31 skips arXiv and GitHub links exposed through body and anchor metadata", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const replies = populateTweetPage(["paper_user", "gist_user", "pages_user", "ordinary_user"]);
+
+    const plainBody = document.createElement("div");
+    plainBody.setAttribute("data-testid", "tweetText");
+    plainBody.textContent = "Paper: HTTPS://EXPORT.ARXIV.ORG/abs/2301.00000";
+    replies[0]?.appendChild(plainBody);
+
+    const gistBody = document.createElement("div");
+    gistBody.setAttribute("data-testid", "tweetText");
+    const shortened = document.createElement("a");
+    shortened.href = "https://t.co/short";
+    shortened.title = "https://gist.github.com/user/id";
+    gistBody.appendChild(shortened);
+    replies[1]?.appendChild(gistBody);
+
+    const pagesBody = document.createElement("div");
+    pagesBody.setAttribute("data-testid", "tweetText");
+    const pages = document.createElement("a");
+    pages.href = "https://project.github.io/docs";
+    pages.textContent = "project docs";
+    pagesBody.appendChild(pages);
+    replies[2]?.appendChild(pagesBody);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ confirmed: 1, skipped: 3, unconfirmed: 0 });
+    expect(actionCalls(fetchStub.calls).map(requestBodyText)).toEqual([
+      "screen_name=ordinary_user",
+    ]);
+    expect(confirmCalls(fetchStub.calls)).toHaveLength(1);
+  });
+
+  test("BULK-32 acts on research-link posters when their protection is disabled", async () => {
+    storageFake.data["settings"] = { protectResearchLinks: false };
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const [reply] = populateTweetPage(["paper_user"]);
+    const body = document.createElement("div");
+    body.setAttribute("data-testid", "tweetText");
+    body.textContent = "arXiv:2301.00000";
+    reply?.appendChild(body);
+
+    const summary = await hooks.blockReplies();
+
+    expect(summary).toEqual({ confirmed: 1, skipped: 0, unconfirmed: 0 });
+    expect(actionCalls(fetchStub.calls).map(requestBodyText)).toEqual(["screen_name=paper_user"]);
+  });
+
   test("BULK-23 retries with backoff and confirms once the account call finally succeeds", async () => {
     let actAttempts = 0;
     const raw = installRawFetch(async (input) => {
@@ -613,5 +708,15 @@ describe("muteReplies", () => {
     } finally {
       raw.restore();
     }
+  });
+
+  test("BULK-33 mute batches also skip the original thread author", async () => {
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    populateTweetPage(["author"]);
+
+    const summary = await hooks.muteReplies();
+
+    expect(summary).toEqual({ confirmed: 0, skipped: 1, unconfirmed: 0 });
+    expect(fetchStub.calls).toHaveLength(0);
   });
 });

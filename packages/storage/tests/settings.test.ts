@@ -18,9 +18,12 @@ describe("normalizeSettings", () => {
   test("SET-02 a partial blob merges onto the defaults", () => {
     expect(normalizeSettings({ protectWhitelist: false, maxReplies: 12 })).toEqual({
       protectWhitelist: false,
+      protectThreadAuthor: true,
+      protectResearchLinks: true,
       confirmDestructiveActions: true,
       keyboardMode: false,
       maxReplies: 12,
+      autoBlockSpam: false,
     });
   });
 
@@ -43,15 +46,25 @@ describe("normalizeSettings", () => {
       false,
     );
     expect(normalizeSettings({ keyboardMode: false }).keyboardMode).toBe(false);
+    expect(normalizeSettings({ protectThreadAuthor: false }).protectThreadAuthor).toBe(false);
+    expect(normalizeSettings({ protectResearchLinks: false }).protectResearchLinks).toBe(false);
+  });
+
+  test("SET-04b per-field garbage falls back to the default for autoBlockSpam; a valid true value is kept", () => {
+    expect(normalizeSettings({ autoBlockSpam: "yes" }).autoBlockSpam).toBe(false);
+    expect(normalizeSettings({ autoBlockSpam: true }).autoBlockSpam).toBe(true);
   });
 
   test("SET-05 strips unknown keys instead of persisting them back", () => {
     const result = normalizeSettings({ evil: 1 });
     expect("evil" in result).toBe(false);
     expect(Object.keys(result).toSorted()).toEqual([
+      "autoBlockSpam",
       "confirmDestructiveActions",
       "keyboardMode",
       "maxReplies",
+      "protectResearchLinks",
+      "protectThreadAuthor",
       "protectWhitelist",
     ]);
   });
@@ -70,9 +83,12 @@ describe("readSettings", () => {
     storageFake.data["settings"] = { protectWhitelist: false, maxReplies: 9999 };
     expect(await readSettings()).toEqual({
       protectWhitelist: false,
+      protectThreadAuthor: true,
+      protectResearchLinks: true,
       confirmDestructiveActions: true,
       keyboardMode: false,
       maxReplies: 200,
+      autoBlockSpam: false,
     });
   });
 });

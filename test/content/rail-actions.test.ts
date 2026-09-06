@@ -355,6 +355,22 @@ describe("rail batch actions", () => {
     expect(actionCalls(fetchStub.calls)).toHaveLength(1);
   });
 
+  test("RA-08b an all-protected batch reports its skipped replies", async () => {
+    storageFake.data["whitelist"] = ["alice", "bob"];
+    populateTweetPage(["alice", "bob"]);
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const blockButton = getRailButton("Block all replies");
+
+    blockButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await driveBatch(manual!);
+
+    const toast = queryToast();
+    expect(toast?.textContent).toBe("Skipped 2 protected replies");
+    expect(toast?.dataset["type"]).toBe("info");
+    expect(blockButton.dataset["state"]).toBe("success");
+    expect(fetchStub.calls).toHaveLength(0);
+  });
+
   test("RA-15 bulk actions do nothing off tweet pages", async () => {
     setWindowLocation("https://x.com/home");
     populateTweetPage(["alice"]);

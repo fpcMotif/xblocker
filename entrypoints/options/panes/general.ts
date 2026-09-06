@@ -1,6 +1,5 @@
-// General pane: the three behavior switches + the max-replies slider/numeric pair, all
-// persisted under the popup's existing 4-key settings blob (SETTINGS_KEY) so this page and
-// the popup read/write the exact same storage shape.
+// General behavior switches + the max-replies slider/numeric pair, all persisted under
+// the shared SETTINGS_KEY blob so this page and the popup read/write the same shape.
 
 import * as stylex from "@stylexjs/stylex";
 import { storageSet, SETTINGS_KEY } from "../../../packages/storage/chrome-storage";
@@ -14,7 +13,13 @@ import {
 } from "../../../packages/storage/settings";
 import { watchStorage } from "../storage-watch";
 
-type BooleanSettingKey = "protectWhitelist" | "confirmDestructiveActions" | "keyboardMode";
+type BooleanSettingKey =
+  | "protectWhitelist"
+  | "protectThreadAuthor"
+  | "protectResearchLinks"
+  | "confirmDestructiveActions"
+  | "keyboardMode"
+  | "autoBlockSpam";
 
 function saveSettings(settings: Settings): void {
   void storageSet({ [SETTINGS_KEY]: settings });
@@ -49,11 +54,26 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
       "Whitelisted handles are skipped during bulk actions.",
     ],
     [
+      "protectThreadAuthor",
+      "Protect thread author",
+      "Thread author replies are skipped during bulk actions.",
+    ],
+    [
+      "protectResearchLinks",
+      "Protect arXiv and GitHub posters",
+      "Replies containing links to arxiv.org or github.com are skipped during bulk actions.",
+    ],
+    [
       "confirmDestructiveActions",
       "Confirm destructive actions",
       "Ask before removing whitelist entries.",
     ],
     ["keyboardMode", "Keyboard mode", "Reserved for upcoming j/k navigation in the reply rail."],
+    [
+      "autoBlockSpam",
+      "Auto-block spam replies (Bot Sentry)",
+      "Off by default. Scans replies for known spam/bot patterns (escort & follow-bait lexicons) and blocks a match automatically — a hard-to-reverse, site-wide action, so review the log after enabling.",
+    ],
   ];
 
   for (const [key, label, caption] of rows) {
@@ -146,9 +166,12 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
     if (!change) return;
     const next = normalizeSettings(change.newValue);
     settings.protectWhitelist = next.protectWhitelist;
+    settings.protectThreadAuthor = next.protectThreadAuthor;
+    settings.protectResearchLinks = next.protectResearchLinks;
     settings.confirmDestructiveActions = next.confirmDestructiveActions;
     settings.keyboardMode = next.keyboardMode;
     settings.maxReplies = next.maxReplies;
+    settings.autoBlockSpam = next.autoBlockSpam;
     for (const [key] of rows) {
       const input = switchInputs[key];
       if (input) input.checked = settings[key];
