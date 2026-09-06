@@ -2,7 +2,10 @@
 // just an ordered list of handles, no per-entry "added at" timestamp — so the table shows
 // Handle + Remove only rather than fabricating a date the store never recorded.
 
+import * as stylex from "@stylexjs/stylex";
 import { createIcon } from "../../lib/icons";
+import { optionsShellStyles as shellStyles } from "../options-shell.stylex";
+import { optionsTableStyles as styles } from "../options-table.stylex";
 import { normalizeSettings, normalizeUsername } from "../../../packages/storage/settings";
 import {
   addManyToWhitelist,
@@ -76,59 +79,61 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
 
   const wrapper = document.createElement("div");
-  wrapper.className = "xb-opt-pane-table";
+  wrapper.className = `${stylex.props(styles.paneTable).className} xb-opt-pane-table`;
 
   const header = document.createElement("div");
-  header.className = "xb-opt-pane-header";
+  header.className = `${stylex.props(shellStyles.paneHeader).className} xb-opt-pane-header`;
   const h1 = document.createElement("h1");
+  h1.className = `${stylex.props(shellStyles.paneHeaderH1).className}`;
   h1.textContent = "Whitelist";
   const desc = document.createElement("p");
+  desc.className = `${stylex.props(shellStyles.paneHeaderP).className}`;
   desc.textContent = "Handles excluded from bulk block and mute runs.";
   header.append(h1, desc);
 
   const toolbar = document.createElement("div");
-  toolbar.className = "xb-opt-toolbar";
+  toolbar.className = `${stylex.props(styles.toolbar).className} xb-opt-toolbar`;
 
   const addForm = document.createElement("form");
   addForm.style.display = "flex";
   addForm.style.gap = "8px";
 
   const addInput = document.createElement("input");
-  addInput.className = "xb-opt-input";
+  addInput.className = `${stylex.props(styles.input).className} xb-opt-input`;
   addInput.placeholder = "@handle";
   addInput.autocomplete = "off";
   addInput.setAttribute("aria-label", "Add handle to whitelist");
 
   const addButton = document.createElement("button");
   addButton.type = "submit";
-  addButton.className = "xb-opt-btn";
+  addButton.className = `${stylex.props(styles.btn, styles.btnPrimary).className} xb-opt-btn`;
   addButton.dataset.variant = "primary";
   addButton.textContent = "Add";
 
   addForm.append(addInput, addButton);
 
   const addCaption = document.createElement("p");
-  addCaption.className = "xb-opt-field-caption";
+  addCaption.className = `${stylex.props(styles.fieldCaption).className} xb-opt-field-caption`;
   addCaption.hidden = true;
 
   const searchInput = document.createElement("input");
-  searchInput.className = "xb-opt-input";
+  searchInput.className = `${stylex.props(styles.input).className} xb-opt-input`;
   searchInput.type = "search";
   searchInput.placeholder = "Search whitelist";
   searchInput.setAttribute("aria-label", "Search whitelist");
 
   const spacer = document.createElement("div");
-  spacer.className = "xb-opt-toolbar-spacer";
+  spacer.className = `${stylex.props(styles.toolbarSpacer).className} xb-opt-toolbar-spacer`;
 
   const importButton = document.createElement("button");
   importButton.type = "button";
-  importButton.className = "xb-opt-btn";
+  importButton.className = `${stylex.props(styles.btn, styles.btnSecondary).className} xb-opt-btn`;
   importButton.dataset.variant = "secondary";
   importButton.textContent = "Import JSON";
 
   const exportButton = document.createElement("button");
   exportButton.type = "button";
-  exportButton.className = "xb-opt-btn";
+  exportButton.className = `${stylex.props(styles.btn, styles.btnSecondary).className} xb-opt-btn`;
   exportButton.dataset.variant = "secondary";
   exportButton.textContent = "Export JSON";
 
@@ -140,7 +145,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
   toolbar.append(addForm, searchInput, spacer, importButton, exportButton, fileInput);
 
   const importResult = document.createElement("p");
-  importResult.className = "xb-opt-field-caption";
+  importResult.className = `${stylex.props(styles.fieldCaption).className} xb-opt-field-caption`;
   importResult.hidden = true;
 
   const tableArea = document.createElement("div");
@@ -150,8 +155,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
 
   function createRemoveControl(handle: string): HTMLButtonElement {
     const button = document.createElement("button");
-    button.type = "button";
-    button.className = "xb-opt-ghost-icon";
+    button.className = `${stylex.props(styles.ghostIcon).className} xb-opt-ghost-icon`;
     button.setAttribute("aria-label", `Remove ${handle} from whitelist`);
     button.appendChild(createIcon("cross", 14));
 
@@ -197,7 +201,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
 
     if (entries.length === 0) {
       const empty = document.createElement("div");
-      empty.className = "xb-opt-empty";
+      empty.className = `${stylex.props(shellStyles.empty).className} xb-opt-empty`;
       const title = document.createElement("p");
       title.textContent = "No whitelisted handles yet.";
       const hint = document.createElement("p");
@@ -208,10 +212,10 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     }
 
     const table = document.createElement("div");
-    table.className = "xb-opt-table";
+    table.className = `${stylex.props(styles.table).className} xb-opt-table`;
 
     const head = document.createElement("div");
-    head.className = "xb-opt-table-head";
+    head.className = `${stylex.props(styles.tableHead).className} xb-opt-table-head`;
     head.style.gridTemplateColumns = "1fr 40px";
     const handleHead = document.createElement("span");
     handleHead.textContent = "Handle";
@@ -220,7 +224,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
 
     if (visible.length === 0) {
       const noMatches = document.createElement("p");
-      noMatches.className = "xb-opt-field-caption";
+      noMatches.className = `${stylex.props(styles.fieldCaption).className} xb-opt-field-caption`;
       noMatches.style.padding = "16px";
       noMatches.textContent = `No handles match "${searchQuery}".`;
       table.appendChild(noMatches);
@@ -228,12 +232,12 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
 
     for (const handle of visible) {
       const row = document.createElement("div");
-      row.className = "xb-opt-table-row";
+      row.className = `${stylex.props(styles.tableRow).className} xb-opt-table-row`;
       row.style.gridTemplateColumns = "1fr 40px";
       row.tabIndex = 0;
 
       const handleCell = document.createElement("span");
-      handleCell.className = "xb-opt-cell-handle";
+      handleCell.className = `${stylex.props(styles.cellHandle).className} xb-opt-cell-handle`;
       handleCell.textContent = `@${handle}`;
 
       row.append(handleCell, createRemoveControl(handle));

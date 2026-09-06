@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Learning Diary: Chrome Extension Audits</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.5;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 24px;
+        color: #1a1a1a;
+        background-color: #ffffff;
+      }
+      h1, h2, h3 {
+        color: #0f172a;
+      }
+      pre {
+        background-color: #f1f5f9;
+        padding: 12px 16px;
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.9em;
+      }
+      p, li {
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Accessibility Learning Diary: Chrome Extension Audits</h1>
+      <p>This document records best practices for accessibility audits on Chrome extension pages.</p>
+
+      <section>
+        <h2>Procedural Rules for Accessibility Audits</h2>
+
+        <h3>1. Connect to Chrome DevTools Protocol</h3>
+        <p>Start Chrome with the remote debugging port active.</p>
+        <pre><code>curl -s http://127.0.0.1:9222/json/version</code></pre>
+        <p>If Chrome runs, extract the WebSocket debugger URL from the response.</p>
+
+        <h3>2. Open the Extension Page</h3>
+        <p>Open the options page in Chrome with <code>agent-browser</code>.</p>
+        <pre><code>bunx agent-browser@0.33.2 --cdp "ws://127.0.0.1:9222/devtools/browser/&lt;HASH&gt;" open "chrome-extension://&lt;ID&gt;/options.html"</code></pre>
+        <p>If you audit the popup page, open <code>popup.html</code> instead.</p>
+
+        <h3>3. Run the Accessibility Audit</h3>
+        <p>Run the accessibility check with <code>agent-browser</code>.</p>
+        <pre><code>bunx agent-browser@0.33.2 --cdp "ws://127.0.0.1:9222/devtools/browser/&lt;HASH&gt;" a11y --json</code></pre>
+        <p>If violations exist, read the JSON output to find invalid elements.</p>
+      </section>
+
+      <section>
+        <h2>Descriptive Explanations of Rules</h2>
+
+        <h3>Landmark Regions</h3>
+        <p>
+          Screen readers use ARIA landmarks to navigate web content.
+          Every content element on the page must sit inside a landmark region.
+          The <code>&lt;main&gt;</code> element contains the primary content of the page.
+          The <code>&lt;aside&gt;</code> element contains secondary content like the sidebar.
+          If content sits outside all landmark regions, accessibility tools report a landmark violation.
+        </p>
+
+        <h3>Color Contrast Ratios</h3>
+        <p>
+          Text content must meet the WCAG 2.1 AA minimum contrast threshold.
+          For text that is smaller than 24 pixels and not bold, the contrast ratio must be 4.5:1 or higher.
+          If text contrast is less than 4.5:1, readers with vision impairment cannot read the text easily.
+        </p>
+
+        <p>
+          Design tokens defined with OKLCH color space provide precise contrast control.
+          Primary text in <code>oklch(0.78 0.14 246)</code> on dark backgrounds yields a contrast ratio of 5.8:1.
+          Primary text in <code>oklch(0.48 0.16 246)</code> on light backgrounds yields a contrast ratio of 5.2:1.
+          Primary button backgrounds in <code>oklch(0.52 0.17 246)</code> with white text yield a contrast ratio of 4.6:1.
+        </p>
+      </section>
+
+      <section>
+        <h2>Compliance Notice</h2>
+        <p>
+          This document uses guidance from ASD-STE100 Simplified Technical English.
+          Full compliance with ASD-STE100 requires the official dictionary at asd-ste100.org.
+          No tool or document can guarantee full STE compliance.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
