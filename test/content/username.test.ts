@@ -1,7 +1,12 @@
 // Catalog: UN-* (normalizeUsername) and EX-* (extractUsernameFromTweet).
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { extractUsernameFromTweet, normalizeUsername } from "../../entrypoints/content/actions.ts";
+import {
+  extractDisplayNameFromTweet,
+  extractReplyBodyFromTweet,
+  extractUsernameFromTweet,
+  normalizeUsername,
+} from "../../entrypoints/content/actions.ts";
 import {
   createQuoteTweetArticle,
   createReplyArticle,
@@ -303,5 +308,97 @@ describe("extractUsernameFromTweet", () => {
     const article = tweetArticle();
     addRegion(article, { "data-testid": "socialContext" }, "/reposter_acct");
     expect(extractUsernameFromTweet(article)).toBeNull();
+  });
+});
+
+// DN-* (extractDisplayNameFromTweet) and BD-* (extractReplyBodyFromTweet): the two extra
+// signals the Bot Sentry classifier (spam-classifier.ts) needs beyond the username. Both are
+// best-effort — see author.ts's comment on why the display name has no stable testid to key
+// off — so these pin the degrade-to-"" behavior as carefully as the happy path.
+describe("extractDisplayNameFromTweet", () => {
+  beforeEach(() => {
+    resetTestEnvironment();
+  });
+
+  function tweetArticle(): HTMLElement {
+    const article = document.createElement("article");
+    article.setAttribute("data-testid", "tweet");
+    return article;
+  }
+
+  function bylineWithNameAndHandle(name: string, handle: string): HTMLElement {
+    const byline = document.createElement("div");
+    byline.setAttribute("data-testid", "User-Name");
+    const nameLink = document.createElement("a");
+    nameLink.setAttribute("href", `/${handle}`);
+    nameLink.textContent = name;
+    const handleLink = document.createElement("a");
+    handleLink.setAttribute("href", `/${handle}`);
+    handleLink.textContent = `@${handle}`;
+    byline.append(nameLink, handleLink);
+    return byline;
+  }
+
+  test("DN-01 reads the display name from the byline's name anchor, not the @handle anchor", () => {
+    const article = tweetArticle();
+    article.appendChild(bylineWithNameAndHandle("Jane Doe", "janedoe"));
+    expect(extractDisplayNameFromTweet(article)).toBe("Jane Doe");
+  });
+
+  test("DN-02 returns '' when there is no byline at all", () => {
+    expect(extractDisplayNameFromTweet(tweetArticle())).toBe("");
+  });
+
+  test("DN-03 returns '' when the byline's only anchor text is the @handle (name unresolved)", () => {
+    const article = tweetArticle();
+    const byline = document.createElement("div");
+    byline.setAttribute("data-testid", "User-Name");
+    const handleLink = document.createElement("a");
+    handleLink.setAttribute("href", "/janedoe");
+    handleLink.textContent = "@janedoe";
+    byline.appendChild(handleLink);
+    article.appendChild(byline);
+    expect(extractDisplayNameFromTweet(article)).toBe("");
+  });
+
+  test("DN-04 never reads a quoted tweet's nested byline", () => {
+    const article = tweetArticle();
+    const quote = document.createElement("div");
+    quote.setAttribute("role", "link");
+    quote.setAttribute("tabindex", "0");
+    quote.appendChild(bylineWithNameAndHandle("Quoted Person", "quotedacct"));
+    article.appendChild(quote);
+    expect(extractDisplayNameFromTweet(article)).toBe("");
+  });
+
+  test("DN-05 resolves the outer author's name, not a nested quoted tweet's", () => {
+    const article = tweetArticle();
+    article.appendChild(bylineWithNameAndHandle("Outer Author", "outerauth"));
+    const quote = document.createElement("div");
+    quote.setAttribute("role", "link");
+    quote.setAttribute("tabindex", "0");
+    quote.appendChild(bylineWithNameAndHandle("Quoted Person", "quotedacct"));
+    article.appendChild(quote);
+    expect(extractDisplayNameFromTweet(article)).toBe("Outer Author");
+  });
+});
+
+describe("extractReplyBodyFromTweet", () => {
+  beforeEach(() => {
+    resetTestEnvironment();
+  });
+
+  test("BD-01 reads the tweetText region's trimmed text", () => {
+    const article = document.createElement("article");
+    const body = document.createElement("div");
+    body.setAttribute("data-testid", "tweetText");
+    body.textContent = "  hello world  ";
+    article.appendChild(body);
+    expect(extractReplyBodyFromTweet(article)).toBe("hello world");
+  });
+
+  test("BD-02 returns '' when there is no tweetText region", () => {
+    const article = document.createElement("article");
+    expect(extractReplyBodyFromTweet(article)).toBe("");
   });
 });

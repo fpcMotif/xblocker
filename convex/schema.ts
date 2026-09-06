@@ -32,6 +32,7 @@ export default defineSchema({
       v.literal("popup"),
       v.literal("import"),
       v.literal("background"),
+      v.literal("auto"),
     ),
     clientActionId: v.optional(v.string()), // idempotency key from the client outbox
   })

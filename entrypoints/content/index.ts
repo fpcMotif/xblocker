@@ -20,6 +20,7 @@ import {
   normalizeUsername,
   parseRelationshipResponse,
 } from "./actions";
+import { SpamAutoBlocker } from "./auto-block";
 import { computeRailY } from "./position";
 import { QuickBlock, resolveQuickBlockMode, type QuickBlockMode } from "./quick-block";
 import { COLLAPSE_GRACE_MS, DWELL_MS, ReplyRail } from "./rail";
@@ -49,6 +50,7 @@ type XBlockerTestHooks = {
   getMaxReplies: typeof getMaxReplies;
   getQuickBlock: () => QuickBlock | null;
   getRail: () => ReplyRail | null;
+  getSpamAutoBlocker: () => SpamAutoBlocker | null;
   initializeXBlocker: typeof initializeXBlocker;
   isRateLimited: typeof isRateLimited;
   isTweetPageUrl: typeof isTweetPageUrl;
@@ -71,6 +73,7 @@ declare global {
 
 let rail: ReplyRail | null = null;
 let quickBlock: QuickBlock | null = null;
+let spamAutoBlocker: SpamAutoBlocker | null = null;
 let listenersAttached = false;
 
 function attachGlobalListeners(): void {
@@ -112,11 +115,18 @@ function addButtons(): void {
     document.getElementById(id)?.remove();
   }
   rail?.destroy();
+  spamAutoBlocker?.destroy();
 
   ensureStyles();
 
   rail = new ReplyRail();
   rail.mount();
+
+  // The Bot Sentry only has replies to scan on a tweet page, so it shares the rail's
+  // per-surface mount/teardown rather than living session-long like quick-block. Its own
+  // autoBlockSpam setting (off by default) gates whether a scan ever acts.
+  spamAutoBlocker = new SpamAutoBlocker({ onBlocked: () => rail?.incrementBlocked(1) });
+  spamAutoBlocker.mount();
 
   applyTheme();
   attachGlobalListeners();
@@ -127,6 +137,8 @@ function addButtons(): void {
 function removeSurfaces(): void {
   rail?.destroy();
   rail = null;
+  spamAutoBlocker?.destroy();
+  spamAutoBlocker = null;
 }
 
 // One-click manual block/mute (docs/adr/0001-one-click-manual-block.md). Unlike the rail,
@@ -207,6 +219,7 @@ if (typeof globalThis !== "undefined" && globalThis.__XB_TEST__) {
     getMaxReplies,
     getQuickBlock: () => quickBlock,
     getRail: () => rail,
+    getSpamAutoBlocker: () => spamAutoBlocker,
     initializeXBlocker,
     isRateLimited,
     isTweetPageUrl,

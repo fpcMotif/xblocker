@@ -22,7 +22,7 @@
 // distinction; do not let any of the three borrow another's semantics.
 
 export type BlockActionKind = "block" | "mute" | "unblock";
-export type BlockSource = "reply-bar" | "popup" | "import" | "background";
+export type BlockSource = "reply-bar" | "popup" | "import" | "background" | "auto";
 export type BlockedStatus = "active" | "unblocked";
 
 export type BlockAction = {

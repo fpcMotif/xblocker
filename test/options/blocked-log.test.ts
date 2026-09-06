@@ -8,6 +8,7 @@ import {
   formatRelativeShort,
   JUMP_TO_TOP_THRESHOLD,
   primaryActionKind,
+  primaryActionSource,
   renderBlockedLogPane,
 } from "../../entrypoints/options/panes/blocked-log.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
@@ -56,6 +57,34 @@ describe("primaryActionKind", () => {
       primaryActionKind(mkAccount({ key: "1", handle: "a", muteCount: 0, blockCount: 1 })),
     ).toBe("block");
     expect(primaryActionKind(mkAccount({ key: "1", handle: "a" }))).toBe("block");
+  });
+});
+
+describe("primaryActionSource", () => {
+  test("OBL-21 reads the source off the most recent block/mute action, skipping trailing unblocks", () => {
+    const account = mkAccount({
+      key: "1",
+      handle: "a",
+      actions: [
+        mkAction({ kind: "block", source: "auto" }),
+        mkAction({ kind: "mute", source: "reply-bar" }),
+        mkAction({ kind: "unblock", source: "auto" }),
+      ],
+    });
+    expect(primaryActionSource(account)).toBe("manual");
+  });
+
+  test("OBL-22 reports 'auto' when the most recent block/mute action came from the Bot Sentry", () => {
+    const account = mkAccount({
+      key: "1",
+      handle: "a",
+      actions: [mkAction({ kind: "block", source: "auto" })],
+    });
+    expect(primaryActionSource(account)).toBe("auto");
+  });
+
+  test("OBL-23 defaults to 'manual' when actions[] is empty (folded from a cloud pull)", () => {
+    expect(primaryActionSource(mkAccount({ key: "1", handle: "a" }))).toBe("manual");
   });
 });
 
@@ -214,6 +243,55 @@ describe("Blocked log pane", () => {
     expect(rowsOnScreen()[0]?.textContent).toContain("user_0");
   });
 
+  test("OBL-12b source chips filter to Auto/Manual, and an auto-blocked row carries the Auto tag", async () => {
+    const map: Record<string, BlockedAccount> = {
+      "0": mkAccount({
+        key: "0",
+        handle: "auto_caught",
+        lastActionAt: 1,
+        blockCount: 1,
+        actions: [mkAction({ kind: "block", source: "auto" })],
+      }),
+      "1": mkAccount({
+        key: "1",
+        handle: "manual_caught",
+        lastActionAt: 2,
+        blockCount: 1,
+        actions: [mkAction({ kind: "block", source: "reply-bar" })],
+      }),
+    };
+    storageFake.data["blockedAccounts"] = map;
+    await renderBlockedLogPane(document.body, { getViewportHeight: () => VIEWPORT_HEIGHT });
+
+    function chip(group: string, label: string): HTMLButtonElement {
+      const groupEl = document.querySelector(`[aria-label="${group}"]`)!;
+      const button = Array.from(groupEl.querySelectorAll<HTMLButtonElement>("button")).find(
+        (btn) => btn.textContent === label,
+      );
+      if (!button) throw new Error(`no button "${label}" in group "${group}"`);
+      return button;
+    }
+
+    // The auto-blocked row (newest, sorts first) carries the "Auto" tag; the manual one does not.
+    const rows = rowsOnScreen();
+    expect(rows[0]?.textContent).toContain("manual_caught");
+    expect(rows[0]?.querySelector(".xb-opt-tag")).toBeNull();
+    expect(rows[1]?.textContent).toContain("auto_caught");
+    expect(rows[1]?.querySelector(".xb-opt-tag")?.textContent).toBe("Auto");
+
+    chip("Filter by source", "Auto").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(rowsOnScreen()).toHaveLength(1);
+    expect(rowsOnScreen()[0]?.textContent).toContain("auto_caught");
+    expect(chip("Filter by source", "Auto").getAttribute("aria-pressed")).toBe("true");
+
+    chip("Filter by source", "Manual").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(rowsOnScreen()).toHaveLength(1);
+    expect(rowsOnScreen()[0]?.textContent).toContain("manual_caught");
+
+    chip("Filter by source", "All").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(rowsOnScreen()).toHaveLength(2);
+  });
+
   test("OBL-13 shows a filtered-empty state distinct from the true-empty state", async () => {
     seedAccounts(2);
     await renderBlockedLogPane(document.body, { getViewportHeight: () => VIEWPORT_HEIGHT });
@@ -227,7 +305,7 @@ describe("Blocked log pane", () => {
     expect(document.body.textContent).toContain("Try a different search or filter.");
   });
 
-  test("OBL-14 Export JSON hands a handle/action/lastActionAt/sync projection to the download seam", async () => {
+  test("OBL-14 Export JSON hands a handle/action/source/lastActionAt/sync projection to the download seam", async () => {
     seedAccounts(2);
     await renderBlockedLogPane(document.body, { getViewportHeight: () => VIEWPORT_HEIGHT });
 
@@ -246,6 +324,8 @@ describe("Blocked log pane", () => {
       const text = await capturedBlob?.text();
       expect(text).toContain('"handle": "user_0"');
       expect(text).toContain('"sync": "local"');
+      // seedAccounts builds accounts with no actions[] history, so source defaults to "manual".
+      expect(text).toContain('"source": "manual"');
     } finally {
       URL.createObjectURL = originalCreate;
     }

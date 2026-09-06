@@ -321,6 +321,18 @@ body {
 .xb-opt-sync-dot[data-sync="pending"] { background: var(--xb-warning); }
 .xb-opt-sync-dot[data-sync="local"] { background: transparent; border: 1px solid var(--xb-ink-muted); }
 .xb-opt-cell-when { font-variant-numeric: tabular-nums; color: var(--xb-ink-muted); }
+.xb-opt-tag {
+	height: 18px;
+	padding: 0 6px;
+	border-radius: 6px;
+	background: var(--xb-track);
+	color: var(--xb-ink-muted);
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	line-height: 18px;
+}
 
 .xb-opt-ghost-icon {
 	display: grid;

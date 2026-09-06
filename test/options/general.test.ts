@@ -69,11 +69,14 @@ describe("General pane", () => {
   test("OG-02 renders default values with nothing stored", async () => {
     await renderGeneralPane(document.body);
     expect(document.querySelector("h1")?.textContent).toBe("General");
-    expect([switchInput(0).checked, switchInput(1).checked, switchInput(2).checked]).toEqual([
-      true,
-      true,
-      false,
-    ]);
+    expect([
+      switchInput(0).checked,
+      switchInput(1).checked,
+      switchInput(2).checked,
+      switchInput(3).checked,
+      switchInput(4).checked,
+      switchInput(5).checked,
+    ]).toEqual([true, true, true, true, false, false]);
     expect(slider().value).toBe("50");
     expect(numberInput().value).toBe("50");
   });
@@ -81,45 +84,93 @@ describe("General pane", () => {
   test("OG-03 renders stored values, clamping an out-of-range stored maxReplies", async () => {
     storageFake.data["settings"] = {
       protectWhitelist: false,
+      protectThreadAuthor: false,
+      protectResearchLinks: false,
       confirmDestructiveActions: false,
       keyboardMode: true,
       maxReplies: 9999,
+      autoBlockSpam: true,
     };
     await renderGeneralPane(document.body);
-    expect([switchInput(0).checked, switchInput(1).checked, switchInput(2).checked]).toEqual([
-      false,
-      false,
-      true,
-    ]);
+    expect([
+      switchInput(0).checked,
+      switchInput(1).checked,
+      switchInput(2).checked,
+      switchInput(3).checked,
+      switchInput(4).checked,
+      switchInput(5).checked,
+    ]).toEqual([false, false, false, false, true, true]);
     expect(slider().value).toBe("200");
     expect(numberInput().value).toBe("200");
   });
 
-  test("OG-04 toggling each switch persists the full 4-key settings blob", async () => {
+  test("OG-04 toggling each switch persists the full settings blob", async () => {
     await renderGeneralPane(document.body);
 
     toggle(0);
     expect(storageFake.data["settings"]).toEqual({
       protectWhitelist: false,
+      protectThreadAuthor: true,
+      protectResearchLinks: true,
       confirmDestructiveActions: true,
       keyboardMode: false,
       maxReplies: 50,
+      autoBlockSpam: false,
     });
 
     toggle(1);
     expect(storageFake.data["settings"]).toEqual({
       protectWhitelist: false,
-      confirmDestructiveActions: false,
+      protectThreadAuthor: false,
+      protectResearchLinks: true,
+      confirmDestructiveActions: true,
       keyboardMode: false,
       maxReplies: 50,
+      autoBlockSpam: false,
     });
 
     toggle(2);
     expect(storageFake.data["settings"]).toEqual({
       protectWhitelist: false,
+      protectThreadAuthor: false,
+      protectResearchLinks: false,
+      confirmDestructiveActions: true,
+      keyboardMode: false,
+      maxReplies: 50,
+      autoBlockSpam: false,
+    });
+
+    toggle(3);
+    expect(storageFake.data["settings"]).toEqual({
+      protectWhitelist: false,
+      protectThreadAuthor: false,
+      protectResearchLinks: false,
+      confirmDestructiveActions: false,
+      keyboardMode: false,
+      maxReplies: 50,
+      autoBlockSpam: false,
+    });
+
+    toggle(4);
+    expect(storageFake.data["settings"]).toEqual({
+      protectWhitelist: false,
+      protectThreadAuthor: false,
+      protectResearchLinks: false,
       confirmDestructiveActions: false,
       keyboardMode: true,
       maxReplies: 50,
+      autoBlockSpam: false,
+    });
+
+    toggle(5);
+    expect(storageFake.data["settings"]).toEqual({
+      protectWhitelist: false,
+      protectThreadAuthor: false,
+      protectResearchLinks: false,
+      confirmDestructiveActions: false,
+      keyboardMode: true,
+      maxReplies: 50,
+      autoBlockSpam: true,
     });
   });
 
@@ -162,9 +213,12 @@ describe("General pane", () => {
             settings: {
               newValue: {
                 protectWhitelist: false,
+                protectThreadAuthor: false,
+                protectResearchLinks: false,
                 confirmDestructiveActions: false,
                 keyboardMode: true,
                 maxReplies: 33,
+                autoBlockSpam: true,
               },
             },
           },
@@ -172,11 +226,14 @@ describe("General pane", () => {
         );
       }
 
-      expect([switchInput(0).checked, switchInput(1).checked, switchInput(2).checked]).toEqual([
-        false,
-        false,
-        true,
-      ]);
+      expect([
+        switchInput(0).checked,
+        switchInput(1).checked,
+        switchInput(2).checked,
+        switchInput(3).checked,
+        switchInput(4).checked,
+        switchInput(5).checked,
+      ]).toEqual([false, false, false, false, true, true]);
       expect(slider().value).toBe("33");
       expect(numberInput().value).toBe("33");
     } finally {

@@ -57,16 +57,25 @@ export function clampMaxReplies(value: unknown): number {
  */
 export type Settings = {
   protectWhitelist: boolean;
+  protectThreadAuthor: boolean;
+  protectResearchLinks: boolean;
   confirmDestructiveActions: boolean;
   keyboardMode: boolean;
   maxReplies: number;
+  // Off by default: the Bot Sentry spam classifier (spam-classifier.ts) auto-blocks a
+  // hard-to-reverse, site-wide action from a heuristic verdict, so it ships opt-in rather
+  // than on — see entrypoints/content/auto-block.ts.
+  autoBlockSpam: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
   protectWhitelist: true,
+  protectThreadAuthor: true,
+  protectResearchLinks: true,
   confirmDestructiveActions: true,
   keyboardMode: false,
   maxReplies: DEFAULT_MAX_REPLIES,
+  autoBlockSpam: false,
 };
 
 // Cast-free narrowing for the stored blob — a type predicate, not an `as` assertion,
@@ -81,7 +90,7 @@ type BooleanSettingsKey = {
 
 /** Normalize a raw stored value into a well-formed Settings blob field by field: a
  *  partial blob, or outright garbage (a string, null, an unrelated object), normalizes
- *  identically for every surface. Each of the 4 known fields is validated on its own —
+ *  identically for every surface. Each known field is validated on its own —
  *  a wrong-typed field falls back to its default rather than poisoning the whole blob —
  *  and the result is built solely from those fields, so unknown keys (e.g. a stray
  *  `evil` a hand-edited or stale blob might carry) are stripped rather than persisted
@@ -96,9 +105,12 @@ export function normalizeSettings(raw: unknown): Settings {
 
   return {
     protectWhitelist: boolField("protectWhitelist"),
+    protectThreadAuthor: boolField("protectThreadAuthor"),
+    protectResearchLinks: boolField("protectResearchLinks"),
     confirmDestructiveActions: boolField("confirmDestructiveActions"),
     keyboardMode: boolField("keyboardMode"),
     maxReplies: clampMaxReplies(partial["maxReplies"]),
+    autoBlockSpam: boolField("autoBlockSpam"),
   };
 }
 

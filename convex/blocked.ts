@@ -9,6 +9,7 @@ const sourceValidator = v.union(
   v.literal("popup"),
   v.literal("import"),
   v.literal("background"),
+  v.literal("auto"),
 );
 const statusValidator = v.union(v.literal("active"), v.literal("unblocked"));
 

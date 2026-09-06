@@ -23,6 +23,11 @@ A modern Chrome extension for efficiently managing content on X.com (formerly Tw
    - Enable "Developer mode"
    - Click "Load unpacked" and select `.output/chrome-mv3`
 
+To ship the build as one signed offline file instead, run `bun run crx` — it writes
+`.output/xblocker-<version>-chrome.crx` plus an `update.xml`, signed with a local key that
+pins the extension ID. See [docs/offline-crx.md](docs/offline-crx.md) for the install
+routes, including the drag-and-drop caveat.
+
 ## Development
 
 ### Prerequisites
@@ -59,6 +64,9 @@ bun run format
 
 # Build the Chrome MV3 extension
 bun run build
+
+# Build and sign an offline .crx (docs/offline-crx.md)
+bun run crx
 
 # Run every project gate
 bun run check

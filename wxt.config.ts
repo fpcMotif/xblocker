@@ -1,7 +1,20 @@
+import { existsSync, readFileSync } from "node:fs";
 import { defineConfig } from "wxt";
+
+import { crxIdentity } from "./packages/crx/pack.ts";
+
+// When the .crx signing key exists locally, pin its public key into the manifest so an
+// unpacked build and a packed .crx share one extension ID — and therefore one
+// chrome.storage profile. Without the key the build still works, it just gets whatever ID
+// Chrome derives from the load path. See scripts/pack-crx.ts.
+const keyPath = process.env.XBLOCKER_CRX_KEY ?? ".keys/crx.pem";
+const crxKey = existsSync(keyPath)
+  ? { key: crxIdentity(readFileSync(keyPath, "utf8")).publicKeyBase64 }
+  : {};
 
 export default defineConfig({
   manifest: {
+    ...crxKey,
     name: "X Blocker",
     description: "Analyzes and filters content on X.com based on configured topics",
     version: "1.0.0",
