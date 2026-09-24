@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<!-- saved from url=(0104)file:///private/var/folders/v7/h_d2vp7139bc8tp5k91nk1q40000gn/T/architecture-review-20260615-021214.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Architecture review — XBlocker</title>
+    <script src="./0614c Architecture review — XBlocker_files/saved_resource"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose", flowchart: { curve: "basis" } });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 5 5; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .grain { background-image: radial-gradient(rgba(15,23,42,.04) 1px, transparent 1px); background-size: 14px 14px; }
+      .faded { opacity: .38; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .tick { letter-spacing: .14em; }
+      details > summary { list-style: none; cursor: pointer; }
+      details > summary::-webkit-details-marker { display: none; }
+    </style>
+  <style>*, ::before, ::after{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/* ! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com */*,::after,::before{box-sizing:border-box;border-width:0;border-style:solid;border-color:#e5e7eb}::after,::before{--tw-content:''}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;tab-size:4;font-family:ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0;padding:0}legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.mx-auto{margin-left:auto;margin-right:auto}.mb-1{margin-bottom:0.25rem}.mb-2{margin-bottom:0.5rem}.mb-3{margin-bottom:0.75rem}.mt-1{margin-top:0.25rem}.mt-2{margin-top:0.5rem}.mt-3{margin-top:0.75rem}.mt-4{margin-top:1rem}.mt-5{margin-top:1.25rem}.mt-6{margin-top:1.5rem}.inline-block{display:inline-block}.flex{display:flex}.grid{display:grid}.h-4{height:1rem}.h-7{height:1.75rem}.w-20{width:5rem}.w-5{width:1.25rem}.w-8{width:2rem}.w-full{width:100%}.max-w-3xl{max-width:48rem}.max-w-5xl{max-width:64rem}.shrink-0{flex-shrink:0}.grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}.grid-cols-3{grid-template-columns:repeat(3, minmax(0, 1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-start{align-items:flex-start}.items-center{align-items:center}.items-baseline{align-items:baseline}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-2{gap:0.5rem}.gap-3{gap:0.75rem}.gap-4{gap:1rem}.gap-5{gap:1.25rem}.gap-x-6{column-gap:1.5rem}.gap-x-8{column-gap:2rem}.gap-y-1\.5{row-gap:0.375rem}.gap-y-2{row-gap:0.5rem}.gap-y-4{row-gap:1rem}.space-y-1 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.25rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.25rem * var(--tw-space-y-reverse))}.space-y-1\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.375rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.375rem * var(--tw-space-y-reverse))}.space-y-12 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(3rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(3rem * var(--tw-space-y-reverse))}.space-y-2 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.5rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.5rem * var(--tw-space-y-reverse))}.space-y-3 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.75rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.75rem * var(--tw-space-y-reverse))}.space-y-5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1.25rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1.25rem * var(--tw-space-y-reverse))}.space-y-6 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1.5rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1.5rem * var(--tw-space-y-reverse))}.divide-y > :not([hidden]) ~ :not([hidden]){--tw-divide-y-reverse:0;border-top-width:calc(1px * calc(1 - var(--tw-divide-y-reverse)));border-bottom-width:calc(1px * var(--tw-divide-y-reverse))}.divide-slate-200 > :not([hidden]) ~ :not([hidden]){--tw-divide-opacity:1;border-color:rgb(226 232 240 / var(--tw-divide-opacity, 1))}.overflow-hidden{overflow:hidden}.rounded{border-radius:0.25rem}.rounded-2xl{border-radius:1rem}.rounded-full{border-radius:9999px}.rounded-lg{border-radius:0.5rem}.rounded-md{border-radius:0.375rem}.rounded-sm{border-radius:0.125rem}.rounded-xl{border-radius:0.75rem}.rounded-b{border-bottom-right-radius:0.25rem;border-bottom-left-radius:0.25rem}.rounded-t{border-top-left-radius:0.25rem;border-top-right-radius:0.25rem}.rounded-tr-lg{border-top-right-radius:0.5rem}.border{border-width:1px}.border-2{border-width:2px}.border-b{border-bottom-width:1px}.border-l-4{border-left-width:4px}.border-t{border-top-width:1px}.border-t-2{border-top-width:2px}.border-amber-200{--tw-border-opacity:1;border-color:rgb(253 230 138 / var(--tw-border-opacity, 1))}.border-rose-300{--tw-border-opacity:1;border-color:rgb(253 164 175 / var(--tw-border-opacity, 1))}.border-rose-500{--tw-border-opacity:1;border-color:rgb(244 63 94 / var(--tw-border-opacity, 1))}.border-slate-100{--tw-border-opacity:1;border-color:rgb(241 245 249 / var(--tw-border-opacity, 1))}.border-slate-200{--tw-border-opacity:1;border-color:rgb(226 232 240 / var(--tw-border-opacity, 1))}.border-slate-300{--tw-border-opacity:1;border-color:rgb(203 213 225 / var(--tw-border-opacity, 1))}.border-slate-400{--tw-border-opacity:1;border-color:rgb(148 163 184 / var(--tw-border-opacity, 1))}.bg-amber-100{--tw-bg-opacity:1;background-color:rgb(254 243 199 / var(--tw-bg-opacity, 1))}.bg-amber-50{--tw-bg-opacity:1;background-color:rgb(255 251 235 / var(--tw-bg-opacity, 1))}.bg-emerald-100{--tw-bg-opacity:1;background-color:rgb(209 250 229 / var(--tw-bg-opacity, 1))}.bg-emerald-300{--tw-bg-opacity:1;background-color:rgb(110 231 183 / var(--tw-bg-opacity, 1))}.bg-rose-200{--tw-bg-opacity:1;background-color:rgb(254 205 211 / var(--tw-bg-opacity, 1))}.bg-rose-50{--tw-bg-opacity:1;background-color:rgb(255 241 242 / var(--tw-bg-opacity, 1))}.bg-slate-100{--tw-bg-opacity:1;background-color:rgb(241 245 249 / var(--tw-bg-opacity, 1))}.bg-slate-200{--tw-bg-opacity:1;background-color:rgb(226 232 240 / var(--tw-bg-opacity, 1))}.bg-slate-50{--tw-bg-opacity:1;background-color:rgb(248 250 252 / var(--tw-bg-opacity, 1))}.bg-stone-50{--tw-bg-opacity:1;background-color:rgb(250 250 249 / var(--tw-bg-opacity, 1))}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255 / var(--tw-bg-opacity, 1))}.p-4{padding:1rem}.p-7{padding:1.75rem}.p-8{padding:2rem}.px-1{padding-left:0.25rem;padding-right:0.25rem}.px-2\.5{padding-left:0.625rem;padding-right:0.625rem}.px-3{padding-left:0.75rem;padding-right:0.75rem}.px-4{padding-left:1rem;padding-right:1rem}.px-6{padding-left:1.5rem;padding-right:1.5rem}.py-1{padding-top:0.25rem;padding-bottom:0.25rem}.py-12{padding-top:3rem;padding-bottom:3rem}.py-2{padding-top:0.5rem;padding-bottom:0.5rem}.py-2\.5{padding-top:0.625rem;padding-bottom:0.625rem}.py-3{padding-top:0.75rem;padding-bottom:0.75rem}.py-5{padding-top:1.25rem;padding-bottom:1.25rem}.pl-2{padding-left:0.5rem}.pt-1{padding-top:0.25rem}.pt-3{padding-top:0.75rem}.text-center{text-align:center}.font-sans{font-family:ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"}.font-serif{font-family:ui-serif, Georgia, Cambria, "Times New Roman", Times, serif}.text-2xl{font-size:1.5rem;line-height:2rem}.text-3xl{font-size:1.875rem;line-height:2.25rem}.text-4xl{font-size:2.25rem;line-height:2.5rem}.text-\[10px\]{font-size:10px}.text-\[11px\]{font-size:11px}.text-sm{font-size:0.875rem;line-height:1.25rem}.text-xl{font-size:1.25rem;line-height:1.75rem}.text-xs{font-size:0.75rem;line-height:1rem}.font-normal{font-weight:400}.font-semibold{font-weight:600}.uppercase{text-transform:uppercase}.not-italic{font-style:normal}.leading-relaxed{line-height:1.625}.tracking-tight{letter-spacing:-0.025em}.text-amber-700{--tw-text-opacity:1;color:rgb(180 83 9 / var(--tw-text-opacity, 1))}.text-amber-800{--tw-text-opacity:1;color:rgb(146 64 14 / var(--tw-text-opacity, 1))}.text-amber-900{--tw-text-opacity:1;color:rgb(120 53 15 / var(--tw-text-opacity, 1))}.text-emerald-300{--tw-text-opacity:1;color:rgb(110 231 183 / var(--tw-text-opacity, 1))}.text-emerald-700{--tw-text-opacity:1;color:rgb(4 120 87 / var(--tw-text-opacity, 1))}.text-emerald-800{--tw-text-opacity:1;color:rgb(6 95 70 / var(--tw-text-opacity, 1))}.text-rose-600{--tw-text-opacity:1;color:rgb(225 29 72 / var(--tw-text-opacity, 1))}.text-rose-700{--tw-text-opacity:1;color:rgb(190 18 60 / var(--tw-text-opacity, 1))}.text-rose-800{--tw-text-opacity:1;color:rgb(159 18 57 / var(--tw-text-opacity, 1))}.text-slate-300{--tw-text-opacity:1;color:rgb(203 213 225 / var(--tw-text-opacity, 1))}.text-slate-400{--tw-text-opacity:1;color:rgb(148 163 184 / var(--tw-text-opacity, 1))}.text-slate-500{--tw-text-opacity:1;color:rgb(100 116 139 / var(--tw-text-opacity, 1))}.text-slate-600{--tw-text-opacity:1;color:rgb(71 85 105 / var(--tw-text-opacity, 1))}.text-slate-700{--tw-text-opacity:1;color:rgb(51 65 85 / var(--tw-text-opacity, 1))}.text-slate-900{--tw-text-opacity:1;color:rgb(15 23 42 / var(--tw-text-opacity, 1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255 / var(--tw-text-opacity, 1))}.shadow-lg{--tw-shadow:0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 10px 15px -3px var(--tw-shadow-color), 0 4px 6px -4px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-md{--tw-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 4px 6px -1px var(--tw-shadow-color), 0 2px 4px -2px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-sm{--tw-shadow:0 1px 2px 0 rgb(0 0 0 / 0.05);--tw-shadow-colored:0 1px 2px 0 var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.hover\:text-emerald-200:hover{--tw-text-opacity:1;color:rgb(167 243 208 / var(--tw-text-opacity, 1))}.hover\:text-slate-800:hover{--tw-text-opacity:1;color:rgb(30 41 59 / var(--tw-text-opacity, 1))}@media (min-width: 640px){.sm\:grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}}@media (min-width: 768px){.md\:grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}}</style></head>
+  <body class="bg-stone-50 text-slate-900 font-sans grain">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <!-- ─────────────────────────── HEADER ─────────────────────────── -->
+      <header class="space-y-5">
+        <div class="flex items-baseline justify-between flex-wrap gap-3">
+          <h1 class="font-serif text-4xl tracking-tight">XBlocker — architecture review</h1>
+          <span class="mono text-xs text-slate-500">2026-06-15 · 18 source modules · 4034 LOC</span>
+        </div>
+        <p class="text-slate-600 max-w-3xl leading-relaxed">
+          Four deepening opportunities. The aim each time is the same: a small <strong>interface</strong> in front of a lot of
+          behaviour, so the invariant has one home (<strong>locality</strong>) and one test surface (<strong>leverage</strong>).
+          The two in-page surfaces — the <em>Reply Rail</em> (bulk) and the <em>Cursor Console</em> (single) — and the
+          <em>Whitelist</em> are named as in <span class="mono">CONTEXT.md</span>.
+        </p>
+        <!-- legend -->
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500 border-t border-b border-slate-200 py-3">
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-4 border-2 border-slate-400 rounded-sm"></span> module</span>
+          <span class="flex items-center gap-2"><svg width="34" height="6"><line x1="0" y1="3" x2="34" y2="3" class="seam" stroke="#64748b" stroke-width="2"></line></svg> seam</span>
+          <span class="flex items-center gap-2"><svg width="34" height="6"><line x1="0" y1="3" x2="34" y2="3" stroke="#dc2626" stroke-width="2"></line></svg> leakage / duplicated invariant</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-4 rounded-sm deep"></span> deep module</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-4 rounded-sm bg-slate-200 faded"></span> faded = internal, no longer in the interface</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-12">
+
+        <!-- ══════════════════════════ CANDIDATE A ══════════════════════════ -->
+        <article id="cand-a" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-7 space-y-6">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <p class="tick text-xs uppercase text-emerald-700 font-semibold">Candidate A · headline</p>
+                <h2 class="font-serif text-2xl mt-1">One rollup algebra for the blocked-account invariant</h2>
+              </div>
+              <div class="flex gap-2 shrink-0">
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">Strong</span>
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">ports &amp; adapters</span>
+              </div>
+            </div>
+
+            <p class="mono text-sm text-slate-500">
+              entrypoints/lib/blocked-merge.ts · entrypoints/lib/blocked-store.ts (mergeRemote) · convex/blocked.ts (recordAction)
+            </p>
+
+            <!-- BEFORE / AFTER : duplication → deep -->
+            <div class="grid md:grid-cols-2 gap-5">
+              <!-- before -->
+              <div class="rounded-xl border border-slate-200 p-4">
+                <p class="tick text-xs uppercase text-slate-400 mb-3">Before — one invariant, three implementations</p>
+                <div class="space-y-2">
+                  <div class="rounded-lg border border-slate-300 px-3 py-2">
+                    <p class="text-xs font-semibold">blocked-merge · <span class="mono">mergeBlockedAccount</span></p>
+                    <p class="mono text-[10px] text-slate-500 leading-relaxed">idUnknown = a&amp;&amp;b · min(first) · max(last) · +blockCount</p>
+                  </div>
+                  <div class="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2">
+                    <p class="text-xs font-semibold">blocked-store · <span class="mono">mergeRemote</span></p>
+                    <p class="mono text-[10px] text-rose-600 leading-relaxed">idUnknown = a&amp;&amp;b · min(first) · max(last) · max(blockCount)</p>
+                  </div>
+                  <div class="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2">
+                    <p class="text-xs font-semibold">convex · <span class="mono">recordAction</span></p>
+                    <p class="mono text-[10px] text-rose-600 leading-relaxed">idUnknown = a&amp;&amp;b · min(first) · max(last) · +blockCount · alias-fold</p>
+                  </div>
+                </div>
+                <p class="text-xs text-rose-600 mt-3 flex items-center gap-2">
+                  <span class="inline-block w-8 border-t-2 border-rose-500"></span> same rule, copied three times — fix it thrice
+                </p>
+              </div>
+              <!-- after -->
+              <div class="rounded-xl border border-slate-200 p-4">
+                <p class="tick text-xs uppercase text-slate-400 mb-3">After — one algebra, three adapters</p>
+                <div class="flex flex-col items-center gap-3 pt-1">
+                  <div class="grid grid-cols-3 gap-2 w-full text-center">
+                    <div class="rounded-md border border-slate-300 px-1 py-2 text-[10px] font-semibold">local<br>store</div>
+                    <div class="rounded-md border border-slate-300 px-1 py-2 text-[10px] font-semibold">remote<br>merge</div>
+                    <div class="rounded-md border border-slate-300 px-1 py-2 text-[10px] font-semibold">convex<br>upsert</div>
+                  </div>
+                  <svg width="40" height="26"><line x1="20" y1="0" x2="20" y2="20" class="seam" stroke="#64748b" stroke-width="2"></line><path d="M14 14 L20 22 L26 14" fill="none" stroke="#64748b" stroke-width="2"></path></svg>
+                  <div class="deep text-white rounded-lg w-full px-4 py-5 text-center shadow-md">
+                    <p class="tick text-xs uppercase text-emerald-300">deep module</p>
+                    <p class="font-semibold mt-1">account rollup · <span class="mono text-sm">fold()</span></p>
+                    <p class="text-[11px] text-slate-300 mt-1">dedup key · id-learning · alias-fold · count rollup — once</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <div>
+                <p class="tick text-xs uppercase text-slate-400 mb-1">Problem</p>
+                <p class="text-slate-700">The "never duplicate a person; roll counts up; learn the numeric id late; fold the old <span class="mono">@handle</span> row" invariant is re-implemented in three runtimes — and the code comments admit the mirroring.</p>
+              </div>
+              <div>
+                <p class="tick text-xs uppercase text-slate-400 mb-1">Solution</p>
+                <p class="text-slate-700">Promote the fold to one pure module (a <span class="mono">shared/</span> import both <span class="mono">entrypoints/lib</span> and <span class="mono">convex/</span> pull in). <span class="mono">mergeRemote</span> and <span class="mono">recordAction</span> call it instead of restating it.</p>
+              </div>
+            </div>
+
+            <div>
+              <p class="tick text-xs uppercase text-slate-400 mb-2">Wins</p>
+              <div class="grid sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm text-slate-700">
+                <p>• locality: the dedup rule lives in one module</p>
+                <p>• leverage: one fold, three call sites</p>
+                <p>• interface is the test surface — covered once</p>
+                <p>• convex/local arithmetic can't drift apart</p>
+              </div>
+            </div>
+
+            <details class="text-sm border-t border-slate-100 pt-3">
+              <summary class="text-slate-500 hover:text-slate-800 text-xs tick uppercase">Deletion test</summary>
+              <p class="mt-2 text-slate-600">Delete <span class="mono">blocked-merge.ts</span> today and the rollup arithmetic doesn't vanish — it <em>reappears</em>, already, inside <span class="mono">mergeRemote</span> and <span class="mono">recordAction</span>. That reappearance is the proof the module is load-bearing and the proof its callers are copying it rather than crossing its interface.</p>
+            </details>
+          </div>
+        </article>
+
+        <!-- ══════════════════════════ CANDIDATE B ══════════════════════════ -->
+        <article id="cand-b" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-7 space-y-6">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <p class="tick text-xs uppercase text-emerald-700 font-semibold">Candidate B</p>
+                <h2 class="font-serif text-2xl mt-1">Give the Whitelist one deep module</h2>
+              </div>
+              <div class="flex gap-2 shrink-0">
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">Strong</span>
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">local-substitutable</span>
+              </div>
+            </div>
+
+            <p class="mono text-sm text-slate-500">
+              entrypoints/content/actions.ts (whitelist fns) · entrypoints/popup/main.ts (its own copy) · entrypoints/content/modal.ts
+            </p>
+
+            <!-- BEFORE / AFTER : two writers on one key → one writer -->
+            <div class="grid md:grid-cols-2 gap-5">
+              <div class="rounded-xl border border-slate-200 p-4">
+                <p class="tick text-xs uppercase text-slate-400 mb-3">Before — two writers race one storage key</p>
+                <pre class="mermaid" data-processed="true"><svg id="mermaid-1781460855249" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 583.5859375px;" viewBox="0 0 583.5859375 292.818359375" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mermaid-1781460855249{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#000000;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mermaid-1781460855249 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mermaid-1781460855249 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mermaid-1781460855249 .error-icon{fill:#552222;}#mermaid-1781460855249 .error-text{fill:#552222;stroke:#552222;}#mermaid-1781460855249 .edge-thickness-normal{stroke-width:1px;}#mermaid-1781460855249 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1781460855249 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1781460855249 .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-1781460855249 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1781460855249 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1781460855249 .marker{fill:#666;stroke:#666;}#mermaid-1781460855249 .marker.cross{stroke:#666;}#mermaid-1781460855249 svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#mermaid-1781460855249 p{margin:0;}#mermaid-1781460855249 .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#000000;}#mermaid-1781460855249 .cluster-label text{fill:#333;}#mermaid-1781460855249 .cluster-label span{color:#333;}#mermaid-1781460855249 .cluster-label span p{background-color:transparent;}#mermaid-1781460855249 .label text,#mermaid-1781460855249 span{fill:#000000;color:#000000;}#mermaid-1781460855249 .node rect,#mermaid-1781460855249 .node circle,#mermaid-1781460855249 .node ellipse,#mermaid-1781460855249 .node polygon,#mermaid-1781460855249 .node path{fill:#eee;stroke:#999;stroke-width:1px;}#mermaid-1781460855249 .rough-node .label text,#mermaid-1781460855249 .node .label text,#mermaid-1781460855249 .image-shape .label,#mermaid-1781460855249 .icon-shape .label{text-anchor:middle;}#mermaid-1781460855249 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1781460855249 .rough-node .label,#mermaid-1781460855249 .node .label,#mermaid-1781460855249 .image-shape .label,#mermaid-1781460855249 .icon-shape .label{text-align:center;}#mermaid-1781460855249 .node.clickable{cursor:pointer;}#mermaid-1781460855249 .root .anchor path{fill:#666!important;stroke-width:0;stroke:#666;}#mermaid-1781460855249 .arrowheadPath{fill:#333333;}#mermaid-1781460855249 .edgePath .path{stroke:#666;stroke-width:1px;}#mermaid-1781460855249 .flowchart-link{stroke:#666;fill:none;}#mermaid-1781460855249 .edgeLabel{background-color:white;text-align:center;}#mermaid-1781460855249 .edgeLabel p{background-color:white;}#mermaid-1781460855249 .edgeLabel rect{opacity:0.5;background-color:white;fill:white;}#mermaid-1781460855249 .labelBkg{background-color:rgba(255, 255, 255, 0.5);}#mermaid-1781460855249 .cluster rect{fill:hsl(0, 0%, 98.9215686275%);stroke:#707070;stroke-width:1px;}#mermaid-1781460855249 .cluster text{fill:#333;}#mermaid-1781460855249 .cluster span{color:#333;}#mermaid-1781460855249 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(-160, 0%, 93.3333333333%);border:1px solid #707070;border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1781460855249 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#000000;}#mermaid-1781460855249 rect.text{fill:none;stroke-width:0;}#mermaid-1781460855249 .icon-shape,#mermaid-1781460855249 .image-shape{background-color:white;text-align:center;}#mermaid-1781460855249 .icon-shape p,#mermaid-1781460855249 .image-shape p{background-color:white;padding:2px;}#mermaid-1781460855249 .icon-shape .label rect,#mermaid-1781460855249 .image-shape .label rect{opacity:0.5;background-color:white;fill:white;}#mermaid-1781460855249 .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mermaid-1781460855249 .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mermaid-1781460855249 .node .neo-node{stroke:#999;}#mermaid-1781460855249 [data-look="neo"].node rect,#mermaid-1781460855249 [data-look="neo"].cluster rect,#mermaid-1781460855249 [data-look="neo"].node polygon{stroke:url(#mermaid-1781460855249-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855249 [data-look="neo"].node path{stroke:url(#mermaid-1781460855249-gradient);stroke-width:1px;}#mermaid-1781460855249 [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855249 [data-look="neo"].node .neo-line path{stroke:#999;filter:none;}#mermaid-1781460855249 [data-look="neo"].node circle{stroke:url(#mermaid-1781460855249-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855249 [data-look="neo"].node circle .state-start{fill:#000000;}#mermaid-1781460855249 [data-look="neo"].icon-shape .icon{fill:url(#mermaid-1781460855249-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855249 [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mermaid-1781460855249-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855249 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}#mermaid-1781460855249 .leak&gt;*{stroke:rgb(220, 38, 38)!important;stroke-width:2px!important;fill:rgb(255, 241, 242)!important;}#mermaid-1781460855249 .leak span{stroke:rgb(220, 38, 38)!important;stroke-width:2px!important;fill:rgb(255, 241, 242)!important;}</style><g><marker id="mermaid-1781460855249_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855249_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855249_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855249_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></polygon></marker><marker id="mermaid-1781460855249_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1781460855249_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1781460855249_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1781460855249_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1781460855249_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855249_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855249_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"></path></marker><marker id="mermaid-1781460855249_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path d="M136.793,98L136.793,106.167C136.793,114.333,136.793,130.667,151.351,147.075C165.908,163.483,195.023,179.966,209.581,188.208L224.138,196.449" id="mermaid-1781460855249-L_CS_KEY_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_CS_KEY_0" data-points="W3sieCI6MTM2Ljc5Mjk2ODc1LCJ5Ijo5OH0seyJ4IjoxMzYuNzkyOTY4NzUsInkiOjE0N30seyJ4IjoyMjcuNjE5MTQwNjI1LCJ5IjoxOTguNDE5ODM1Nzc0MzQyNDZ9XQ==" data-look="classic" marker-end="url(#mermaid-1781460855249_flowchart-v2-pointEnd)"></path><path d="M445.586,110L445.586,116.167C445.586,122.333,445.586,134.667,431.028,149.075C416.471,163.483,387.356,179.966,372.798,188.208L358.241,196.449" id="mermaid-1781460855249-L_PU_KEY_0" class=" edge-thickness-normal edge-pattern-dotted edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_PU_KEY_0" data-points="W3sieCI6NDQ1LjU4NTkzNzUsInkiOjExMH0seyJ4Ijo0NDUuNTg1OTM3NSwieSI6MTQ3fSx7IngiOjM1NC43NTk3NjU2MjUsInkiOjE5OC40MTk4MzU3NzQzNDI0Nn1d" data-look="classic" marker-end="url(#mermaid-1781460855249_flowchart-v2-pointEnd)"></path></g><g class="edgeLabels"><g class="edgeLabel" transform="translate(136.79296875, 147)"><g class="label" data-id="L_CS_KEY_0" transform="translate(-45.94140625, -12)"><foreignobject width="91.8828125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>queued RMW</p></span></div></foreignobject></g></g><g class="edgeLabel" transform="translate(445.5859375, 147)"><g class="label" data-id="L_PU_KEY_0" transform="translate(-60.140625, -12)"><foreignobject width="120.28125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>clobbers / dupes</p></span></div></foreignobject></g></g></g><g class="nodes"><g class="node default  " id="mermaid-1781460855249-flowchart-CS-0" data-look="classic" transform="translate(136.79296875, 59)"><rect class="basic label-container" style="" x="-128.79296875" y="-39" width="257.5859375" height="78"></rect><g class="label" style="" transform="translate(-98.79296875, -24)"><rect></rect><foreignobject width="197.5859375" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel "><p>content-script add/remove<br>serialized · case-insensitive</p></span></div></foreignobject></g></g><g class="node default leak " id="mermaid-1781460855249-flowchart-PU-1" data-look="classic" transform="translate(445.5859375, 59)"><rect class="basic label-container" style="stroke:#dc2626 !important;stroke-width:2px !important;fill:#fff1f2 !important" x="-130" y="-51" width="260" height="102"></rect><g class="label" style="" transform="translate(-100, -36)"><rect></rect><foreignobject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel "><p>popup add/remove<br>direct write · case-sensitive</p></span></div></foreignobject></g></g><g class="node default leak " id="mermaid-1781460855249-flowchart-KEY-2" data-look="classic" transform="translate(291.189453125, 234.40918731689453)"><path d="M0,12.606122575447728 a63.5703125,12.606122575447728 0,0,0 127.140625,0 a63.5703125,12.606122575447728 0,0,0 -127.140625,0 l0,75.60612257544773 a63.5703125,12.606122575447728 0,0,0 127.140625,0 l0,-75.60612257544773" class="basic label-container outer-path" style="stroke:#dc2626 !important;stroke-width:2px !important;fill:#fff1f2 !important" label-offset-y="12.606122575447728" transform="translate(-63.5703125, -50.40918386317159)"></path><g class="label" style="" transform="translate(-56.0703125, -14)"><rect></rect><foreignobject width="112.140625" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel "><p>chrome.storage<br>whitelist</p></span></div></foreignobject></g></g></g></g></g><defs><filter id="mermaid-1781460855249-drop-shadow" height="130%" width="130%"><fedropshadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></fedropshadow></filter></defs><defs><filter id="mermaid-1781460855249-drop-shadow-small" height="150%" width="150%"><fedropshadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></fedropshadow></filter></defs><lineargradient id="mermaid-1781460855249-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="hsl(0, 0%, 83.3333333333%)" stop-opacity="1"></stop><stop offset="100%" stop-color="hsl(0, 0%, 88.9215686275%)" stop-opacity="1"></stop></lineargradient></svg></pre>
+                <p class="text-xs text-rose-600 mt-2">The Whitelist isn't a module — it's smeared across two writers with divergent rules.</p>
+              </div>
+              <div class="rounded-xl border border-slate-200 p-4">
+                <p class="tick text-xs uppercase text-slate-400 mb-3">After — one module owns the key</p>
+                <pre class="mermaid" data-processed="true"><svg id="mermaid-1781460855464" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 485.6953125px;" viewBox="0 0 485.6953125 372.818359375" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mermaid-1781460855464{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#000000;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mermaid-1781460855464 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mermaid-1781460855464 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mermaid-1781460855464 .error-icon{fill:#552222;}#mermaid-1781460855464 .error-text{fill:#552222;stroke:#552222;}#mermaid-1781460855464 .edge-thickness-normal{stroke-width:1px;}#mermaid-1781460855464 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1781460855464 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1781460855464 .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-1781460855464 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1781460855464 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1781460855464 .marker{fill:#666;stroke:#666;}#mermaid-1781460855464 .marker.cross{stroke:#666;}#mermaid-1781460855464 svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#mermaid-1781460855464 p{margin:0;}#mermaid-1781460855464 .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#000000;}#mermaid-1781460855464 .cluster-label text{fill:#333;}#mermaid-1781460855464 .cluster-label span{color:#333;}#mermaid-1781460855464 .cluster-label span p{background-color:transparent;}#mermaid-1781460855464 .label text,#mermaid-1781460855464 span{fill:#000000;color:#000000;}#mermaid-1781460855464 .node rect,#mermaid-1781460855464 .node circle,#mermaid-1781460855464 .node ellipse,#mermaid-1781460855464 .node polygon,#mermaid-1781460855464 .node path{fill:#eee;stroke:#999;stroke-width:1px;}#mermaid-1781460855464 .rough-node .label text,#mermaid-1781460855464 .node .label text,#mermaid-1781460855464 .image-shape .label,#mermaid-1781460855464 .icon-shape .label{text-anchor:middle;}#mermaid-1781460855464 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1781460855464 .rough-node .label,#mermaid-1781460855464 .node .label,#mermaid-1781460855464 .image-shape .label,#mermaid-1781460855464 .icon-shape .label{text-align:center;}#mermaid-1781460855464 .node.clickable{cursor:pointer;}#mermaid-1781460855464 .root .anchor path{fill:#666!important;stroke-width:0;stroke:#666;}#mermaid-1781460855464 .arrowheadPath{fill:#333333;}#mermaid-1781460855464 .edgePath .path{stroke:#666;stroke-width:1px;}#mermaid-1781460855464 .flowchart-link{stroke:#666;fill:none;}#mermaid-1781460855464 .edgeLabel{background-color:white;text-align:center;}#mermaid-1781460855464 .edgeLabel p{background-color:white;}#mermaid-1781460855464 .edgeLabel rect{opacity:0.5;background-color:white;fill:white;}#mermaid-1781460855464 .labelBkg{background-color:rgba(255, 255, 255, 0.5);}#mermaid-1781460855464 .cluster rect{fill:hsl(0, 0%, 98.9215686275%);stroke:#707070;stroke-width:1px;}#mermaid-1781460855464 .cluster text{fill:#333;}#mermaid-1781460855464 .cluster span{color:#333;}#mermaid-1781460855464 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(-160, 0%, 93.3333333333%);border:1px solid #707070;border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1781460855464 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#000000;}#mermaid-1781460855464 rect.text{fill:none;stroke-width:0;}#mermaid-1781460855464 .icon-shape,#mermaid-1781460855464 .image-shape{background-color:white;text-align:center;}#mermaid-1781460855464 .icon-shape p,#mermaid-1781460855464 .image-shape p{background-color:white;padding:2px;}#mermaid-1781460855464 .icon-shape .label rect,#mermaid-1781460855464 .image-shape .label rect{opacity:0.5;background-color:white;fill:white;}#mermaid-1781460855464 .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mermaid-1781460855464 .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mermaid-1781460855464 .node .neo-node{stroke:#999;}#mermaid-1781460855464 [data-look="neo"].node rect,#mermaid-1781460855464 [data-look="neo"].cluster rect,#mermaid-1781460855464 [data-look="neo"].node polygon{stroke:url(#mermaid-1781460855464-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855464 [data-look="neo"].node path{stroke:url(#mermaid-1781460855464-gradient);stroke-width:1px;}#mermaid-1781460855464 [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855464 [data-look="neo"].node .neo-line path{stroke:#999;filter:none;}#mermaid-1781460855464 [data-look="neo"].node circle{stroke:url(#mermaid-1781460855464-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855464 [data-look="neo"].node circle .state-start{fill:#000000;}#mermaid-1781460855464 [data-look="neo"].icon-shape .icon{fill:url(#mermaid-1781460855464-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855464 [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mermaid-1781460855464-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-1781460855464 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}#mermaid-1781460855464 .deep&gt;*{fill:rgb(15, 23, 42)!important;color:rgb(255, 255, 255)!important;stroke:rgb(15, 23, 42)!important;}#mermaid-1781460855464 .deep span{fill:rgb(15, 23, 42)!important;color:rgb(255, 255, 255)!important;stroke:rgb(15, 23, 42)!important;}#mermaid-1781460855464 .deep tspan{fill:rgb(255, 255, 255)!important;}</style><g><marker id="mermaid-1781460855464_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855464_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855464_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855464_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></polygon></marker><marker id="mermaid-1781460855464_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1781460855464_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1781460855464_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1781460855464_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mermaid-1781460855464_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855464_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mermaid-1781460855464_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"></path></marker><marker id="mermaid-1781460855464_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path d="M88.859,62L88.859,66.167C88.859,70.333,88.859,78.667,98.271,86.744C107.682,94.822,126.505,102.643,135.917,106.554L145.328,110.465" id="mermaid-1781460855464-L_CS2_WL_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_CS2_WL_0" data-points="W3sieCI6ODguODU5Mzc1LCJ5Ijo2Mn0seyJ4Ijo4OC44NTkzNzUsInkiOjg3fSx7IngiOjE0OS4wMjIwNDk3NTMyODk0OCwieSI6MTEyfV0=" data-look="classic" marker-end="url(#mermaid-1781460855464_flowchart-v2-pointEnd)"></path><path d="M271.754,62L271.754,66.167C271.754,70.333,271.754,78.667,271.754,86.333C271.754,94,271.754,101,271.754,104.5L271.754,108" id="mermaid-1781460855464-L_PU2_WL_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_PU2_WL_0" data-points="W3sieCI6MjcxLjc1MzkwNjI1LCJ5Ijo2Mn0seyJ4IjoyNzEuNzUzOTA2MjUsInkiOjg3fSx7IngiOjI3MS43NTM5MDYyNSwieSI6MTEyfV0=" data-look="classic" marker-end="url(#mermaid-1781460855464_flowchart-v2-pointEnd)"></path><path d="M425.742,62L425.742,66.167C425.742,70.333,425.742,78.667,417.898,86.705C410.053,94.743,394.364,102.486,386.52,106.358L378.675,110.23" id="mermaid-1781460855464-L_MO2_WL_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_MO2_WL_0" data-points="W3sieCI6NDI1Ljc0MjE4NzUsInkiOjYyfSx7IngiOjQyNS43NDIxODc1LCJ5Ijo4N30seyJ4IjozNzUuMDg4MTQ3NjE1MTMxNTYsInkiOjExMn1d" data-look="classic" marker-end="url(#mermaid-1781460855464_flowchart-v2-pointEnd)"></path><path d="M271.754,214L271.754,218.167C271.754,222.333,271.754,230.667,271.754,238.333C271.754,246,271.754,253,271.754,256.5L271.754,260" id="mermaid-1781460855464-L_WL_KEY2_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_WL_KEY2_0" data-points="W3sieCI6MjcxLjc1MzkwNjI1LCJ5IjoyMTR9LHsieCI6MjcxLjc1MzkwNjI1LCJ5IjoyMzl9LHsieCI6MjcxLjc1MzkwNjI1LCJ5IjoyNjR9XQ==" data-look="classic" marker-end="url(#mermaid-1781460855464_flowchart-v2-pointEnd)"></path></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_CS2_WL_0" transform="translate(0, 0)"><foreignobject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "></span></div></foreignobject></g></g><g class="edgeLabel"><g class="label" data-id="L_PU2_WL_0" transform="translate(0, 0)"><foreignobject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "></span></div></foreignobject></g></g><g class="edgeLabel"><g class="label" data-id="L_MO2_WL_0" transform="translate(0, 0)"><foreignobject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "></span></div></foreignobject></g></g><g class="edgeLabel"><g class="label" data-id="L_WL_KEY2_0" transform="translate(0, 0)"><foreignobject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "></span></div></foreignobject></g></g></g><g class="nodes"><g class="node default  " id="mermaid-1781460855464-flowchart-CS2-0" data-look="classic" transform="translate(88.859375, 35)"><rect class="basic label-container" style="" x="-80.859375" y="-27" width="161.71875" height="54"></rect><g class="label" style="" transform="translate(-50.859375, -12)"><rect></rect><foreignobject width="101.71875" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel "><p>content-script</p></span></div></foreignobject></g></g><g class="node default  " id="mermaid-1781460855464-flowchart-PU2-1" data-look="classic" transform="translate(271.75390625, 35)"><rect class="basic label-container" style="" x="-52.03515625" y="-27" width="104.0703125" height="54"></rect><g class="label" style="" transform="translate(-22.03515625, -12)"><rect></rect><foreignobject width="44.0703125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel "><p>popup</p></span></div></foreignobject></g></g><g class="node default  " id="mermaid-1781460855464-flowchart-MO2-2" data-look="classic" transform="translate(425.7421875, 35)"><rect class="basic label-container" style="" x="-51.953125" y="-27" width="103.90625" height="54"></rect><g class="label" style="" transform="translate(-21.953125, -12)"><rect></rect><foreignobject width="43.90625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel "><p>modal</p></span></div></foreignobject></g></g><g class="node default deep " id="mermaid-1781460855464-flowchart-WL-3" data-look="classic" transform="translate(271.75390625, 163)"><rect class="basic label-container" style="fill:#0f172a !important;stroke:#0f172a !important" x="-130" y="-51" width="260" height="102"></rect><g class="label" style="color:#fff !important" transform="translate(-100, -36)"><rect></rect><foreignobject width="200" height="72"><div style="color: rgb(255, 255, 255) !important; display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#fff !important" class="nodeLabel "><p>whitelist module<br>normalize · case-insensitive · serialized</p></span></div></foreignobject></g></g><g class="node default  " id="mermaid-1781460855464-flowchart-KEY2-4" data-look="classic" transform="translate(271.75390625, 314.40918731689453)"><path d="M0,12.606122575447728 a63.5703125,12.606122575447728 0,0,0 127.140625,0 a63.5703125,12.606122575447728 0,0,0 -127.140625,0 l0,75.60612257544773 a63.5703125,12.606122575447728 0,0,0 127.140625,0 l0,-75.60612257544773" class="basic label-container outer-path" style="" label-offset-y="12.606122575447728" transform="translate(-63.5703125, -50.40918386317159)"></path><g class="label" style="" transform="translate(-56.0703125, -14)"><rect></rect><foreignobject width="112.140625" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel "><p>chrome.storage<br>whitelist</p></span></div></foreignobject></g></g></g></g></g><defs><filter id="mermaid-1781460855464-drop-shadow" height="130%" width="130%"><fedropshadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></fedropshadow></filter></defs><defs><filter id="mermaid-1781460855464-drop-shadow-small" height="150%" width="150%"><fedropshadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></fedropshadow></filter></defs><lineargradient id="mermaid-1781460855464-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="hsl(0, 0%, 83.3333333333%)" stop-opacity="1"></stop><stop offset="100%" stop-color="hsl(0, 0%, 88.9215686275%)" stop-opacity="1"></stop></lineargradient></svg></pre>
+                <p class="text-xs text-slate-500 mt-2">Three callers, one seam — add/remove/has/list.</p>
+              </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <div>
+                <p class="tick text-xs uppercase text-slate-400 mb-1">Problem</p>
+                <p class="text-slate-700">The popup re-implements the Whitelist: it dedupes with <span class="mono">includes()</span> (case-sensitive) and writes <span class="mono">chrome.storage</span> directly, bypassing the content script's serialized, case-insensitive mutation chain. Two writers, two rules, one key.</p>
+              </div>
+              <div>
+                <p class="tick text-xs uppercase text-slate-400 mb-1">Solution</p>
+                <p class="text-slate-700">One <span class="mono">whitelist.ts</span> deep module owning normalization, case-folded matching, and the serialized read-modify-write. Popup, content script and modal all call it; nobody touches the raw key.</p>
+              </div>
+            </div>
+
+            <div>
+              <p class="tick text-xs uppercase text-slate-400 mb-2">Wins</p>
+              <div class="grid sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm text-slate-700">
+                <p>• locality: one matching rule, one write path</p>
+                <p>• closes the popup ↔ content-script race</p>
+                <p>• kills case-variant duplicate handles</p>
+                <p>• leverage: tested at one interface, not two</p>
+              </div>
+            </div>
+
+            <details class="text-sm border-t border-slate-100 pt-3">
+              <summary class="text-slate-500 hover:text-slate-800 text-xs tick uppercase">Deletion test</summary>
+              <p class="mt-2 text-slate-600">There is nothing to delete — that's the symptom. "The Whitelist" has no single module, so changing how trusted handles are matched means editing <span class="mono">actions.ts</span> <em>and</em> <span class="mono">popup/main.ts</span> and hoping they still agree. Creating the module concentrates that complexity; today it's spread.</p>
+            </details>
+          </div>
+        </article>
+
+        <!-- ══════════════════════════ CANDIDATE C ══════════════════════════ -->
+        <article id="cand-c" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-7 space-y-6">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <p class="tick text-xs uppercase text-amber-700 font-semibold">Candidate C</p>
+                <h2 class="font-serif text-2xl mt-1">Split the <span class="mono text-xl">actions.ts</span> junk drawer; carve out the X Action API</h2>
+              </div>
+              <div class="flex gap-2 shrink-0">
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">in-process</span>
+              </div>
+            </div>
+
+            <p class="mono text-sm text-slate-500">
+              entrypoints/content/actions.ts (459 LOC, ~25 exports) · entrypoints/content/index.ts (test-hook re-exports)
+            </p>
+
+            <!-- BEFORE / AFTER : mass diagram, wide interface → narrow interfaces -->
+            <div class="grid md:grid-cols-2 gap-5">
+              <div class="rounded-xl border border-slate-200 p-4">
+                <p class="tick text-xs uppercase text-slate-400 mb-3">Before — interface nearly as wide as the file</p>
+                <!-- wide interface bar over one tall mixed implementation -->
+                <div class="space-y-1.5">
+                  <div class="h-7 rounded bg-rose-200 border border-rose-300 flex items-center justify-center text-[10px] font-semibold text-rose-800">interface · ~25 exports</div>
+                  <div class="rounded-lg border border-slate-300 divide-y divide-slate-200 overflow-hidden">
+                    <div class="px-3 py-2 text-[11px] bg-slate-50">X direct-action API — bearer, ct0, endpoints, host, id_str</div>
+                    <div class="px-3 py-2 text-[11px]">X-handle identity — normalize, extract, reserved paths</div>
+                    <div class="px-3 py-2 text-[11px] bg-slate-50">Whitelist storage — serialized RMW</div>
+                    <div class="px-3 py-2 text-[11px]">Settings — getMaxReplies, clamp 1–200</div>
+                    <div class="px-3 py-2 text-[11px] bg-slate-50">Reply-region + batch — Discover-more boundary, runReplyBatch</div>
+                  </div>
+                  <p class="text-xs text-rose-600 mt-1">Five concerns; <span class="mono">index.ts</span> re-exports a dozen as test hooks.</p>
+                </div>
+              </div>
+              <div class="rounded-xl border border-slate-200 p-4">
+                <p class="tick text-xs uppercase text-slate-400 mb-3">After — several deep modules, thin interfaces</p>
+                <div class="space-y-3">
+                  <div>
+                    <div class="h-4 w-20 rounded-t bg-emerald-300"></div>
+                    <div class="deep text-white rounded-b rounded-tr-lg px-3 py-2.5">
+                      <p class="text-[11px] font-semibold">X Action API · <span class="mono">blockUser / muteUser</span></p>
+                      <p class="text-[10px] text-slate-300">bearer · CSRF · endpoint table · host · id_str — hidden</p>
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div class="rounded-lg border border-slate-300 px-2.5 py-2 text-[10px] font-semibold">reply-batch engine<br><span class="font-normal text-slate-500">blockReplies / isReplyArticle</span></div>
+                    <div class="rounded-lg border border-slate-300 px-2.5 py-2 text-[10px] font-semibold">x-handle identity<br><span class="font-normal text-slate-500">normalize / extract</span></div>
+                    <div class="rounded-lg border border-slate-300 px-2.5 py-2 text-[10px] font-semibold">whitelist<br><span class="font-normal text-slate-500">→ Candidate B</span></div>
+                    <div class="rounded-lg border border-slate-300 px-2.5 py-2 text-[10px] font-semibold">settings<br><span class="font-normal text-slate-500">maxReplies</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <div>
+                <p class="tick text-xs uppercase text-slate-400 mb-1">Problem</p>
+                <p class="text-slate-700">One file holds the X API, handle parsing, whitelist storage, settings and the bulk-batch engine. Its interface is wide (~25 exports) because there's no single concept — so the content-script test seam (<span class="mono">__xblockerTestHooks</span>) has to re-export a dozen internals to reach behaviour.</p>
+              </div>
+              <div>
+                <p class="tick text-xs uppercase text-slate-400 mb-1">Solution</p>
+                <p class="text-slate-700">Carve the clearest deep module first: the <strong>X Action API</strong> — caller says <span class="mono">blockUser(handle)</span>, everything about X's internal endpoint sits behind it. Then peel off the batch engine, handle identity, and settings. <span class="mono">rail.ts</span> already imports its engine directly; the rest can follow.</p>
+              </div>
+            </div>
+
+            <div>
+              <p class="tick text-xs uppercase text-slate-400 mb-2">Wins</p>
+              <div class="grid sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm text-slate-700">
+                <p>• interface shrinks; implementations absorb the detail</p>
+                <p>• X-API knowledge stops leaking to call sites</p>
+                <p>• tests import modules, not a global hook bag</p>
+                <p>• <span class="mono">index.ts</span> hook surface collapses</p>
+              </div>
+            </div>
+
+            <div class="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
+              <span class="font-semibold">ADR-0001 compatible.</span> The inline Cursor Console depends on <span class="mono">blockTweet / muteTweet</span>. Carving the X Action API <em>relocates</em> that direct path without changing the technique — the ADR's decision stands.
+            </div>
+          </div>
+        </article>
+
+        <!-- ══════════════════════════ CANDIDATE D ══════════════════════════ -->
+        <article id="cand-d" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-7 space-y-6">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <p class="tick text-xs uppercase text-slate-500 font-semibold">Candidate D</p>
+                <h2 class="font-serif text-2xl mt-1">Lift cloud-sync out of the popup view</h2>
+              </div>
+              <div class="flex gap-2 shrink-0">
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">mock / test-seam</span>
+              </div>
+            </div>
+
+            <p class="mono text-sm text-slate-500">
+              entrypoints/popup/main.ts (875 LOC) · entrypoints/lib/convex-sync.ts · entrypoints/lib/blocked-store.ts
+            </p>
+
+            <!-- BEFORE / AFTER : cross-section -->
+            <div class="grid md:grid-cols-2 gap-5">
+              <div class="rounded-xl border border-slate-200 p-4">
+                <p class="tick text-xs uppercase text-slate-400 mb-3">Before — sync buried mid-stack in a view</p>
+                <div class="space-y-1 mono text-[10px]">
+                  <div class="border-l-4 border-slate-300 pl-2 py-1 bg-slate-50">~400 lines of CSS-in-JS</div>
+                  <div class="border-l-4 border-slate-300 pl-2 py-1">renderPopup / sections / view</div>
+                  <div class="border-l-4 border-slate-300 pl-2 py-1 bg-slate-50">whitelist + settings (duplicated)</div>
+                  <div class="border-l-4 border-rose-500 pl-2 py-2 bg-rose-50 text-rose-700 font-semibold not-italic">runCloudSync — push · markSynced · pull · mergeRemote</div>
+                  <div class="border-l-4 border-slate-300 pl-2 py-1">mountPopupIfPresent</div>
+                </div>
+                <p class="text-xs text-rose-600 mt-2">Module-private — the only way to test the sync contract is to render the popup and click a button.</p>
+              </div>
+              <div class="rounded-xl border border-slate-200 p-4">
+                <p class="tick text-xs uppercase text-slate-400 mb-3">After — sync behind its own seam</p>
+                <div class="space-y-3 pt-1">
+                  <div class="border-l-4 border-slate-300 pl-2 py-2 text-[11px]">popup view — renders, calls <span class="mono">sync()</span></div>
+                  <svg width="40" height="22"><line x1="20" y1="0" x2="20" y2="16" class="seam" stroke="#64748b" stroke-width="2"></line><path d="M14 10 L20 18 L26 10" fill="none" stroke="#64748b" stroke-width="2"></path></svg>
+                  <div class="deep text-white rounded-lg px-3 py-3">
+                    <p class="text-[11px] font-semibold">Cloud Backup sync</p>
+                    <p class="text-[10px] text-slate-300">push outbox → markSynced → pull → mergeRemote</p>
+                  </div>
+                  <p class="text-[11px] text-slate-500">Store + convex-sync are injectable — the contract is the test surface.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <div>
+                <p class="tick text-xs uppercase text-slate-400 mb-1">Problem</p>
+                <p class="text-slate-700">The popup's one piece of real orchestration — drain outbox, mark synced, pull, merge — is a private function inside an 875-line view. To test "sync drains then merges" you must render the whole popup and drive the DOM.</p>
+              </div>
+              <div>
+                <p class="tick text-xs uppercase text-slate-400 mb-1">Solution</p>
+                <p class="text-slate-700">Move <span class="mono">runCloudSync</span> into a <span class="mono">cloud-backup.ts</span> module taking the store and convex-sync as its interface. The popup becomes a thin caller; the four-step contract is exercised directly.</p>
+              </div>
+            </div>
+
+            <div>
+              <p class="tick text-xs uppercase text-slate-400 mb-2">Wins</p>
+              <div class="grid sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm text-slate-700">
+                <p>• sync contract becomes the test surface</p>
+                <p>• locality: push/pull/merge order in one place</p>
+                <p>• popup view shrinks toward pure rendering</p>
+                <p>• store + convex are mockable at the seam</p>
+              </div>
+            </div>
+
+            <details class="text-sm border-t border-slate-100 pt-3">
+              <summary class="text-slate-500 hover:text-slate-800 text-xs tick uppercase">Honest caveat</summary>
+              <p class="mt-2 text-slate-600">One real caller today (the popup), so this is a hypothetical seam justified mainly by <em>"the interface is the test surface."</em> The second adapter is the test. Weaker than A–C on the two-adapters rule, hence <span class="font-semibold">Worth exploring</span>, not Strong.</p>
+            </details>
+          </div>
+        </article>
+
+      </section>
+
+      <!-- ─────────────────────── TOP RECOMMENDATION ─────────────────────── -->
+      <section id="top-recommendation">
+        <div class="deep text-white rounded-2xl p-8 shadow-lg">
+          <p class="tick text-xs uppercase text-emerald-300 font-semibold">Tackle first</p>
+          <h2 class="font-serif text-3xl mt-2">A · One rollup algebra for the blocked-account invariant</h2>
+          <p class="text-slate-300 mt-4 max-w-3xl leading-relaxed">
+            It's the only candidate where the load-bearing invariant — never duplicate a person, roll the counts up, learn the
+            id late — is already provably duplicated across three runtimes, with the code comments admitting the mirror. Highest
+            <strong class="text-white">locality</strong> payoff, clearest <strong class="text-white">leverage</strong> (one fold, three call sites),
+            and the cleanest loop: characterise today's behaviour at the fold interface, deepen behind it, delete the copies — suite green throughout.
+          </p>
+          <a href="file:///private/var/folders/v7/h_d2vp7139bc8tp5k91nk1q40000gn/T/architecture-review-20260615-021214.html#cand-a" class="inline-block mt-5 text-sm font-semibold text-emerald-300 hover:text-emerald-200">Jump to Candidate A ↑</a>
+        </div>
+        <p class="text-center text-xs text-slate-400 mt-6">
+          B (Whitelist) is the natural follow-up — smallest blast radius, fixes a live race. C and D pay off later as the surfaces grow.
+        </p>
+      </section>
+
+    </main>
+  
+
+<div class="mermaidTooltip" style="opacity: 0; position: absolute; text-align: center; max-width: 200px; padding: 2px; font-size: 12px; background: rgb(255, 255, 222); border: 1px solid rgb(51, 51, 51); border-radius: 2px; pointer-events: none; z-index: 100;"></div></body></html>
