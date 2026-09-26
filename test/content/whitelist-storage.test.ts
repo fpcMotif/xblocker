@@ -75,7 +75,13 @@ describe("addToWhitelist", () => {
   test('WL-08 appends a new username, persists it, and resolves "added"', async () => {
     expect(await addToWhitelist("frank")).toBe("added");
     expect(storageFake.data["whitelist"]).toEqual(["frank"]);
-    expect(storageFake.setCalls).toEqual([{ whitelist: ["frank"] }]);
+    // The list and its queued cloud-sync event land in ONE storage.set, so the
+    // content script only ever writes — the background worker drains the outbox.
+    expect(storageFake.setCalls).toHaveLength(1);
+    expect(storageFake.setCalls[0]!["whitelist"]).toEqual(["frank"]);
+    expect(storageFake.setCalls[0]!["whitelistOutbox"]).toEqual([
+      { handle: "frank", status: "active", at: expect.any(Number), actionId: expect.any(String) },
+    ]);
   });
 
   test('WL-09 resolves "exists" without rewriting an already-whitelisted username', async () => {
@@ -102,7 +108,8 @@ describe("addToWhitelist", () => {
 
     expect(await addToWhitelist("not a handle")).toBe("invalid");
     expect(storageFake.data["whitelist"]).toEqual(["frank"]);
-    expect(storageFake.getCalls).toHaveLength(1);
+    // The valid add reads the list AND the outbox; the invalid one reads nothing.
+    expect(storageFake.getCalls).toHaveLength(2);
     expect(storageFake.setCalls).toHaveLength(1);
   });
 
@@ -125,9 +132,9 @@ describe("addToWhitelist", () => {
 
     expect(await first).toBe("added");
     expect(await second).toBe("added");
-    expect(storageFake.setCalls).toEqual([
-      { whitelist: ["first"] },
-      { whitelist: ["first", "second"] },
+    expect(storageFake.setCalls.map((call) => call["whitelist"])).toEqual([
+      ["first"],
+      ["first", "second"],
     ]);
     expect(storageFake.data["whitelist"]).toEqual(["first", "second"]);
   });
@@ -142,7 +149,12 @@ describe("removeFromWhitelist", () => {
     storageFake.data["whitelist"] = ["alice", "bob"];
     await removeFromWhitelist("alice");
     expect(storageFake.data["whitelist"]).toEqual(["bob"]);
-    expect(storageFake.setCalls).toEqual([{ whitelist: ["bob"] }]);
+    // The removal is queued as a status flip in the same write (ADR-0002 precedent).
+    expect(storageFake.setCalls).toHaveLength(1);
+    expect(storageFake.setCalls[0]!["whitelist"]).toEqual(["bob"]);
+    expect(storageFake.setCalls[0]!["whitelistOutbox"]).toEqual([
+      { handle: "alice", status: "removed", at: expect.any(Number), actionId: expect.any(String) },
+    ]);
   });
 
   test("WL-14 removes every duplicate occurrence at once", async () => {

@@ -1,17 +1,17 @@
 import { blockedStore } from "../storage/blocked-store";
 import { CLOUD_BACKUP_KEY, storageSet } from "../storage/chrome-storage";
 import {
-  type CloudAdapter,
+  type AnyCloudAdapter,
   formatSyncAge,
-  getSyncMeta,
-  runAutoCloudSync,
-  runCloudSync,
+  readCombinedSyncMeta,
+  runAutoCloudSyncAll,
+  runCloudSyncAll,
   SYNC_META_KEY,
   type SyncMeta,
   type SyncOutcome,
 } from "./sync-engine";
 
-export type LoadCloudAdapter = () => Promise<CloudAdapter>;
+export type LoadCloudAdapter = () => Promise<AnyCloudAdapter>;
 export type ProbeConfiguredPort = () => Promise<boolean>;
 export type ClearCloudPort = () => Promise<void>;
 
@@ -53,13 +53,11 @@ export type CloudSyncSession = {
 };
 
 // Dynamic imports on purpose (ADR-0003): convex-sync pulls in the Convex client bundle,
-// and an unconfigured build must never pay for it — the session reaches the transport
-// lazily, the same discipline sync-engine's loadConvexAdapter uses for push/pull. The
-// probe goes further: cloud-config imports no Convex code at all, so the mount-time
-// configured check costs no chunk fetch either.
-const loadDefaultAdapter: LoadCloudAdapter = async () =>
-  (await import("./lib/convex-sync")).convexAdapter;
-
+// and an unconfigured build must never pay for it. The sync transports themselves load
+// lazily through each collection's default `loadAdapter` in sync-engine; what remains
+// here is the same discipline for the two session-only ports. The probe goes further:
+// cloud-config imports no Convex code at all, so the mount-time configured check costs
+// no chunk fetch either.
 const probeDefaultConfiguration: ProbeConfiguredPort = async () =>
   (await import("./lib/cloud-config")).isCloudConfigured();
 
@@ -86,7 +84,7 @@ export function mapSyncOutcomeToState(
 }
 
 export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSession {
-  const loadAdapter = deps.loadAdapter ?? loadDefaultAdapter;
+  const loadAdapter = deps.loadAdapter;
   const probeConfigured = deps.probeConfigured ?? probeDefaultConfiguration;
   const clearCloud = deps.clearCloud ?? clearDefaultCloud;
   const now = deps.now ?? Date.now;
@@ -96,7 +94,7 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
   async function mapOutcome(
     outcome: SyncOutcome | { status: "skipped" },
   ): Promise<{ state: CloudSyncLogicalState; detail: string }> {
-    const meta = outcome.status === "skipped" ? await getSyncMeta() : {};
+    const meta = outcome.status === "skipped" ? await readCombinedSyncMeta() : {};
     return mapSyncOutcomeToState(outcome, meta, now());
   }
 
@@ -107,7 +105,12 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
       if (owner) return null;
       owner = "manual";
       try {
-        const outcome = await runCloudSync(now, loadAdapter);
+        // One "Sync now" drives every synced collection (blocklist + whitelist) —
+        // an injected adapter is served to all of them.
+        const outcome = await runCloudSyncAll(
+          now,
+          loadAdapter ? async () => loadAdapter() : undefined,
+        );
         return { outcome, ...(await mapOutcome(outcome)) };
       } finally {
         if (owner === "manual") owner = undefined;
@@ -117,13 +120,20 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
     async runAutoOnOpen(backupEnabled, hooks) {
       if (owner) return { state: "syncing", detail: "" };
       let started = false;
+      // The engine loads one adapter PER COLLECTION, so ownership is claimed on the
+      // first load only; a second load inside the same run is our own, not a
+      // superseding manual sync.
+      let claimed = false;
       try {
-        const outcome = await runAutoCloudSync(backupEnabled, now, async () => {
-          if (owner) throw autoSuperseded;
-          started = true;
-          owner = "auto";
-          hooks?.onSyncStart?.();
-          return loadAdapter();
+        const outcome = await runAutoCloudSyncAll(backupEnabled, now, async (collection) => {
+          if (!claimed) {
+            if (owner) throw autoSuperseded;
+            claimed = true;
+            started = true;
+            owner = "auto";
+            hooks?.onSyncStart?.();
+          }
+          return loadAdapter ? loadAdapter() : collection.loadAdapter();
         });
         return { outcome, ...(await mapOutcome(outcome)) };
       } catch (error) {

@@ -7,24 +7,25 @@
 
 import { defineBackground } from "wxt/utils/define-background";
 
-import { OUTBOX_STORAGE_KEY } from "../packages/storage/blocked-store";
 import {
   createBackgroundSyncScheduler,
+  isSyncedOutboxKey,
   readCloudBackupEnabled,
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
 } from "../packages/sync/background-sync";
 import { isOpenOptionsMessage } from "./lib/messaging";
-import { runAutoCloudSync } from "../packages/sync/sync-engine";
+import { runAutoCloudSyncAll } from "../packages/sync/sync-engine";
 
 export function startBackgroundSync(): void {
   const scheduler = createBackgroundSyncScheduler({
     isEnabled: readCloudBackupEnabled,
-    sync: () => runAutoCloudSync(true),
+    // One debounce/alarm drives every synced collection (blocklist + whitelist).
+    sync: () => runAutoCloudSyncAll(true),
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "local" || !(OUTBOX_STORAGE_KEY in changes)) return;
+    if (areaName !== "local" || !Object.keys(changes).some(isSyncedOutboxKey)) return;
     scheduler.onOutboxChanged();
   });
 

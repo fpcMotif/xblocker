@@ -23,6 +23,12 @@ _Avoid_: Tooltip, context menu, popup
 The set of trusted X.com usernames that XBlocker should not block or mute.
 _Avoid_: Allowlist, safe list
 
+**Cloud backup**:
+The opt-in mirror of the blocked list and the whitelist to the user's own private Convex project, under one switch, so both lists follow the user across devices.
+
+**Synced collection**:
+A list that Cloud backup mirrors. There are two: the blocked list and the whitelist (see docs/adr/0005-generic-synced-collections.md).
+
 ## Design source of truth
 
 Stitch project **XBlocker Chrome UI Polish** (`projects/376932020779293096`), design system **Calm Control**: Inter, primary #0A8FE3, OKLCH tokens (see `entrypoints/content/styles.ts`), dual light/dark, compact density, tonal layers over heavy shadows.

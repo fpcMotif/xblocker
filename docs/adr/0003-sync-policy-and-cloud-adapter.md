@@ -29,7 +29,8 @@ produced the alternatives below.
 enablement, and adapter selection. Deepest interface, but it deletes the MV3 due-at
 persistence freshly added to `background-sync.ts` and rewrites the popup cloud section
 during an active popup redesign — maximal collision with in-flight work for a payoff the
-smaller design also reaches. Revisit if the sync surface grows again.
+smaller design also reaches. ADR-0005 revisited this when the whitelist became a second
+synced collection, and rejected it again.
 
 ### B. Minimal churn: optional `loadAdapter` param + `isSyncDue`/`syncIfDue` — PARTIALLY ADOPTED
 
@@ -57,7 +58,9 @@ Adopt C's core, scoped by B's collision discipline:
 - `convex-sync.ts` exports `convexAdapter satisfies CloudAdapter`.
 - The wire-format mapping moves verbatim to a new pure `lib/cloud-wire.ts`
   (no chrome.*, no Convex SDK); `convex-sync.ts` imports it; `blocked-store.ts` drops it.
-- `background.ts` re-points its scheduler dep: `sync: () => runAutoCloudSync(true)`.
+- `background.ts` re-points its scheduler dep at the gate. Today that is
+  `sync: () => runAutoCloudSyncAll(true)`, the same gate applied per synced collection
+  (ADR-0005).
   This is the whole policy unification — the background's debounce/alarm/eviction
   machinery in `background-sync.ts` is untouched (it recently gained persisted
   `syncDueAt` catch-up and is owned by in-flight work).
@@ -87,13 +90,14 @@ and a fresh `lastSyncAt` now skips instead of running a full push+pull+merge. Ma
 The two consciously-deferred pieces above are done (architecture-deepening pass, Track B):
 
 - Both the popup and the settings cloud pane now take the transport as a
-  `loadAdapter: () => Promise<CloudAdapter>` port (default `loadConvexAdapter`, now
-  **exported** from `sync-engine.ts`). `mock.module` is gone from
+  `loadAdapter` port. The default is each synced collection's own lazy loader
+  (ADR-0005). `mock.module` is gone from
   `test/popup/cloud-backup.test.ts` and `test/options/cloud.test.ts`; both inject plain
   object fakes, exactly like the engine tests — the "popup test seam is deferred" debt is
   retired. The popup's open-time auto-sync flows through `runAutoCloudSync` (the single
   gate) rather than a hand-rolled `shouldAutoSync` copy.
-- `CloudAdapter` gained `clear()`; `convexAdapter` wires it to `clearCloud`, and the
+- `CloudAdapter` gained an optional `clear()`, present only on the blocked list's
+  adapter; `convexAdapter` wires it to `clearCloud`, and the
   pane's wipe now calls `adapter.clear()` through the port instead of lazy-importing
   convex-sync directly. `clearCloud` is now module-private (reached only via the port),
   not the unwired export it used to be.

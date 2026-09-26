@@ -55,10 +55,24 @@ async function waitUntil(check: () => boolean): Promise<void> {
 }
 
 async function flushStorageMicrotasks(): Promise<void> {
-  for (let round = 0; round < 20; round += 1) {
+  for (let round = 0; round < 40; round += 1) {
     storageFake.flush();
     await Promise.resolve();
   }
+}
+
+/** A pull override that defers only the FIRST collection's pull — the second
+ *  collection's pull resolves immediately, so a test controlling "the sync is stuck
+ *  mid-pull" doesn't wedge on the whitelist's follow-up pull. */
+function deferredFirstPull(resolve: { current?: (rows: RemoteAccount[]) => void }) {
+  let pullCalls = 0;
+  return (): Promise<RemoteAccount[]> => {
+    pullCalls += 1;
+    if (pullCalls > 1) return Promise.resolve([]);
+    return new Promise((res) => {
+      resolve.current = res;
+    });
+  };
 }
 
 beforeEach(() => {
@@ -107,9 +121,11 @@ describe("runManual", () => {
       state: "idle",
       detail: "Synced just now.",
     });
-    expect(calls).toEqual({ isConfigured: 1, push: 1, pull: 1 });
+    // One manual sync drives BOTH collections through the injected adapter.
+    expect(calls).toEqual({ isConfigured: 2, push: 1, pull: 2 });
     expect(storageFake.data["blockedOutbox"]).toEqual([]);
     expect(storageFake.data[SYNC_META_KEY]).toEqual({ lastSyncAt: 12345 });
+    expect(storageFake.data["whitelistSyncMeta"]).toEqual({ lastSyncAt: 12345 });
   });
 
   test("CS-04 reports an unconfigured adapter without touching meta", async () => {
@@ -140,13 +156,8 @@ describe("runManual", () => {
   });
 
   test("CS-06 ignores a second manual sync while the first is pending", async () => {
-    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
-    const { adapter, calls } = makeAdapter({
-      pull: () =>
-        new Promise((resolve) => {
-          resolvePull = resolve;
-        }),
-    });
+    const release: { current?: (rows: RemoteAccount[]) => void } = {};
+    const { adapter, calls } = makeAdapter({ pull: deferredFirstPull(release) });
     const session = createCloudSyncSession({
       loadAdapter: async () => adapter,
       now: () => 7,
@@ -156,8 +167,8 @@ describe("runManual", () => {
     expect(session.isInFlight()).toBe(true);
     expect(await session.runManual()).toBeNull();
 
-    await waitUntil(() => resolvePull !== undefined);
-    resolvePull?.([]);
+    await waitUntil(() => release.current !== undefined);
+    release.current?.([]);
     expect((await first)?.outcome).toEqual({
       status: "synced",
       pushed: 0,
@@ -165,13 +176,14 @@ describe("runManual", () => {
       at: 7,
     });
     expect(session.isInFlight()).toBe(false);
-    expect(calls.pull).toBe(1);
+    expect(calls.pull).toBe(2); // one pull per synced collection
   });
 });
 
 describe("runAutoOnOpen", () => {
   test("CS-07 fresh meta and no pending work skip before loading the adapter", async () => {
     storageFake.data[SYNC_META_KEY] = { lastSyncAt: 1000 };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: 1000 };
     const session = createCloudSyncSession({
       loadAdapter: forbiddenLoader,
       now: () => 1000,
@@ -186,6 +198,7 @@ describe("runAutoOnOpen", () => {
 
   test("CS-08 the configured probe stays separate from the auto gate", async () => {
     storageFake.data[SYNC_META_KEY] = { lastSyncAt: 1000 };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: 1000 };
     let probeCalls = 0;
     const session = createCloudSyncSession({
       loadAdapter: forbiddenLoader,
@@ -226,14 +239,15 @@ describe("runAutoOnOpen", () => {
       state: "idle",
       detail: "Synced just now.",
     });
-    expect(loadCalls).toBe(1);
-    expect(startCalls).toBe(1);
+    expect(loadCalls).toBe(2); // one adapter load per synced collection
+    expect(startCalls).toBe(1); // but the busy hook fires once for the whole run
     expect(calls.push).toBe(1);
-    expect(calls.pull).toBe(1);
+    expect(calls.pull).toBe(2);
   });
 
   test("CS-10 stale meta proceeds without a push", async () => {
     storageFake.data[SYNC_META_KEY] = { lastSyncAt: 1000 };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: 1000 };
     const { adapter, calls } = makeAdapter();
     const staleNow = 1000 + SYNC_STALE_MS + 1;
     const session = createCloudSyncSession({
@@ -250,7 +264,7 @@ describe("runAutoOnOpen", () => {
       at: staleNow,
     });
     expect(calls.push).toBe(0);
-    expect(calls.pull).toBe(1);
+    expect(calls.pull).toBe(2);
   });
 
   test("CS-11 disabled backup skips without loading the adapter", async () => {
@@ -282,13 +296,8 @@ describe("runAutoOnOpen", () => {
 
   test("CS-13 a manual sync already in flight blocks the auto pass", async () => {
     storageFake.data["blockedOutbox"] = [pendingItem("a1")];
-    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
-    const { adapter, calls } = makeAdapter({
-      pull: () =>
-        new Promise((resolve) => {
-          resolvePull = resolve;
-        }),
-    });
+    const release: { current?: (rows: RemoteAccount[]) => void } = {};
+    const { adapter, calls } = makeAdapter({ pull: deferredFirstPull(release) });
     let loadCalls = 0;
     const session = createCloudSyncSession({
       loadAdapter: async () => {
@@ -306,10 +315,10 @@ describe("runAutoOnOpen", () => {
     });
     expect(loadCalls).toBe(1);
 
-    await waitUntil(() => resolvePull !== undefined);
-    resolvePull?.([]);
+    await waitUntil(() => release.current !== undefined);
+    release.current?.([]);
     await manual;
-    expect(calls.pull).toBe(1);
+    expect(calls.pull).toBe(2); // the manual run pulled both collections
   });
 
   test("CS-14 a manual sync started during auto preflight supersedes the auto pass", async () => {
@@ -345,7 +354,7 @@ describe("runAutoOnOpen", () => {
 
     expect(autoResult).toEqual({ state: "syncing", detail: "" });
     expect(loadCallsBeforeRelease).toBe(1);
-    expect(calls.pull).toBe(1);
+    expect(calls.pull).toBe(2); // the surviving manual run pulled both collections
     expect(session.isInFlight()).toBe(false);
   });
 });
@@ -354,7 +363,13 @@ describe("wipeCloud", () => {
   test("CS-15 clears cloud, drains outbox, clears meta, and turns backup off", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data[SYNC_META_KEY] = { lastSyncAt: 12345 };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: 12345 };
     storageFake.data["blockedOutbox"] = [pendingItem("a1"), pendingItem("a2")];
+    // The wipe is blocklist-only by spec: queued whitelist changes and the whitelist's
+    // sync meta must survive it.
+    storageFake.data["whitelistOutbox"] = [
+      { handle: "alice", status: "active", at: 1, actionId: "w1" },
+    ];
     storageFake.data["blockedAccounts"] = {
       "1": { key: "1", handle: "spammer", status: "active" },
     };
@@ -373,6 +388,8 @@ describe("wipeCloud", () => {
     expect(storageFake.data["blockedAccounts"]).toMatchObject({
       "1": { handle: "spammer" },
     });
+    expect(storageFake.data["whitelistOutbox"]).toHaveLength(1);
+    expect(storageFake.data["whitelistSyncMeta"]).toEqual({ lastSyncAt: 12345 });
   });
 
   test("CS-16 a clear failure stops before local side effects", async () => {
@@ -392,13 +409,8 @@ describe("wipeCloud", () => {
   });
 
   test("CS-18 refuses while a sync is in flight, then the retry goes through", async () => {
-    let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
-    const { adapter } = makeAdapter({
-      pull: () =>
-        new Promise((resolve) => {
-          resolvePull = resolve;
-        }),
-    });
+    const release: { current?: (rows: RemoteAccount[]) => void } = {};
+    const { adapter } = makeAdapter({ pull: deferredFirstPull(release) });
     let clearCalls = 0;
     const session = createCloudSyncSession({
       loadAdapter: async () => adapter,
@@ -414,8 +426,8 @@ describe("wipeCloud", () => {
     expect(clearCalls).toBe(0);
     expect(storageFake.data["cloudBackup"]).toBeUndefined();
 
-    await waitUntil(() => resolvePull !== undefined);
-    resolvePull?.([]);
+    await waitUntil(() => release.current !== undefined);
+    release.current?.([]);
     await sync;
     expect(await session.wipeCloud()).toEqual({ pendingCount: 0 });
     expect(clearCalls).toBe(1);

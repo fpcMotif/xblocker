@@ -38,4 +38,19 @@ export default defineSchema({
   })
     .index("by_owner_xid", ["owner", "xUserId"])
     .index("by_owner_client", ["owner", "clientActionId"]),
+
+  // Cloud mirror of the local whitelist. ONE row per (owner, handle), handle
+  // lowercased (X handles are case-insensitive). NO hard deletes: a removal flips
+  // `status` to "removed" and bumps `updatedAt` — the blockedAccounts status-flip
+  // precedent (ADR-0002) — so a removal made on one device propagates to the others
+  // on pull instead of looking like "never whitelisted".
+  whitelistEntries: defineTable({
+    owner: v.string(), // always the fixed literal "local" — single-owner backup, no auth
+    handle: v.string(), // lowercased X @screen_name (no leading @)
+    status: v.union(v.literal("active"), v.literal("removed")),
+    updatedAt: v.number(), // last-write-wins clock
+    lastClientActionId: v.optional(v.string()), // idempotency key from the client outbox
+  })
+    .index("by_owner_handle", ["owner", "handle"])
+    .index("by_owner", ["owner"]),
 });

@@ -20,7 +20,9 @@ import {
   outboxToRecordBatches,
   type RecordActionArgs,
 } from "../cloud-wire";
+import { whitelistOutboxToBatches, type WhitelistUpsertArgs } from "../whitelist-wire";
 import type { OutboxItem, RemoteAccount } from "../../storage/blocked-store";
+import type { RemoteWhitelistEntry, WhitelistOutboxItem } from "../../storage/whitelist-store";
 import { isCloudConfigured, readConvexUrl } from "./cloud-config";
 import type { CloudAdapter } from "../sync-engine";
 
@@ -47,6 +49,16 @@ const listBlockedRef = makeFunctionReference<"query", Record<string, never>, Rem
 const clearOwnerRef = makeFunctionReference<"mutation", Record<string, never>, null>(
   "blocked:clearOwner",
 );
+const upsertWhitelistEntriesRef = makeFunctionReference<
+  "mutation",
+  { entries: WhitelistUpsertArgs[] },
+  null
+>("whitelist:upsertWhitelistEntries");
+const listWhitelistRef = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  RemoteWhitelistEntry[]
+>("whitelist:listWhitelist");
 
 let httpClient: { url: string; client: ConvexHttpClient } | undefined;
 function client(): ConvexHttpClient {
@@ -119,11 +131,40 @@ export async function clearCloud(): Promise<void> {
   await client().mutation(clearOwnerRef, {});
 }
 
-/** This adapter, wired to `sync-engine.ts`'s `CloudAdapter` seam: `runCloudSync` and
- *  `runAutoCloudSync` lazily import this module and use `convexAdapter` by default. */
+/** This adapter, wired to `sync-engine.ts`'s `CloudAdapter` seam: the blocked
+ *  collection's default `loadAdapter` lazily imports this module and uses
+ *  `convexAdapter`. */
 export const convexAdapter = {
   isConfigured: isCloudConfigured,
   push: pushOutbox,
   pull: pullBlocked,
   clear: clearCloud,
 } satisfies CloudAdapter;
+
+/** Push queued whitelist changes to Convex; returns the action ids that were accepted.
+ *  Batches of PUSH_BATCH_SIZE go through one `upsertWhitelistEntries` round-trip each,
+ *  so a large import never pays a per-handle write. The whitelist table is new with
+ *  its batched mutation, so there is no legacy per-item fallback to mirror here. The
+ *  WhitelistOutboxItem -> args mapping lives in whitelist-wire (`whitelistOutboxToBatches`)
+ *  so it is unit-tested; this is the thin live-Convex I/O wrapper around it. */
+export async function pushWhitelistOutbox(items: WhitelistOutboxItem[]): Promise<string[]> {
+  const synced: string[] = [];
+  for (const batch of whitelistOutboxToBatches(items, PUSH_BATCH_SIZE)) {
+    await client().mutation(upsertWhitelistEntriesRef, { entries: batch.args });
+    synced.push(...batch.actionIds);
+  }
+  return synced;
+}
+
+/** Pull all whitelist entries (both statuses) from Convex. */
+export async function pullWhitelist(): Promise<RemoteWhitelistEntry[]> {
+  return client().query(listWhitelistRef, {});
+}
+
+/** The whitelist collection's adapter. No `clear`: "Wipe cloud data" stays
+ *  blocklist-only by spec, so the whitelist transport has nothing to wipe. */
+export const whitelistConvexAdapter = {
+  isConfigured: isCloudConfigured,
+  push: pushWhitelistOutbox,
+  pull: pullWhitelist,
+} satisfies CloudAdapter<WhitelistOutboxItem, RemoteWhitelistEntry>;

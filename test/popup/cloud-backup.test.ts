@@ -112,7 +112,7 @@ describe("popup cloud sync row", () => {
     await flush();
 
     expect(calls.push).toBe(1);
-    expect(calls.pull).toBe(1);
+    expect(calls.pull).toBe(2); // one pull per synced collection
     expect(storageFake.data["blockedOutbox"]).toEqual([]);
     expect(telltaleState()).toBe("idle");
     expect(syncTitle()).toBe("Backup on");
@@ -149,6 +149,7 @@ describe("popup cloud sync row", () => {
   test("PU-CB-03 backup on with a fresh sync and nothing queued rests idle without syncing", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: Date.now() };
 
     await renderPopup(document.body, cloudOptions());
     await flush();
@@ -165,6 +166,7 @@ describe("popup cloud sync row", () => {
   test("PU-CB-04 clicking 'Sync now' pushes and pulls, then reports the fresh sync", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: Date.now() };
     await renderPopup(document.body, cloudOptions());
     await flush();
 
@@ -172,7 +174,7 @@ describe("popup cloud sync row", () => {
     await flush();
 
     expect(calls.push).toBe(0); // nothing queued -> no push round-trip
-    expect(calls.pull).toBe(1);
+    expect(calls.pull).toBe(2); // one pull per synced collection
     expect(telltaleState()).toBe("idle");
     expect(syncDetail()).toBe("Synced just now.");
   });
@@ -231,26 +233,31 @@ describe("popup cloud sync row", () => {
   test("PU-CB-08 a stale last sync auto-pulls even with nothing queued", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() - 16 * 60_000 };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: Date.now() - 16 * 60_000 };
 
     await renderPopup(document.body, cloudOptions());
     await flush();
 
     expect(calls.push).toBe(0); // nothing queued -> no push round-trip
-    expect(calls.pull).toBe(1);
+    expect(calls.pull).toBe(2); // one pull per synced collection
     expect(telltaleState()).toBe("idle");
   });
 
   test("PU-CB-09 the telltale dot carries a live 'syncing' state mid-flight, then resolves", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: Date.now() };
     await renderPopup(document.body, cloudOptions());
     await flush();
 
+    // Hold only the first (blocked list) pull; the whitelist pull that follows resolves.
     let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
     pullBlockedImpl = () =>
-      new Promise((resolve) => {
-        resolvePull = resolve;
-      });
+      resolvePull
+        ? Promise.resolve([])
+        : new Promise((resolve) => {
+            resolvePull = resolve;
+          });
 
     syncButton()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
@@ -298,12 +305,16 @@ describe("popup cloud sync row", () => {
     // NOT to sync and takes its "idle" refresh branch (see main.ts's renderPopup).
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
+    storageFake.data["whitelistSyncMeta"] = { lastSyncAt: Date.now() };
 
+    // Hold only the first (blocked list) pull; the whitelist pull that follows resolves.
     let resolvePull: ((rows: RemoteAccount[]) => void) | undefined;
     pullBlockedImpl = () =>
-      new Promise((resolve) => {
-        resolvePull = resolve;
-      });
+      resolvePull
+        ? Promise.resolve([])
+        : new Promise((resolve) => {
+            resolvePull = resolve;
+          });
 
     // No flush() here on purpose: renderPopup's own promise resolves once the row is
     // built (its mount-time auto-sync IIFE is fire-and-forget and still in flight,

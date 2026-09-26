@@ -11,6 +11,7 @@ import {
   SYNC_DUE_KEY,
 } from "../background-sync.ts";
 import { OUTBOX_STORAGE_KEY } from "../../storage/blocked-store.ts";
+import { WHITELIST_OUTBOX_STORAGE_KEY } from "../../storage/whitelist-store.ts";
 import { installManualTimers, settleMicrotasks } from "../../../test/helpers/timers.ts";
 import { resetTestEnvironment, storageFake } from "../../../test/setup.ts";
 
@@ -299,6 +300,11 @@ describe("background entrypoint wiring", () => {
         changeListeners[0]!({ [OUTBOX_STORAGE_KEY]: {} }, "local");
         expect(timers.pendingDelays()).toEqual([OUTBOX_SYNC_DEBOUNCE_MS]);
         timers.flush();
+        expect(timers.pendingDelays()).toEqual([]);
+        // The whitelist's outbox arms the same shared debounce.
+        changeListeners[0]!({ [WHITELIST_OUTBOX_STORAGE_KEY]: {} }, "local");
+        expect(timers.pendingDelays()).toEqual([OUTBOX_SYNC_DEBOUNCE_MS]);
+        timers.flush();
       } finally {
         timers.uninstall();
       }
@@ -313,7 +319,7 @@ describe("background entrypoint wiring", () => {
     }
   });
 
-  test("BG-15 with cloud backup on, the wired sync dep (runAutoCloudSync) actually runs", async () => {
+  test("BG-15 with cloud backup on, the wired sync dep (runAutoCloudSyncAll) actually runs", async () => {
     const changeListeners: ChangeListener[] = [];
     const alarmListeners: AlarmListener[] = [];
 
@@ -333,12 +339,13 @@ describe("background entrypoint wiring", () => {
     };
 
     storageFake.data["cloudBackup"] = true;
-    // Nothing pending and a fresh lastSyncAt: runAutoCloudSync(true)'s own auto-sync
-    // gate reports nothing due, so it resolves to `{ status: "skipped" }` before ever
-    // loading the (real, unmocked) convex-sync adapter — invoking it here stays
-    // side-effect-safe and never touches Convex.
+    // Nothing pending and a fresh lastSyncAt for both collections:
+    // runAutoCloudSyncAll(true)'s own auto-sync gate reports nothing due, so it resolves
+    // to `{ status: "skipped" }` before ever loading the (real, unmocked) convex-sync
+    // adapter — invoking it here stays side-effect-safe and never touches Convex.
     const seededMeta = { lastSyncAt: Date.now() };
     storageFake.data["cloudSyncMeta"] = seededMeta;
+    storageFake.data["whitelistSyncMeta"] = seededMeta;
 
     try {
       const background = await import("../../../entrypoints/background.ts");
@@ -356,6 +363,7 @@ describe("background entrypoint wiring", () => {
       // A real sync would have stamped a fresh lastSyncAt; the seeded meta surviving
       // untouched confirms the "nothing due" skip branch ran instead.
       expect(storageFake.data["cloudSyncMeta"]).toEqual(seededMeta);
+      expect(storageFake.data["whitelistSyncMeta"]).toEqual(seededMeta);
     } finally {
       chromeStorage["onChanged"] = originalOnChanged;
       chromeAny["alarms"] = originalAlarms;

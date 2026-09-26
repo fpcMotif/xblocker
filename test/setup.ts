@@ -124,13 +124,16 @@ export class FakeChromeStorageArea {
   setCalls: StorageItems[] = [];
   failNextGet = false;
   failNextSet = false;
+  /** Keys whose reads always fail (callback gets nothing) until cleared — for tests
+   *  that need a specific key's read to fail while others keep working. */
+  failGetKeys = new Set<string>();
   private mode: DispatchMode = "sync";
   private pending: Array<() => void> = [];
 
   get(keys: StorageGetKeys, callback: StorageGetCallback): void {
     this.getCalls.push(keys);
     this.dispatch(() => {
-      if (this.failNextGet) {
+      if (this.failNextGet || (typeof keys === "string" && this.failGetKeys.has(keys))) {
         this.failNextGet = false;
         // Real chrome invokes the callback with no items and sets
         // chrome.runtime.lastError. The extension never reads lastError, so the
@@ -203,6 +206,7 @@ export class FakeChromeStorageArea {
     this.setCalls = [];
     this.failNextGet = false;
     this.failNextSet = false;
+    this.failGetKeys.clear();
     this.mode = "sync";
     this.pending = [];
   }

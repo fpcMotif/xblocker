@@ -567,7 +567,20 @@ describe("showWhitelistModal", () => {
     await settleMicrotasks();
 
     expect(storageFake.data["whitelist"]).toEqual(["added_via_modal"]);
-    expect(storageFake.setCalls).toEqual([{ whitelist: ["added_via_modal"] }]);
+    // One write carries the list and the queued cloud-sync change together.
+    expect(storageFake.setCalls).toEqual([
+      {
+        whitelist: ["added_via_modal"],
+        whitelistOutbox: [
+          {
+            handle: "added_via_modal",
+            status: "active",
+            at: expect.any(Number),
+            actionId: expect.any(String),
+          },
+        ],
+      },
+    ]);
     const toast = getToast("Added @added_via_modal to whitelist");
     expect(toast.dataset.type).toBe("success");
     expect(getModal().dataset.state).toBe("closed");

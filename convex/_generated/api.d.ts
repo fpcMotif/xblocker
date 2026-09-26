@@ -9,6 +9,7 @@
  */
 
 import type * as blocked from "../blocked.js";
+import type * as whitelist from "../whitelist.js";
 
 import type {
   ApiFromModules,
@@ -18,6 +19,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   blocked: typeof blocked;
+  whitelist: typeof whitelist;
 }>;
 
 /**

@@ -7,7 +7,22 @@
 // after it grows (debounced, so a bulk run becomes one batched push) and on a periodic
 // alarm as a safety net.
 
+import { OUTBOX_STORAGE_KEY } from "../storage/blocked-store";
 import { CLOUD_BACKUP_KEY, storageGet, storageRemove, storageSet } from "../storage/chrome-storage";
+import { WHITELIST_OUTBOX_STORAGE_KEY } from "../storage/whitelist-store";
+
+/** Every synced collection's outbox storage key. The background watcher listens to the
+ *  SET, not one hardcoded key: a queued change in either the blocklist or the
+ *  whitelist outbox is the signal that a cloud sync is worth scheduling. */
+export const SYNCED_OUTBOX_KEYS: readonly string[] = [
+  OUTBOX_STORAGE_KEY,
+  WHITELIST_OUTBOX_STORAGE_KEY,
+];
+
+/** Whether a chrome.storage change key is one of the synced collections' outboxes. */
+export function isSyncedOutboxKey(key: string): boolean {
+  return SYNCED_OUTBOX_KEYS.includes(key);
+}
 
 export const OUTBOX_SYNC_DEBOUNCE_MS = 10_000;
 export const PERIODIC_SYNC_ALARM = "xblocker-cloud-sync";

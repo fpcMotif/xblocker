@@ -3,7 +3,11 @@
 //
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { RemoteAccount } from "../../packages/storage/blocked-store.ts";
+import type { OutboxItem, RemoteAccount } from "../../packages/storage/blocked-store.ts";
+import type {
+  RemoteWhitelistEntry,
+  WhitelistOutboxItem,
+} from "../../packages/storage/whitelist-store.ts";
 import type { RenderCloudPaneOptions } from "../../entrypoints/options/panes/cloud.ts";
 import {
   formatSyncAge,
@@ -15,15 +19,17 @@ import type { CloudAdapter } from "../../packages/sync/sync-engine.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
 import { resetTestEnvironment, storageFake } from "../setup.ts";
 
-type OutboxLike = { action: { actionId: string } };
+// One fake transport serves both synced collections, as the pane's one "Sync now" does.
+type AnyItem = OutboxItem | WhitelistOutboxItem;
+type AnyRemote = RemoteAccount | RemoteWhitelistEntry;
 
 let configured: boolean;
-let pushOutboxImpl: (items: OutboxLike[]) => Promise<string[]>;
-let pullBlockedImpl: () => Promise<RemoteAccount[]>;
+let pushOutboxImpl: (items: AnyItem[]) => Promise<string[]>;
+let pullBlockedImpl: () => Promise<AnyRemote[]>;
 let clearCloudImpl: () => Promise<void>;
 let calls: { push: number; pull: number; clear: number };
 
-const adapter: CloudAdapter = {
+const adapter: CloudAdapter<AnyItem, AnyRemote> = {
   isConfigured: () => configured,
   async push(items) {
     calls.push += 1;
@@ -68,6 +74,12 @@ function rowValues(): string[] {
   );
 }
 
+function rowTitles(): string[] {
+  return Array.from(document.querySelectorAll(".xb-opt-row-meta .xb-opt-row-title")).map(
+    (el) => el.textContent ?? "",
+  );
+}
+
 function wipeResultText(): string {
   const panel = document.querySelector(".xb-opt-wipe-panel")!;
   const captions = panel.querySelectorAll(".xb-opt-field-caption");
@@ -105,6 +117,9 @@ describe("Cloud backup pane (unconfigured build)", () => {
 
     expect(document.querySelector("h1")?.textContent).toBe("Cloud backup");
     expect(document.body.textContent).toContain("Cloud backup isn't configured for this build.");
+    expect(document.body.textContent).toContain(
+      "Neither your blocked list nor your whitelist is syncing.",
+    );
     expect(document.querySelectorAll(".xb-opt-switch")).toHaveLength(0);
     expect(document.querySelectorAll("button")).toHaveLength(0);
     expect(() => handle.destroy()).not.toThrow();
@@ -115,7 +130,8 @@ describe("Cloud backup pane (configured)", () => {
   beforeEach(() => {
     resetTestEnvironment();
     configured = true;
-    pushOutboxImpl = async (items) => items.map((item) => item.action.actionId);
+    pushOutboxImpl = async (items) =>
+      items.map((item) => ("action" in item ? item.action.actionId : item.actionId));
     pullBlockedImpl = async () => [];
     clearCloudImpl = async () => {};
     calls = { push: 0, pull: 0, clear: 0 };
@@ -124,7 +140,16 @@ describe("Cloud backup pane (configured)", () => {
   test("OC-03 backup off by default: Off / Never synced. / 0 pending", async () => {
     const handle = await renderCloudPane(document.body, cloudOptions({ now: () => 1_000_000 }));
     expect(document.querySelector<HTMLInputElement>(".xb-opt-switch")?.checked).toBe(false);
-    expect(rowValues()).toEqual(["Off", "Never synced.", "0"]);
+    // Two status blocks, blocked list first, then whitelist.
+    expect(rowTitles()).toEqual([
+      "Blocked list",
+      "Last synced",
+      "Pending actions",
+      "Whitelist",
+      "Last synced",
+      "Pending actions",
+    ]);
+    expect(rowValues()).toEqual(["Off", "Never synced.", "0", "Off", "Never synced.", "0"]);
     expect(() => handle.destroy()).not.toThrow();
   });
 
@@ -135,16 +160,21 @@ describe("Cloud backup pane (configured)", () => {
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
 
     expect(storageFake.data["cloudBackup"]).toBe(true);
+    // The one toggle drives both blocks.
     expect(rowValues()[0]).toBe("On");
+    expect(rowValues()[3]).toBe("On");
     expect(calls).toEqual({ push: 0, pull: 0, clear: 0 });
   });
 
   test("OC-05 Sync now shows a busy state mid-flight, then reports the fresh sync time and pending count", async () => {
+    // Hold only the first (blocked list) pull; the whitelist pull that follows resolves.
     let resolvePull: (() => void) | undefined;
     pullBlockedImpl = () =>
-      new Promise((resolve) => {
-        resolvePull = () => resolve([]);
-      });
+      resolvePull
+        ? Promise.resolve([])
+        : new Promise((resolve) => {
+            resolvePull = () => resolve([]);
+          });
     storageFake.data["blockedOutbox"] = [
       {
         accountKey: "1",
@@ -169,8 +199,8 @@ describe("Cloud backup pane (configured)", () => {
     expect(syncButton.disabled).toBe(false);
     expect(syncButton.textContent).toBe("Sync now");
     expect(calls.push).toBe(1);
-    expect(calls.pull).toBe(1);
-    expect(rowValues()).toEqual(["On", "Synced just now.", "0"]);
+    expect(calls.pull).toBe(2); // one pull per synced collection
+    expect(rowValues()).toEqual(["On", "Synced just now.", "0", "On", "Synced just now.", "0"]);
   });
 
   test("OC-06 a sync failure surfaces 'Sync failed' and it is not immediately clobbered", async () => {
@@ -184,6 +214,7 @@ describe("Cloud backup pane (configured)", () => {
     await settleMicrotasks(50);
 
     expect(rowValues()[0]).toBe("Sync failed");
+    expect(rowValues()[3]).toBe("Sync failed");
     expect(syncButton.disabled).toBe(false);
     expect(syncButton.textContent).toBe("Sync now");
   });
@@ -248,8 +279,11 @@ describe("Cloud backup pane (configured)", () => {
         action: { actionId: "a1", kind: "block", at: 1, source: "reply-bar" },
       },
     ];
+    storageFake.data["whitelistOutbox"] = [
+      { handle: "alice", status: "active", at: 1, actionId: "w1" },
+    ];
     await renderCloudPane(document.body, cloudOptions({ now: () => 999 }));
-    expect(rowValues()).toEqual(["On", "Never synced.", "1"]);
+    expect(rowValues()).toEqual(["On", "Never synced.", "1", "On", "Never synced.", "1"]);
 
     byText("button", "Wipe cloud data").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const input = document.querySelector<HTMLInputElement>('[aria-label="Type WIPE to confirm"]')!;
@@ -263,12 +297,38 @@ describe("Cloud backup pane (configured)", () => {
     // A wiped cloud with backup left on would just refill on the next auto-sync.
     expect(storageFake.data["cloudBackup"]).toBe(false);
     expect(document.querySelector<HTMLInputElement>(".xb-opt-switch")?.checked).toBe(false);
-    expect(rowValues()).toEqual(["Off", "Never synced.", "0"]);
+    // The wipe is blocklist-only: the whitelist's queued change survives it.
+    expect(storageFake.data["whitelistOutbox"]).toHaveLength(1);
+    expect(rowValues()).toEqual(["Off", "Never synced.", "0", "Off", "Never synced.", "1"]);
 
-    // Nothing queued means a subsequent manual sync has nothing to push.
+    // A later manual sync has no blocked actions to push, only the whitelist change.
     byButtonText("Sync now").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settleMicrotasks(50);
-    expect(calls.push).toBe(0);
+    expect(calls.push).toBe(1);
+  });
+
+  test("OC-13 Sync now pushes queued whitelist changes and refreshes the whitelist block", async () => {
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["whitelist"] = ["alice"];
+    storageFake.data["whitelistOutbox"] = [
+      { handle: "alice", status: "active", at: 1, actionId: "w1" },
+    ];
+    const pushed: AnyItem[][] = [];
+    pushOutboxImpl = async (items) => {
+      pushed.push(items);
+      return items.map((item) => ("action" in item ? item.action.actionId : item.actionId));
+    };
+
+    await renderCloudPane(document.body, cloudOptions({ now: () => 999 }));
+    expect(rowValues()).toEqual(["On", "Never synced.", "0", "On", "Never synced.", "1"]);
+
+    byButtonText("Sync now").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settleMicrotasks(50);
+
+    expect(pushed).toEqual([[{ handle: "alice", status: "active", at: 1, actionId: "w1" }]]);
+    expect(storageFake.data["whitelistOutbox"]).toEqual([]);
+    expect(storageFake.data["whitelistSyncMeta"]).toEqual({ lastSyncAt: 999 });
+    expect(rowValues()).toEqual(["On", "Synced just now.", "0", "On", "Synced just now.", "0"]);
   });
 
   test("OC-10 a wipe failure shows an inline error and re-enables the gate", async () => {
