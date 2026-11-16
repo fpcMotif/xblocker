@@ -226,7 +226,7 @@ describe("popup cloud sync row", () => {
 
     expect(telltaleState()).toBe("error");
     expect(syncTitle()).toBe("Backup on");
-    expect(syncDetail()).toBe("Sync failed. Tap retry.");
+    expect(syncDetail()).toBe("Sync failed. Try again.");
     // The one available action stays reachable for a retry — never a dead end.
     expect(syncButton()).not.toBeNull();
     expect(syncButton()!.disabled).toBe(false);
@@ -244,7 +244,7 @@ describe("popup cloud sync row", () => {
 
     expect(telltaleState()).toBe("error");
     expect(syncTitle()).toBe("Backup on");
-    expect(syncDetail()).toBe("Sync failed. Tap retry.");
+    expect(syncDetail()).toBe("Sync failed. Try again.");
   });
 
   test("PU-CB-08 a stale last sync auto-pulls even with nothing queued", async () => {

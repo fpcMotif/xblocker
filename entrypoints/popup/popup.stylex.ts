@@ -92,15 +92,15 @@ export const popupStyles = stylex.create({
   statCellHero: {
     gridRow: "1 / span 2",
     alignContent: "space-between",
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
     paddingLeft: 14,
     backgroundColor: tokens["--xb-hero-bg"],
     boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.12)",
   },
   statValueHero: {
-    fontSize: 44,
-    letterSpacing: "-0.035em",
+    fontSize: 36,
+    letterSpacing: "-0.03em",
     color: tokens["--xb-hero-ink"],
   },
   statLabelHero: {
@@ -300,7 +300,7 @@ export const popupStyles = stylex.create({
   ghostLink: {
     borderStyle: "none",
     backgroundColor: "transparent",
-    color: tokens["--xb-primary"],
+    color: tokens["--xb-primary-text"],
     fontSize: 12,
     fontWeight: 600,
     cursor: "pointer",

@@ -559,12 +559,17 @@ describe("showWhitelistModal", () => {
     const input = document.querySelector<HTMLInputElement>("#xb-username-input")!;
 
     click(document.querySelector<HTMLButtonElement>(".xb-modal-confirm")!);
+    const error = document.getElementById(input.getAttribute("aria-describedby") ?? "")!;
     expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(error.getAttribute("role")).toBe("alert");
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toContain("Enter a username");
     expect(document.getElementById("xblocker-modal")).toBeTruthy();
 
     input.value = "someone";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     expect(input.hasAttribute("aria-invalid")).toBe(false);
+    expect(error.hidden).toBe(true);
   });
 
   test("MD-04 confirm persists the trimmed, @-stripped username and closes", async () => {

@@ -49,6 +49,12 @@ export function showWhitelistModal(): void {
   at.setAttribute("aria-hidden", "true");
   at.textContent = "@";
   field.append(at, input);
+  const errorText = document.createElement("p");
+  errorText.className = "xb-modal-error";
+  errorText.id = "xb-username-error";
+  errorText.setAttribute("role", "alert");
+  errorText.hidden = true;
+  input.setAttribute("aria-describedby", errorText.id);
   input.autocomplete = "off";
   input.spellcheck = false;
 
@@ -64,8 +70,7 @@ export function showWhitelistModal(): void {
   confirmButton.textContent = "Add to whitelist";
   actions.appendChild(cancelButton);
   actions.appendChild(confirmButton);
-  modal.appendChild(field);
-  modal.appendChild(actions);
+  modal.append(field, errorText, actions);
 
   backdrop.appendChild(modal);
   document.body.appendChild(backdrop);
@@ -108,6 +113,8 @@ export function showWhitelistModal(): void {
     const username = normalizeUsername(input.value.trim());
     if (!username) {
       input.setAttribute("aria-invalid", "true");
+      errorText.textContent = "Enter a username, 1 to 15 letters, numbers or underscores.";
+      errorText.hidden = false;
       input.focus();
       return;
     }
@@ -166,6 +173,7 @@ export function showWhitelistModal(): void {
   });
   input.addEventListener("input", () => {
     input.removeAttribute("aria-invalid");
+    errorText.hidden = true;
   });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {

@@ -63,9 +63,8 @@ function ensurePopupStyles(): void {
 
 		.xb-switch:checked { background: var(--xb-primary); border-color: var(--xb-primary); }
 		.xb-switch:checked::before { transform: translateX(16px); }
-		.xb-switch::before { transition: transform 200ms var(--xb-ease-out), width 200ms var(--xb-ease-out); }
-		.xb-switch:active::before { width: 18px; }
-		.xb-switch:checked:active::before { transform: translateX(12px); }
+		.xb-switch:active::before { transform: scale(0.88); }
+		.xb-switch:checked:active::before { transform: translateX(16px) scale(0.88); }
 
 		.xb-toggle-row + .xb-toggle-row { border-top: 1px solid var(--xb-border); }
 		.xb-toggle-title { transition: transform 200ms var(--xb-ease-out); }
@@ -292,7 +291,7 @@ function syncRowCopy(state: SyncRowState, idleDetail: string): { title: string; 
     case "syncing":
       return { title: "Backup on", detail: "Syncing…" };
     case "error":
-      return { title: "Backup on", detail: "Sync failed. Tap retry." };
+      return { title: "Backup on", detail: "Sync failed. Try again." };
     default:
       return { title: "Backup on", detail: idleDetail };
   }

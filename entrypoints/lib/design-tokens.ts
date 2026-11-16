@@ -11,7 +11,9 @@ export const XB_TONE_TOKENS = `
 	--xb-primary: oklch(0.63 0.16 246);
 	--xb-primary-btn-bg: oklch(0.52 0.17 246);
 	--xb-danger: oklch(0.601 0.212 21);
+	--xb-danger-btn-bg: oklch(0.57 0.205 21);
 	--xb-success: oklch(0.646 0.152 154);
+	--xb-success-btn-bg: oklch(0.53 0.135 154);
 	--xb-warning: oklch(0.778 0.158 74);
 	--xb-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 	--xb-ease-icon: cubic-bezier(0.2, 0, 0, 1);

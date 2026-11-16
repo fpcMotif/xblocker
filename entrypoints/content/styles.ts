@@ -114,9 +114,9 @@ const SHEET = `
 .xb-btn-labeled:active { transform: scale(0.98); }
 .xb-btn-labeled:focus-visible { outline: 2px solid var(--xb-primary); outline-offset: 1px; }
 .xb-btn-labeled[data-variant="hero"] {
-	background: var(--xb-danger);
+	background: var(--xb-danger-btn-bg);
 	color: oklch(1 0 0);
-	box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.22), 0 2px 8px oklch(0.601 0.212 21 / 0.35);
+	box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.22), 0 2px 8px oklch(0.57 0.205 21 / 0.35);
 }
 .xb-btn-labeled[data-variant="secondary"] { background: var(--xb-track); color: var(--xb-ink); }
 @media (hover: hover) and (pointer: fine) {
@@ -145,7 +145,7 @@ const SHEET = `
 	font-variant-numeric: tabular-nums;
 	text-align: center;
 }
-.xb-btn-labeled[data-variant="hero"] .xb-count { background: oklch(1 0 0 / 0.24); color: inherit; }
+.xb-btn-labeled[data-variant="hero"] .xb-count { background: oklch(0 0 0 / 0.22); color: inherit; }
 .xb-btn-labeled[data-variant="secondary"] .xb-count { color: var(--xb-ink-muted); }
 .xb-btn-labeled[data-progress]::before {
 	content: "";
@@ -185,6 +185,7 @@ const SHEET = `
 .xb-rail-footer-actions { display: flex; gap: 2px; }
 .xb-rail-footer .xb-btn { width: 30px; height: 30px; border-radius: 8px; color: var(--xb-ink-muted); }
 .xb-rail-footer .xb-rail-handle {
+	min-width: 30px;
 	margin-left: auto;
 	cursor: grab;
 	touch-action: none;
@@ -429,8 +430,8 @@ ${TWEET_ARTICLE_SELECTOR}:hover .xb-console,
 	height: 40px;
 	margin-bottom: 14px;
 	border-radius: 12px;
-	background: var(--xb-success);
-	box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.25), 0 2px 8px oklch(0.646 0.152 154 / 0.4);
+	background: var(--xb-success-btn-bg);
+	box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.25), 0 2px 8px oklch(0.53 0.135 154 / 0.4);
 	color: oklch(1 0 0);
 }
 .xb-modal h3 {
@@ -475,7 +476,14 @@ ${TWEET_ARTICLE_SELECTOR}:hover .xb-console,
 }
 .xb-modal input:focus { border-color: var(--xb-primary); }
 .xb-modal input[aria-invalid="true"] { border-color: var(--xb-danger); }
-.xb-modal input[aria-invalid="true"]::placeholder { color: var(--xb-danger); }
+.xb-modal p.xb-modal-error {
+	margin: 8px 0 0;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--xb-danger-btn-bg);
+}
+.xb-root[data-xb-theme="dark"] .xb-modal p.xb-modal-error { color: var(--xb-danger); }
+.xb-modal p.xb-modal-error[hidden] { display: none; }
 .xb-modal-actions {
 	display: flex;
 	justify-content: flex-end;
@@ -502,7 +510,7 @@ ${TWEET_ARTICLE_SELECTOR}:hover .xb-console,
 	color: var(--xb-ink-muted);
 }
 .xb-modal-confirm {
-	background: var(--xb-success);
+	background: var(--xb-success-btn-bg);
 	color: oklch(1 0 0);
 }
 @media (hover: hover) and (pointer: fine) {
