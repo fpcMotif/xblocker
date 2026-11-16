@@ -311,10 +311,10 @@ describe("Blocked log pane", () => {
 
     const originalCreate = URL.createObjectURL.bind(URL);
     let capturedBlob: Blob | undefined;
-    URL.createObjectURL = ((blob: Blob) => {
+    URL.createObjectURL = (blob: Blob) => {
       capturedBlob = blob;
       return originalCreate(blob);
-    }) as typeof URL.createObjectURL;
+    };
     try {
       const exportButton = Array.from(document.querySelectorAll("button")).find(
         (btn) => btn.textContent === "Export JSON",

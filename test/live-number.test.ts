@@ -243,15 +243,13 @@ describe("createLiveNumber", () => {
     const originalCancelRaf = window.cancelAnimationFrame;
     const originalSetTimeout = window.setTimeout;
     const originalClearTimeout = window.clearTimeout;
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- narrowing the DOM overload set down to what this module actually calls.
-    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
       frames.push(callback);
       return ++frameId;
-    }) as typeof window.requestAnimationFrame;
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same narrowing for cancelAnimationFrame.
-    window.cancelAnimationFrame = ((handle: number) => {
+    };
+    window.cancelAnimationFrame = (handle: number) => {
       cancelledFrames.push(handle);
-    }) as typeof window.cancelAnimationFrame;
+    };
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same narrowing for setTimeout.
     window.setTimeout = ((callback: () => void) => {
       timeouts.push(callback);

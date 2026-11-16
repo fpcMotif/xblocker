@@ -106,7 +106,7 @@ g.MutationObserver = class TrackedMutationObserver extends BaseMutationObserver 
     activeObservers.add(this);
   }
 
-  disconnect(): void {
+  override disconnect(): void {
     super.disconnect();
     activeObservers.delete(this);
   }
