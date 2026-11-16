@@ -197,20 +197,14 @@ function mountPane(
   container: HTMLElement,
   opts: RenderOptionsOptions,
 ): Promise<PaneHandle> {
-  switch (route) {
-    case "general":
-      return renderGeneralPane(container);
-    case "whitelist":
-      return renderWhitelistPane(container);
-    case "blocked-log":
-      return renderBlockedLogPane(container);
-    case "cloud":
-      return renderCloudPane(container, opts.cloud);
-    case "about":
-      return Promise.resolve(renderAboutPane(container));
-    default:
-      throw new Error("Unknown options route");
-  }
+  const mounters: Record<OptionsRoute, () => Promise<PaneHandle>> = {
+    general: () => renderGeneralPane(container),
+    whitelist: () => renderWhitelistPane(container),
+    "blocked-log": () => renderBlockedLogPane(container),
+    cloud: () => renderCloudPane(container, opts.cloud),
+    about: () => Promise.resolve(renderAboutPane(container)),
+  };
+  return mounters[route]();
 }
 
 export type RenderOptionsOptions = {

@@ -159,6 +159,46 @@ describe("SpamAutoBlocker", () => {
     expect(stub.calls.filter((call) => call.url.includes("/blocks/create.json"))).toHaveLength(1);
   });
 
+  test("AB-07b a reply already marked scanned is skipped even when it matches spam", async () => {
+    enableAutoBlock();
+    const reply = spamReply();
+    reply.dataset.xbSpamScanned = "true";
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+
+    bot = new SpamAutoBlocker();
+    bot.scan();
+    await settle();
+    stub.uninstall();
+
+    expect(stub.calls).toHaveLength(0);
+    expect(reply.dataset.xbBlocked).toBeUndefined();
+  });
+
+  test("AB-11b destroy during the pacing wait stops the pass before the next reply", async () => {
+    enableAutoBlock();
+    const first = spamReply("bitcoin");
+    const [second] = populateTweetPage(["ethereum"]);
+    if (!second) throw new Error("expected a second reply article");
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const timers = installManualTimers();
+
+    try {
+      bot = new SpamAutoBlocker();
+      bot.scan();
+      await settleMicrotasks(30);
+      expect(first.dataset.xbBlocked).toBe("true");
+
+      bot.destroy();
+      timers.flush();
+      await settleMicrotasks(30);
+
+      expect(second.dataset.xbBlocked).toBeUndefined();
+    } finally {
+      timers.uninstall();
+      stub.uninstall();
+    }
+  });
+
   test("AB-08 turning the setting on after an initial off scan still catches replies already on the page", async () => {
     const reply = spamReply();
     const stub = installFetchStub(() => ({ ok: true, status: 200 }));

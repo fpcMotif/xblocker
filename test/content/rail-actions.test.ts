@@ -578,6 +578,34 @@ describe("drag persistence and stored positions", () => {
     expect(storageFake.setCalls).toHaveLength(1);
   });
 
+  test("RA-12b a second pointerdown mid-drag keeps the original grab offset", async () => {
+    await mountRail();
+    const handle = getDragHandle();
+    const root = getRailRoot();
+
+    handle.dispatchEvent(pointerEvent("pointerdown", 0, 0));
+    handle.dispatchEvent(pointerEvent("pointerdown", 30, 30));
+    handle.dispatchEvent(pointerEvent("pointermove", 40, 100));
+
+    expect(root.style.left).toBe("40px");
+    expect(root.style.top).toBe("100px");
+  });
+
+  test("RA-12c pointer moves and releases without a grab neither move nor persist the rail", async () => {
+    await mountRail();
+    const handle = getDragHandle();
+    const root = getRailRoot();
+    const leftBefore = root.style.left;
+    const topBefore = root.style.top;
+
+    handle.dispatchEvent(pointerEvent("pointermove", 40, 100));
+    handle.dispatchEvent(pointerEvent("pointerup", 40, 100));
+
+    expect(root.style.left).toBe(leftBefore);
+    expect(root.style.top).toBe(topBefore);
+    expect(storageFake.setCalls).toHaveLength(0);
+  });
+
   test("RA-13 a stored off-screen position is clamped back into the viewport on mount", async () => {
     storageFake.data["dockPosition"] = { x: 5000, y: -50 };
     await mountRail();
