@@ -31,7 +31,7 @@ import type { CloudAdapter } from "../sync-engine";
 // one import site while probes reach the chunk-free module directly.
 export { isCloudConfigured };
 
-// The Convex `listBlocked` query returns exactly the shape the local store's mergeRemote
+// The Convex `listBlockedPage` query returns, page by page, exactly the shape the local store's mergeRemote
 // consumes, so re-export the single definition rather than maintaining a twin here.
 export type { RemoteAccount };
 
@@ -43,12 +43,18 @@ const recordActionRef = makeFunctionReference<"mutation", RecordActionArgs, null
 const recordActionsRef = makeFunctionReference<"mutation", { actions: RecordActionArgs[] }, null>(
   "blocked:recordActions",
 );
-const listBlockedRef = makeFunctionReference<"query", Record<string, never>, RemoteAccount[]>(
-  "blocked:listBlocked",
-);
-const clearOwnerRef = makeFunctionReference<"mutation", Record<string, never>, null>(
+type BlockedPage = { page: RemoteAccount[]; isDone: boolean; continueCursor: string };
+const listBlockedPageRef = makeFunctionReference<
+  "query",
+  { paginationOpts: { numItems: number; cursor: string | null } },
+  BlockedPage
+>("blocked:listBlockedPage");
+const clearOwnerRef = makeFunctionReference<"mutation", Record<string, never>, boolean>(
   "blocked:clearOwner",
 );
+
+/** Accounts per pull page. Convex caps a returned array at 8,192 items. */
+const PULL_PAGE_SIZE = 1000;
 const upsertWhitelistEntriesRef = makeFunctionReference<
   "mutation",
   { entries: WhitelistUpsertArgs[] },
@@ -113,9 +119,20 @@ export async function pushOutbox(items: OutboxItem[]): Promise<string[]> {
   return synced;
 }
 
-/** Pull all blocked accounts from Convex. */
+/** Pull all blocked accounts from Convex, one page at a time. */
 export async function pullBlocked(): Promise<RemoteAccount[]> {
-  return client().query(listBlockedRef, {});
+  const accounts: RemoteAccount[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const result: BlockedPage = await client().query(listBlockedPageRef, {
+      paginationOpts: { numItems: PULL_PAGE_SIZE, cursor },
+    });
+    accounts.push(...result.page);
+    if (result.isDone) {
+      return accounts;
+    }
+    cursor = result.continueCursor;
+  }
 }
 
 /** Delete every cloud row ("delete my cloud data"). Throws when the deployment URL is
@@ -128,7 +145,9 @@ export async function clearCloud(): Promise<void> {
   if (!isCloudConfigured()) {
     throw new Error("Convex deployment URL is not configured (set VITE_CONVEX_URL).");
   }
-  await client().mutation(clearOwnerRef, {});
+  while (!(await client().mutation(clearOwnerRef, {}))) {
+    // Each call deletes one batch; repeat until the server reports nothing left.
+  }
 }
 
 /** This adapter, wired to `sync-engine.ts`'s `CloudAdapter` seam: the blocked

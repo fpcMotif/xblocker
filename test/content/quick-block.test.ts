@@ -419,6 +419,29 @@ describe("auto-confirm fallback", () => {
     await settle();
     expect(sheet.clicks()).toBe(0);
   });
+
+  test("QB-38 a second native click re-arms the watch and cancels the earlier expiry", () => {
+    hooks.getQuickBlock()?.destroy();
+    const timers = installManualTimers();
+    const originalClearTimeout = globalThis.clearTimeout;
+    const cleared: unknown[] = [];
+    globalThis.clearTimeout = (id) => {
+      cleared.push(id);
+    };
+    try {
+      qb = new QuickBlock({ mode: "auto-confirm" });
+      qb.mount();
+      clickMenuItem("block");
+      expect(cleared).toHaveLength(0);
+      clickMenuItem("mute");
+
+      expect(cleared).toEqual([1]);
+      expect(timers.pendingDelays()).toEqual([AUTO_CONFIRM_WINDOW, AUTO_CONFIRM_WINDOW]);
+    } finally {
+      globalThis.clearTimeout = originalClearTimeout;
+      timers.uninstall();
+    }
+  });
 });
 
 describe("index.ts wiring", () => {

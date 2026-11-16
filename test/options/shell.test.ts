@@ -4,7 +4,7 @@
 // convex-sync module (live deployment URL, real HTTP client) to load in tests.
 // cloud.test.ts injects the pane's cloud ports and is the one place that exercises that
 // route, including through this same shell (via renderOptions' `cloud` opt).
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { mountOptionsIfPresent, renderOptions } from "../../entrypoints/options/main.ts";
 import { WHITELIST_KEY } from "../../packages/storage/chrome-storage.ts";
@@ -60,6 +60,90 @@ describe("options shell", () => {
     await renderOptions(document.body);
     await renderOptions(document.body);
     expect(document.querySelectorAll(".xb-opt-root")).toHaveLength(1);
+  });
+
+  test("OS-04b a hash change from browser back or forward switches the pane and the tab title", async () => {
+    await renderOptions(document.body);
+
+    window.location.hash = "#about";
+    window.dispatchEvent(new Event("hashchange"));
+    await settleMicrotasks();
+
+    expect(activeRoute()).toBe("about");
+    expect(contentPane().querySelector("h1")?.textContent).toBe("About");
+    expect(document.title).toBe("About · XBlocker settings");
+  });
+
+  describe("pane enter animation", () => {
+    type AnimateCall = { keyframes: unknown; options: unknown };
+    const prototype = HTMLElement.prototype as { animate?: unknown };
+    const originalAnimate = Object.getOwnPropertyDescriptor(prototype, "animate");
+    const originalMatchMedia = window.matchMedia;
+    let calls: AnimateCall[] = [];
+
+    function stubAnimate(): void {
+      calls = [];
+      Object.defineProperty(prototype, "animate", {
+        configurable: true,
+        writable: true,
+        value(keyframes: unknown, options: unknown) {
+          calls.push({ keyframes, options });
+        },
+      });
+    }
+
+    function stubReducedMotion(reduced: boolean): void {
+      window.matchMedia = (query: string) => {
+        const list = originalMatchMedia.call(window, query);
+        Object.defineProperty(list, "matches", {
+          configurable: true,
+          value: reduced && query.includes("prefers-reduced-motion"),
+        });
+        return list;
+      };
+    }
+
+    afterEach(() => {
+      if (originalAnimate) Object.defineProperty(prototype, "animate", originalAnimate);
+      else delete prototype.animate;
+      window.matchMedia = originalMatchMedia;
+    });
+
+    test("OS-04c a route switch fades the pane in for 200 ms, but the first mount does not", async () => {
+      stubAnimate();
+      stubReducedMotion(false);
+      await renderOptions(document.body);
+      expect(calls).toHaveLength(0);
+
+      clickNav("about");
+      await settleMicrotasks();
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.options).toMatchObject({ duration: 200 });
+    });
+
+    test("OS-04d reduced motion skips the pane fade", async () => {
+      stubAnimate();
+      stubReducedMotion(true);
+      await renderOptions(document.body);
+
+      clickNav("about");
+      await settleMicrotasks();
+
+      expect(calls).toHaveLength(0);
+      expect(contentPane().querySelector("h1")?.textContent).toBe("About");
+    });
+
+    test("OS-04e a browser without element.animate still switches panes", async () => {
+      delete prototype.animate;
+      Object.defineProperty(prototype, "animate", { configurable: true, value: undefined });
+      await renderOptions(document.body);
+
+      clickNav("about");
+      await settleMicrotasks();
+
+      expect(contentPane().querySelector("h1")?.textContent).toBe("About");
+    });
   });
 
   test("OS-04 clicking a nav item switches the pane, updates aria-current and the URL hash", async () => {

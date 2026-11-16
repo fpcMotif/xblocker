@@ -61,11 +61,59 @@ function ensurePopupStyles(): void {
 			transition: transform 160ms var(--xb-ease-out);
 		}
 
+		.xb-switch::after { content: ""; position: absolute; inset: -4px; }
 		.xb-switch:checked { background: var(--xb-primary); border-color: var(--xb-primary); }
 		.xb-switch:checked::before { transform: translateX(16px); }
+		.xb-switch:active::before { transform: scale(0.88); }
+		.xb-switch:checked:active::before { transform: translateX(16px) scale(0.88); }
 
-		.xb-sync-button {
-			min-width: 9ch;
+		.xb-toggle-row + .xb-toggle-row { border-top: 1px solid var(--xb-border); }
+		.xb-toggle-title { transition: transform 200ms var(--xb-ease-out); }
+		.xb-footer-button svg { transition: transform 250ms var(--xb-ease-out); }
+
+		.xb-telltale[data-state="idle"] {
+			border-color: var(--xb-success);
+			background: var(--xb-success);
+		}
+		.xb-telltale[data-state="syncing"] {
+			border-color: var(--xb-primary);
+			background: var(--xb-primary);
+			animation: xb-breathe 900ms ease-in-out infinite;
+		}
+		.xb-telltale[data-state="error"] {
+			border-color: var(--xb-danger);
+			background: var(--xb-danger);
+			animation: xb-blink-error 900ms ease-in-out 1;
+		}
+		@keyframes xb-breathe {
+			0%, 100% { opacity: 1; }
+			50% { opacity: 0.4; }
+		}
+		@keyframes xb-blink-error {
+			0%, 100% { opacity: 1; }
+			15% { opacity: 0.25; }
+			30% { opacity: 1; }
+			45% { opacity: 0.25; }
+			60% { opacity: 1; }
+		}
+
+		.xb-sync-button { min-width: 9ch; }
+		.xb-sync-button:disabled { opacity: 0.45; cursor: default; }
+		.xb-sync-button:active:not(:disabled) { transform: scale(0.96); }
+		.xb-footer-button:active { transform: scale(0.98); }
+		.xb-spin { animation: xb-spin 0.8s linear infinite; }
+		@keyframes xb-spin {
+			from { transform: rotate(0deg); }
+			to { transform: rotate(360deg); }
+		}
+
+		@media (hover: hover) and (pointer: fine) {
+			.xb-sync-button:not(:disabled):hover { background: var(--xb-track); }
+			.xb-ghost-link:hover { color: var(--xb-ink); }
+			.xb-footer-button:hover { background: var(--xb-track); }
+			.xb-footer-button:hover svg { transform: rotate(45deg); }
+			.xb-toggle-row:hover .xb-toggle-title { transform: translateX(2px); }
+			.xb-footer-button:hover .xb-footer-chevron { transform: translateX(2px); color: var(--xb-ink); }
 		}
 
 		@media (prefers-reduced-motion: reduce) {
@@ -93,7 +141,7 @@ function buildHeader(): HTMLElement {
 
   const mark = document.createElement("span");
   mark.className = `${stylex.props(styles.brandMark).className} xb-brand-mark`;
-  mark.appendChild(createIcon("shield", 14));
+  mark.appendChild(createIcon("shield", 16));
 
   const title = document.createElement("h1");
   title.className = `${stylex.props(styles.title).className}`;
@@ -123,17 +171,18 @@ function buildStatCell(
   label: string,
   tone: "danger" | "success" | "warning",
   clock: Partial<LiveNumberClock> | undefined,
+  hero = false,
 ): {
   element: HTMLElement;
   live: LiveNumber;
 } {
   const cell = document.createElement("div");
-  cell.className = `${stylex.props(styles.statCell).className} xb-stat-cell`;
+  cell.className = `${stylex.props(styles.card, styles.statCell, hero && styles.statCellHero).className} xb-stat-cell`;
   cell.setAttribute("role", "group");
   cell.setAttribute("aria-label", label);
 
   const value = document.createElement("span");
-  value.className = `${stylex.props(styles.statValue).className} xb-stat-value`;
+  value.className = `${stylex.props(styles.statValue, hero && styles.statValueHero).className} xb-stat-value`;
   cell.appendChild(value);
   const live = createLiveNumber(value, clock ? { clock } : {});
 
@@ -143,7 +192,7 @@ function buildStatCell(
   cell.appendChild(tick);
 
   const labelNode = document.createElement("span");
-  labelNode.className = `${stylex.props(styles.statLabel).className} xb-stat-label`;
+  labelNode.className = `${stylex.props(styles.statLabel, hero && styles.statLabelHero).className} xb-stat-label`;
   labelNode.textContent = label;
   cell.appendChild(labelNode);
 
@@ -156,10 +205,9 @@ function buildStatStrip(clock: Partial<LiveNumberClock> | undefined): {
   whitelistLive: LiveNumber;
 } {
   const strip = document.createElement("div");
-  strip.className = `${stylex.props(styles.regionBorder, styles.statStrip).className} xb-region xb-stat-strip`;
+  strip.className = `${stylex.props(styles.statStrip).className} xb-region xb-stat-strip`;
 
-  const blocked = buildStatCell("Blocked", "danger", clock);
-  blocked.element.classList.add(stylex.props(styles.statCellFirst).className!);
+  const blocked = buildStatCell("Blocked", "danger", clock, true);
   const muted = buildStatCell("Muted", "warning", clock);
   const whitelisted = buildStatCell("Whitelisted", "success", clock);
   strip.append(blocked.element, muted.element, whitelisted.element);
@@ -205,7 +253,7 @@ function buildToggleRow(
 
 function buildToggles(settings: Settings): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = `${stylex.props(styles.regionBorder, styles.toggles).className} xb-region xb-toggles`;
+  wrap.className = `${stylex.props(styles.card, styles.toggles).className} xb-region xb-toggles`;
   wrap.appendChild(
     buildToggleRow(
       "Protect whitelist",
@@ -240,11 +288,11 @@ function syncRowCopy(state: SyncRowState, idleDetail: string): { title: string; 
     case "unconfigured":
       return { title: "Cloud backup", detail: "Not configured for this build." };
     case "off":
-      return { title: "Backup off", detail: "Turn on in settings." };
+      return { title: "Backup off", detail: "Lists stay on this device." };
     case "syncing":
       return { title: "Backup on", detail: "Syncing…" };
     case "error":
-      return { title: "Backup on", detail: "Sync failed. Tap retry." };
+      return { title: "Backup on", detail: "Sync failed. Try again." };
     default:
       return { title: "Backup on", detail: idleDetail };
   }
@@ -267,7 +315,7 @@ type SyncRowHandles = {
  */
 function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
   const row = document.createElement("div");
-  row.className = `${stylex.props(styles.regionBorder, styles.syncRow).className} xb-region xb-sync-row`;
+  row.className = `${stylex.props(styles.card, styles.syncRow).className} xb-region xb-sync-row`;
 
   const left = document.createElement("div");
   left.className = `${stylex.props(styles.syncLeft).className} xb-sync-left`;
@@ -295,7 +343,26 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
 
   row.append(left, action);
 
+  const persistentSyncButton = document.createElement("button");
+  persistentSyncButton.type = "button";
+  persistentSyncButton.className = `${stylex.props(styles.syncButton).className} xb-sync-button`;
+  const syncSpinner = createIcon("loading", 12);
+  const syncLabel = document.createElement("span");
+  persistentSyncButton.append(syncSpinner, syncLabel);
+  persistentSyncButton.addEventListener("click", () => trigger.run?.());
+
   function renderAction(state: SyncRowState): void {
+    if (state === "idle" || state === "syncing" || state === "error") {
+      const busy = state === "syncing";
+      persistentSyncButton.disabled = busy;
+      syncSpinner.style.display = busy ? "block" : "none";
+      syncLabel.textContent = busy ? "Syncing…" : "Sync now";
+      if (persistentSyncButton.parentElement !== action) {
+        action.replaceChildren(persistentSyncButton);
+      }
+      return;
+    }
+
     action.replaceChildren();
 
     if (state === "unconfigured") {
@@ -313,22 +380,7 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
       link.textContent = "Turn on in settings";
       link.addEventListener("click", openSettings);
       action.appendChild(link);
-      return;
     }
-    // idle | syncing | error: the one available action is (re)running a sync.
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `${stylex.props(styles.syncButton).className} xb-sync-button`;
-    const busy = state === "syncing";
-    button.disabled = busy;
-    if (busy) {
-      button.appendChild(createIcon("loading", 12));
-    }
-    const buttonLabel = document.createElement("span");
-    buttonLabel.textContent = busy ? "Syncing…" : "Sync now";
-    button.appendChild(buttonLabel);
-    button.addEventListener("click", () => trigger.run?.());
-    action.appendChild(button);
   }
 
   function setState(state: SyncRowState, idleDetail: string): void {
@@ -344,14 +396,19 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
 
 function buildFooter(): HTMLElement {
   const footer = document.createElement("footer");
-  footer.className = `${stylex.props(styles.regionBorder, styles.footer).className} xb-footer`;
+  footer.className = `${stylex.props(styles.footer).className} xb-footer`;
 
   const button = document.createElement("button");
   button.type = "button";
   button.className = `${stylex.props(styles.footerButton).className} xb-footer-button`;
 
   const label = document.createElement("span");
-  label.textContent = "Open settings";
+  label.className = stylex.props(styles.footerLabel).className ?? "";
+  const gear = document.createElement("span");
+  gear.className = stylex.props(styles.footerIcon).className ?? "";
+  gear.setAttribute("aria-hidden", "true");
+  gear.appendChild(createIcon("settings", 15));
+  label.append(gear, "Open settings");
 
   const chevron = document.createElement("span");
   chevron.className = `${stylex.props(styles.footerChevron).className} xb-footer-chevron`;

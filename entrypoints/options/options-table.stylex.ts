@@ -37,9 +37,6 @@ export const optionsTableStyles = stylex.create({
       ":focus-visible": 2,
     },
   },
-  inputInvalid: {
-    borderColor: tokens["--xb-danger"],
-  },
   fieldCaption: {
     margin: 0,
     marginTop: 6,
@@ -48,7 +45,7 @@ export const optionsTableStyles = stylex.create({
     color: tokens["--xb-ink-muted"],
   },
   fieldCaptionDanger: {
-    color: tokens["--xb-danger"],
+    color: tokens["--xb-danger-text"],
   },
   btn: {
     display: "inline-flex",
@@ -92,7 +89,7 @@ export const optionsTableStyles = stylex.create({
     color: tokens["--xb-ink"],
   },
   btnDanger: {
-    backgroundColor: tokens["--xb-danger"],
+    backgroundColor: tokens["--xb-danger-btn-bg"],
     color: "white",
   },
   chipGroup: {
@@ -123,41 +120,31 @@ export const optionsTableStyles = stylex.create({
       ":focus-visible": 2,
     },
   },
-  chipActive: {
-    backgroundColor: tokens["--xb-surface"],
-    color: tokens["--xb-ink"],
-  },
   table: {
-    width: "100%",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens["--xb-border"],
-    borderRadius: 16,
-    overflow: "hidden",
+    width: "calc(100% + 24px)",
+    marginLeft: -12,
+    marginRight: -12,
   },
   tableHead: {
     display: "grid",
     alignItems: "center",
     gap: 12,
-    paddingLeft: 16,
-    paddingRight: 16,
-    height: 36,
-    backgroundColor: tokens["--xb-elevated"],
+    paddingLeft: 12,
+    paddingRight: 12,
+    height: 32,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: tokens["--xb-border"],
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
+    fontSize: 12,
+    fontWeight: 500,
     color: tokens["--xb-ink-muted"],
   },
   tableRow: {
     display: "grid",
     alignItems: "center",
     gap: 12,
-    paddingLeft: 16,
-    paddingRight: 16,
+    paddingLeft: 12,
+    paddingRight: 12,
     height: 40,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
@@ -235,7 +222,8 @@ export const optionsTableStyles = stylex.create({
   ghostIcon: {
     display: "grid",
     placeItems: "center",
-    width: 28,
+    justifySelf: "end",
+    minWidth: 28,
     height: 28,
     borderStyle: "none",
     borderRadius: 8,
@@ -245,7 +233,7 @@ export const optionsTableStyles = stylex.create({
     },
     color: {
       default: tokens["--xb-ink-muted"],
-      ":hover": tokens["--xb-danger"],
+      ":hover": tokens["--xb-danger-text"],
     },
     cursor: "pointer",
     opacity: 0,
@@ -258,18 +246,6 @@ export const optionsTableStyles = stylex.create({
     outlineOffset: {
       ":focus-visible": 2,
     },
-  },
-  ghostIconVisible: {
-    opacity: 1,
-  },
-  ghostIconConfirming: {
-    opacity: 1,
-    width: "auto",
-    paddingLeft: 10,
-    paddingRight: 10,
-    color: tokens["--xb-danger"],
-    fontSize: 11,
-    fontWeight: 700,
   },
   tableScroll: {
     position: "relative",

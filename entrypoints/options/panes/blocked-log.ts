@@ -78,7 +78,7 @@ type Row = {
   sync: RowSyncStatus;
 };
 
-const ROW_GRID = "1.6fr 88px 72px 96px";
+const ROW_GRID = "minmax(0, 1.6fr) 116px 72px 96px";
 
 function actionLabel(action: "block" | "mute"): string {
   return action === "block" ? "Block" : "Mute";
@@ -164,7 +164,7 @@ export async function renderBlockedLogPane(
       const chip = document.createElement("button");
       chip.type = "button";
       const isSelected = value === active;
-      chip.className = `${stylex.props(styles.chip, isSelected && styles.chipActive).className} xb-opt-chip`;
+      chip.className = `${stylex.props(styles.chip).className} xb-opt-chip`;
       chip.textContent = text;
       chip.setAttribute("aria-pressed", String(isSelected));
       chip.addEventListener("click", () => {
@@ -319,6 +319,9 @@ export async function renderBlockedLogPane(
     const syncText = document.createElement("span");
     syncText.textContent = syncLabel(row.sync);
     syncCell.append(syncDot, syncText);
+    for (const cell of [handleCell, actionCell, whenCell, syncCell]) {
+      cell.setAttribute("role", "cell");
+    }
     el.append(handleCell, actionCell, whenCell, syncCell);
     return el;
   }
@@ -341,12 +344,16 @@ export async function renderBlockedLogPane(
   function buildTable(): void {
     const table = document.createElement("div");
     table.className = `${stylex.props(styles.table).className} xb-opt-table`;
+    table.setAttribute("role", "table");
+    table.setAttribute("aria-label", "Blocked log");
 
     const head = document.createElement("div");
     head.className = `${stylex.props(styles.tableHead).className} xb-opt-table-head`;
     head.style.gridTemplateColumns = ROW_GRID;
+    head.setAttribute("role", "row");
     for (const label of ["Handle", "Action", "When", "Sync"]) {
       const cell = document.createElement("span");
+      cell.setAttribute("role", "columnheader");
       cell.textContent = label;
       head.appendChild(cell);
     }
