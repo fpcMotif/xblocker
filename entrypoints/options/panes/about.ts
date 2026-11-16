@@ -51,7 +51,7 @@ export function renderAboutPane(container: HTMLElement): PaneHandle {
   link.href = REPO_URL;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  link.textContent = "View source on GitHub ↗";
+  link.textContent = "View source on GitHub";
 
   const privacy = document.createElement("p");
   privacy.className = `${stylex.props(styles.rowCaption).className} xb-opt-row-caption`;

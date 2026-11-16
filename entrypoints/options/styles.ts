@@ -24,18 +24,10 @@ body {
 }
 
 html { scrollbar-gutter: stable; }
+html, body { overflow-x: clip; }
 
-.xb-opt-nav-indicator::before {
-	content: "";
-	position: absolute;
-	left: -8px;
-	top: 4px;
-	bottom: 4px;
-	width: 2px;
-	border-radius: 2px;
-	background: var(--xb-primary);
-}
 .xb-opt-nav-item { z-index: 1; }
+.xb-opt-nav-item:active { transform: scale(0.98); }
 
 label.xb-opt-row { cursor: pointer; }
 

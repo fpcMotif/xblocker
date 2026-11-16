@@ -57,7 +57,7 @@ const ROUTES: readonly RouteDef[] = [
   { id: "about", label: "About", icon: () => createInfoIcon(18) },
 ];
 
-const NAV_ITEM_PITCH_PX = 42;
+const NAV_ITEM_PITCH_PX = 38;
 const PANE_ENTER_MS = 200;
 const PANE_ENTER_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
 
