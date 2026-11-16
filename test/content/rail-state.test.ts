@@ -463,6 +463,48 @@ describe("ReplyRail state machine", () => {
     expect(instance.root.dataset["state"]).toBe("collapsed");
   });
 
+  test("RS-13b Escape pressed inside the whitelist modal leaves the rail open", () => {
+    const instance = setupRail();
+    const reply = mountReply("alice");
+    settleByDwell(instance, reply, 300, 400);
+    const backdrop = document.createElement("div");
+    backdrop.className = "xb-modal-backdrop";
+    const input = document.createElement("input");
+    backdrop.appendChild(input);
+    document.body.appendChild(backdrop);
+
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
+    Object.defineProperty(event, "target", { value: input });
+    instance.handleKeydown(event);
+
+    expect(instance.getState().state).toBe("settled");
+  });
+
+  test("RS-13c Escape with focus inside the rail moves focus to the puck", () => {
+    const instance = setupRail();
+    const reply = mountReply("alice");
+    settleByDwell(instance, reply, 300, 400);
+    instance.root.querySelector<HTMLButtonElement>('[data-action="mute"]')!.focus();
+
+    pressKey(instance, "Escape");
+
+    expect(instance.getState().state).toBe("collapsed");
+    expect(document.activeElement).toBe(getPuck(instance));
+  });
+
+  test("RS-13d Escape with focus outside the rail leaves focus where it was", () => {
+    const instance = setupRail();
+    const reply = mountReply("alice");
+    settleByDwell(instance, reply, 300, 400);
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+
+    pressKey(instance, "Escape");
+
+    expect(document.activeElement).toBe(outside);
+  });
+
   test("RS-14 inputs, textareas, and contenteditables suppress the rail", () => {
     const instance = setupRail();
     const reply = mountReply("alice");

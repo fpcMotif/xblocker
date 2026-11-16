@@ -352,8 +352,18 @@ export class ReplyRail {
   }
 
   handleKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      this.collapseNow();
+    if (event.key !== "Escape") {
+      return;
+    }
+    // One Escape closes one layer: while the whitelist modal has focus the key belongs to
+    // it, and the rail stays open so focus can return to the button that opened the modal.
+    if (event.target instanceof Element && event.target.closest(".xb-modal-backdrop")) {
+      return;
+    }
+    const focusWasInside = this.root.contains(document.activeElement);
+    this.collapseNow();
+    if (focusWasInside) {
+      this.puck.focus();
     }
   }
 

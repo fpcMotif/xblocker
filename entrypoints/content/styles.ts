@@ -11,6 +11,15 @@ const STYLE_ID = "xblocker-styles";
 
 const SHEET = `
 .xb-root {${XB_TONE_TOKENS}	font-family: ${XB_FONT_STACK};
+	font-size: 13px;
+	font-weight: 400;
+	font-style: normal;
+	line-height: 1.4;
+	letter-spacing: normal;
+	text-align: left;
+	text-transform: none;
+	white-space: normal;
+	word-spacing: normal;
 	-webkit-font-smoothing: antialiased;
 	box-sizing: border-box;
 }
@@ -50,11 +59,11 @@ const SHEET = `
 	outline-offset: 1px;
 }
 @media (hover: hover) and (pointer: fine) {
-	.xb-btn[data-action="whitelist"]:hover { background: oklch(0.646 0.152 154 / 0.12); color: var(--xb-success); }
+	.xb-btn[data-action="whitelist"]:hover { background: oklch(0.646 0.152 154 / 0.12); color: var(--xb-success-text); }
 	.xb-btn[data-action="settings"]:hover { background: var(--xb-track); }
 	.xb-btn[data-action="drag"]:hover { color: var(--xb-ink); }
 }
-.xb-btn[data-whitelisted="true"] { color: var(--xb-success); }
+.xb-btn[data-whitelisted="true"] { color: var(--xb-success-text); }
 
 /* Stacked icon slots: cross-fade with blur instead of swapping nodes */
 .xb-icon {
@@ -84,8 +93,8 @@ const SHEET = `
 	transform: scale(1);
 	filter: blur(0px);
 }
-.xb-btn[data-state="success"] { color: var(--xb-success); }
-.xb-btn[data-state="error"] { color: var(--xb-danger); }
+.xb-btn[data-state="success"] { color: var(--xb-success-text); }
+.xb-btn[data-state="error"] { color: var(--xb-danger-text); }
 .xb-spin { animation: xb-spin 0.8s linear infinite; }
 @keyframes xb-spin {
 	from { transform: rotate(0deg); }
@@ -164,7 +173,6 @@ const SHEET = `
 .xb-rail {
 	position: fixed;
 	z-index: 10000;
-	font-family: inherit;
 }
 .xb-rail-body {
 	display: flex;
@@ -239,7 +247,7 @@ const SHEET = `
 	height: 17px;
 	padding: 0 4px;
 	border-radius: 999px;
-	background: var(--xb-danger);
+	background: var(--xb-danger-btn-bg);
 	box-shadow: 0 0 0 2px var(--xb-surface);
 	color: oklch(1 0 0);
 	font-size: 10px;
@@ -325,9 +333,9 @@ ${TWEET_ARTICLE_SELECTOR}:hover .xb-console,
 	color: var(--xb-ink-muted);
 }
 @media (hover: hover) and (pointer: fine) {
-	.xb-console .xb-btn[data-action="block"]:hover { background: oklch(0.601 0.212 21 / 0.12); color: var(--xb-danger); }
+	.xb-console .xb-btn[data-action="block"]:hover { background: oklch(0.601 0.212 21 / 0.12); color: var(--xb-danger-text); }
 	.xb-console .xb-btn[data-action="mute"]:hover { background: var(--xb-track); color: var(--xb-ink); }
-	.xb-console .xb-btn[data-action="whitelist"]:hover { background: oklch(0.646 0.152 154 / 0.12); color: var(--xb-success); }
+	.xb-console .xb-btn[data-action="whitelist"]:hover { background: oklch(0.646 0.152 154 / 0.12); color: var(--xb-success-text); }
 }
 
 /* ---- Toast ---- */
@@ -480,9 +488,8 @@ ${TWEET_ARTICLE_SELECTOR}:hover .xb-console,
 	margin: 8px 0 0;
 	font-size: 12px;
 	font-weight: 600;
-	color: var(--xb-danger-btn-bg);
+	color: var(--xb-danger-text);
 }
-.xb-root[data-xb-theme="dark"] .xb-modal p.xb-modal-error { color: var(--xb-danger); }
 .xb-modal p.xb-modal-error[hidden] { display: none; }
 .xb-modal-actions {
 	display: flex;

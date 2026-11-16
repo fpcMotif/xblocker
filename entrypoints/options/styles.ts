@@ -32,7 +32,7 @@ html, body { overflow-x: clip; }
 label.xb-opt-row { cursor: pointer; }
 
 .xb-opt-input[data-invalid="true"] { border-color: var(--xb-danger); }
-.xb-opt-field-caption[data-tone="danger"] { color: var(--xb-danger); }
+.xb-opt-field-caption[data-tone="danger"] { color: var(--xb-danger-text); }
 
 .xb-opt-btn:disabled { cursor: default; }
 @media (hover: hover) and (pointer: fine) {
@@ -57,7 +57,7 @@ label.xb-opt-row { cursor: pointer; }
 .xb-opt-ghost-icon[data-confirming="true"] {
 	padding: 0 10px;
 	background: oklch(0.601 0.212 21 / 0.12);
-	color: var(--xb-danger);
+	color: var(--xb-danger-text);
 	font-size: 11px;
 	font-weight: 700;
 }

@@ -14,11 +14,11 @@ export const tokens = stylex.defineVars({
 
   // Tone & Easing
   "--xb-primary": "oklch(0.63 0.16 246)",
-  "--xb-primary-btn-bg": "oklch(0.52 0.17 246)",
+  "--xb-primary-btn-bg": "oklch(0.52 0.13 246)",
   "--xb-danger": "oklch(0.601 0.212 21)",
   "--xb-danger-btn-bg": "oklch(0.57 0.205 21)",
   "--xb-success": "oklch(0.646 0.152 154)",
-  "--xb-success-btn-bg": "oklch(0.53 0.135 154)",
+  "--xb-success-btn-bg": "oklch(0.53 0.13 154)",
   "--xb-warning": "oklch(0.778 0.158 74)",
   "--xb-ease-out": "cubic-bezier(0.23, 1, 0.32, 1)",
   "--xb-ease-icon": "cubic-bezier(0.2, 0, 0, 1)",
@@ -38,15 +38,23 @@ export const tokens = stylex.defineVars({
   },
   "--xb-ink-muted": {
     default: "oklch(0.5 0.02 251)",
-    [DARK]: "oklch(0.72 0.02 255)",
+    [DARK]: "oklch(0.8 0.02 255)",
   },
   "--xb-primary-text": {
-    default: "oklch(0.48 0.16 246)",
-    [DARK]: "oklch(0.78 0.14 246)",
+    default: "oklch(0.48 0.12 246)",
+    [DARK]: "oklch(0.78 0.115 246)",
+  },
+  "--xb-danger-text": {
+    default: "oklch(0.52 0.2 21)",
+    [DARK]: "oklch(0.8 0.11 21)",
+  },
+  "--xb-success-text": {
+    default: "oklch(0.53 0.13 154)",
+    [DARK]: "oklch(0.76 0.15 154)",
   },
   "--xb-border": {
-    default: "oklch(0.906 0.015 251)",
-    [DARK]: "oklch(1 0 0 / 0.12)",
+    default: "oklch(0.89 0.015 251)",
+    [DARK]: "oklch(1 0 0 / 0.2)",
   },
   "--xb-track": {
     default: "oklch(0.24 0.023 251 / 0.08)",

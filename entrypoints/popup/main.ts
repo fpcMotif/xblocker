@@ -61,6 +61,7 @@ function ensurePopupStyles(): void {
 			transition: transform 160ms var(--xb-ease-out);
 		}
 
+		.xb-switch::after { content: ""; position: absolute; inset: -4px; }
 		.xb-switch:checked { background: var(--xb-primary); border-color: var(--xb-primary); }
 		.xb-switch:checked::before { transform: translateX(16px); }
 		.xb-switch:active::before { transform: scale(0.88); }
@@ -287,7 +288,7 @@ function syncRowCopy(state: SyncRowState, idleDetail: string): { title: string; 
     case "unconfigured":
       return { title: "Cloud backup", detail: "Not configured for this build." };
     case "off":
-      return { title: "Backup off", detail: "Turn on in settings." };
+      return { title: "Backup off", detail: "Lists stay on this device." };
     case "syncing":
       return { title: "Backup on", detail: "Syncing…" };
     case "error":

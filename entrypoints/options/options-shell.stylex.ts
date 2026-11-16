@@ -132,7 +132,8 @@ export const optionsShellStyles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
-    color: tokens["--xb-primary"],
+    minHeight: 24,
+    color: tokens["--xb-primary-text"],
     fontSize: 13,
     fontWeight: 600,
     textDecoration: "none",
@@ -186,7 +187,7 @@ export const optionsShellStyles = stylex.create({
     fontWeight: 700,
   },
   cardHeaderH2Danger: {
-    color: tokens["--xb-danger"],
+    color: tokens["--xb-danger-text"],
   },
   cardHeaderP: {
     margin: 0,
@@ -268,6 +269,7 @@ export const optionsShellStyles = stylex.create({
   },
   slider: {
     width: 220,
+    height: 24,
     accentColor: tokens["--xb-primary"],
     outline: {
       ":focus-visible": `2px solid ${tokens["--xb-primary"]}`,

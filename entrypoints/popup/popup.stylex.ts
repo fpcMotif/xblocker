@@ -304,6 +304,7 @@ export const popupStyles = stylex.create({
     fontSize: 12,
     fontWeight: 600,
     cursor: "pointer",
+    minHeight: 24,
     paddingTop: 4,
     paddingBottom: 4,
     paddingLeft: 0,

@@ -133,7 +133,7 @@ describe("popup cloud sync row", () => {
     expect(calls.pull).toBe(0);
     expect(telltaleState()).toBe("off");
     expect(syncTitle()).toBe("Backup off");
-    expect(syncDetail()).toBe("Turn on in settings.");
+    expect(syncDetail()).toBe("Lists stay on this device.");
     expect(syncButton()).toBeNull();
     expect(unconfiguredNote()).toBeNull();
 

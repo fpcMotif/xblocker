@@ -45,7 +45,7 @@ export const optionsTableStyles = stylex.create({
     color: tokens["--xb-ink-muted"],
   },
   fieldCaptionDanger: {
-    color: tokens["--xb-danger"],
+    color: tokens["--xb-danger-text"],
   },
   btn: {
     display: "inline-flex",
@@ -89,7 +89,7 @@ export const optionsTableStyles = stylex.create({
     color: tokens["--xb-ink"],
   },
   btnDanger: {
-    backgroundColor: tokens["--xb-danger"],
+    backgroundColor: tokens["--xb-danger-btn-bg"],
     color: "white",
   },
   chipGroup: {
@@ -233,7 +233,7 @@ export const optionsTableStyles = stylex.create({
     },
     color: {
       default: tokens["--xb-ink-muted"],
-      ":hover": tokens["--xb-danger"],
+      ":hover": tokens["--xb-danger-text"],
     },
     cursor: "pointer",
     opacity: 0,
