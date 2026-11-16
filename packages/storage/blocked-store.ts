@@ -39,7 +39,7 @@ export type OutboxItem = {
   action: BlockAction;
 };
 
-/** Shape returned by the Convex `listBlocked` query, merged back in on pull. The single
+/** Row shape returned by the Convex `listBlockedPage` query, merged back in on pull. The single
  *  definition lives in blocked-merge alongside the fold that consumes it. */
 export type RemoteAccount = RemoteAccountSnapshot;
 

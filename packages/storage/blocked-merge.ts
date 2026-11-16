@@ -223,7 +223,7 @@ export function mergeBlockedAccount(
   };
 }
 
-/** A rolled-up account snapshot from the cloud — the shape `listBlocked` returns and
+/** A rolled-up account snapshot from the cloud — the row shape `listBlockedPage` returns and
  *  `mergeRemote` folds back in. (Re-exported as `RemoteAccount` from blocked-store.) */
 export type RemoteAccountSnapshot = {
   xUserId: string;

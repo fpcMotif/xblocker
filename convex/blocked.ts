@@ -1,6 +1,8 @@
 import { v, type Infer } from "convex/values";
 
 import { applyAccountRollup, sumAccountRollups } from "../packages/storage/blocked-merge";
+import { paginationOptsValidator } from "convex/server";
+
 import { mutation, query, type MutationCtx } from "./_generated/server";
 
 const kindValidator = v.union(v.literal("block"), v.literal("mute"), v.literal("unblock"));
@@ -13,7 +15,7 @@ const sourceValidator = v.union(
 );
 const statusValidator = v.union(v.literal("active"), v.literal("unblocked"));
 
-// Shape of each row returned by listBlocked — mirrors RemoteAccount in
+// Shape of each row returned by listBlockedPage — mirrors RemoteAccount in
 // packages/storage/blocked-store.ts (the local store's mergeRemote consumes it).
 const remoteAccountValidator = v.object({
   xUserId: v.string(),
@@ -175,53 +177,65 @@ export const recordActions = mutation({
   },
 });
 
-// All of the signed-in owner's blocked accounts, shaped for the local store's mergeRemote.
-export const listBlocked = query({
-  args: {},
-  returns: v.array(remoteAccountValidator),
-  handler: async (ctx) => {
-    const owner = OWNER;
-    const accounts = await ctx.db
+// One page of the owner's blocked accounts, shaped for the local store's mergeRemote.
+// Paged because Convex rejects a returned array over 8,192 items, and a long-running
+// backup passes that: the client walks continueCursor until isDone.
+export const listBlockedPage = query({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    page: v.array(remoteAccountValidator),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const result = await ctx.db
       .query("blockedAccounts")
-      .withIndex("by_owner", (q) => q.eq("owner", owner))
-      .collect();
+      .withIndex("by_owner", (q) => q.eq("owner", OWNER))
+      .paginate(args.paginationOpts);
 
-    return accounts.map((account) => ({
-      xUserId: account.xUserId,
-      handle: account.handle,
-      idUnknown: account.idUnknown,
-      firstActionAt: account.firstActionAt,
-      lastActionAt: account.lastActionAt,
-      blockCount: account.blockCount,
-      muteCount: account.muteCount,
-      status: account.status,
-    }));
+    return {
+      page: result.page.map((account) => ({
+        xUserId: account.xUserId,
+        handle: account.handle,
+        idUnknown: account.idUnknown,
+        firstActionAt: account.firstActionAt,
+        lastActionAt: account.lastActionAt,
+        blockCount: account.blockCount,
+        muteCount: account.muteCount,
+        status: account.status,
+      })),
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
   },
 });
 
-// "Delete my cloud data": remove every account and action for the signed-in owner.
+// Rows deleted per clearOwner call: well under Convex's per-transaction read and write
+// limits, so a large backup is wiped across several calls instead of failing in one.
+const CLEAR_BATCH = 2000;
+
+// "Delete my cloud data": remove one batch of the owner's accounts and actions. Returns
+// true once nothing is left; the client calls it until then.
 export const clearOwner = mutation({
   args: {},
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx) => {
-    const owner = OWNER;
-
     const accounts = await ctx.db
       .query("blockedAccounts")
-      .withIndex("by_owner", (q) => q.eq("owner", owner))
-      .collect();
+      .withIndex("by_owner", (q) => q.eq("owner", OWNER))
+      .take(CLEAR_BATCH);
     for (const account of accounts) {
       await ctx.db.delete(account._id);
     }
 
     const actions = await ctx.db
       .query("blockActions")
-      .withIndex("by_owner_xid", (q) => q.eq("owner", owner))
-      .collect();
+      .withIndex("by_owner_xid", (q) => q.eq("owner", OWNER))
+      .take(CLEAR_BATCH);
     for (const action of actions) {
       await ctx.db.delete(action._id);
     }
 
-    return null;
+    return accounts.length < CLEAR_BATCH && actions.length < CLEAR_BATCH;
   },
 });
