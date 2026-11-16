@@ -1,0 +1,19 @@
+{
+  "project": "xblocker",
+  "surface": "extension",
+  "choice": "agent-browser for unpacked popup/options smoke and CDP exploration; Bun tests for filtering and storage behavior",
+  "extension": {
+    "directory": ".output/chrome-mv3"
+  },
+  "commands": {
+    "test": {
+      "argv": ["bun", "run", "test"]
+    },
+    "build": {
+      "argv": ["bun", "run", "build"]
+    },
+    "check": {
+      "argv": ["bun", "run", "check"]
+    }
+  }
+}
