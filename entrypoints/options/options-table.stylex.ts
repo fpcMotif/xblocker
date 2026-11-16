@@ -37,9 +37,6 @@ export const optionsTableStyles = stylex.create({
       ":focus-visible": 2,
     },
   },
-  inputInvalid: {
-    borderColor: tokens["--xb-danger"],
-  },
   fieldCaption: {
     margin: 0,
     marginTop: 6,
@@ -122,10 +119,6 @@ export const optionsTableStyles = stylex.create({
     outlineOffset: {
       ":focus-visible": 2,
     },
-  },
-  chipActive: {
-    backgroundColor: tokens["--xb-surface"],
-    color: tokens["--xb-ink"],
   },
   table: {
     width: "100%",
@@ -235,7 +228,8 @@ export const optionsTableStyles = stylex.create({
   ghostIcon: {
     display: "grid",
     placeItems: "center",
-    width: 28,
+    justifySelf: "end",
+    minWidth: 28,
     height: 28,
     borderStyle: "none",
     borderRadius: 8,
@@ -258,18 +252,6 @@ export const optionsTableStyles = stylex.create({
     outlineOffset: {
       ":focus-visible": 2,
     },
-  },
-  ghostIconVisible: {
-    opacity: 1,
-  },
-  ghostIconConfirming: {
-    opacity: 1,
-    width: "auto",
-    paddingLeft: 10,
-    paddingRight: 10,
-    color: tokens["--xb-danger"],
-    fontSize: 11,
-    fontWeight: 700,
   },
   tableScroll: {
     position: "relative",

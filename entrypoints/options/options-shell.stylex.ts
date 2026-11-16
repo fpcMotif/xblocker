@@ -45,7 +45,21 @@ export const optionsShellStyles = stylex.create({
     fontWeight: 700,
     lineHeight: 1.2,
   },
+  navIndicator: {
+    position: "absolute",
+    top: 4,
+    left: 8,
+    right: 8,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "oklch(0.63 0.16 246 / 0.12)",
+    pointerEvents: "none",
+    transitionProperty: "transform",
+    transitionDuration: "200ms",
+    transitionTimingFunction: tokens["--xb-ease-out"],
+  },
   nav: {
+    position: "relative",
     display: "flex",
     flexDirection: "column",
     paddingTop: 4,
@@ -85,8 +99,14 @@ export const optionsShellStyles = stylex.create({
     },
   },
   navItemActive: {
-    backgroundColor: "oklch(0.63 0.16 246 / 0.12)",
-    color: tokens["--xb-primary-text"],
+    backgroundColor: {
+      default: "transparent",
+      ":hover": "transparent",
+    },
+    color: {
+      default: tokens["--xb-primary-text"],
+      ":hover": tokens["--xb-primary-text"],
+    },
   },
   version: {
     marginTop: "auto",
@@ -194,6 +214,8 @@ export const optionsShellStyles = stylex.create({
     justifyContent: "space-between",
     gap: 16,
     minHeight: 56,
+    paddingTop: 10,
+    paddingBottom: 10,
     paddingLeft: 20,
     paddingRight: 20,
     borderBottomWidth: 1,
@@ -218,6 +240,8 @@ export const optionsShellStyles = stylex.create({
   rowCaption: {
     fontSize: 11,
     fontWeight: 500,
+    lineHeight: 1.45,
+    textWrap: "pretty",
     color: tokens["--xb-ink-muted"],
   },
   rowValue: {
@@ -241,7 +265,7 @@ export const optionsShellStyles = stylex.create({
     borderColor: tokens["--xb-border"],
     backgroundColor: tokens["--xb-track"],
     cursor: "pointer",
-    transitionProperty: "background-color, border-color",
+    transitionProperty: "background-color, border-color, transform",
     transitionDuration: "160ms",
     transitionTimingFunction: tokens["--xb-ease-out"],
     outline: {
@@ -338,10 +362,11 @@ export const optionsShellStyles = stylex.create({
     paddingLeft: 20,
     paddingRight: 20,
   },
-  wipePanelOpen: {
-    maxHeight: 160,
-    opacity: 1,
+  aboutCard: {
+    paddingTop: 20,
     paddingBottom: 20,
+    paddingLeft: 20,
+    paddingRight: 20,
   },
   wipeRow: {
     display: "flex",

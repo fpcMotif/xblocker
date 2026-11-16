@@ -164,7 +164,7 @@ export async function renderBlockedLogPane(
       const chip = document.createElement("button");
       chip.type = "button";
       const isSelected = value === active;
-      chip.className = `${stylex.props(styles.chip, isSelected && styles.chipActive).className} xb-opt-chip`;
+      chip.className = `${stylex.props(styles.chip).className} xb-opt-chip`;
       chip.textContent = text;
       chip.setAttribute("aria-pressed", String(isSelected));
       chip.addEventListener("click", () => {

@@ -62,6 +62,18 @@ describe("options shell", () => {
     expect(document.querySelectorAll(".xb-opt-root")).toHaveLength(1);
   });
 
+  test("OS-04b a hash change from browser back or forward switches the pane and the tab title", async () => {
+    await renderOptions(document.body);
+
+    window.location.hash = "#about";
+    window.dispatchEvent(new Event("hashchange"));
+    await settleMicrotasks();
+
+    expect(activeRoute()).toBe("about");
+    expect(contentPane().querySelector("h1")?.textContent).toBe("About");
+    expect(document.title).toBe("About · XBlocker settings");
+  });
+
   test("OS-04 clicking a nav item switches the pane, updates aria-current and the URL hash", async () => {
     await renderOptions(document.body);
 

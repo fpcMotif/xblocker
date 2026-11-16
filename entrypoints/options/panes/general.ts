@@ -72,7 +72,7 @@ export async function renderGeneralPane(container: HTMLElement): Promise<PaneHan
     [
       "autoBlockSpam",
       "Auto-block spam replies (Bot Sentry)",
-      "Off by default. Scans replies for known spam/bot patterns (escort & follow-bait lexicons) and blocks a match automatically — a hard-to-reverse, site-wide action, so review the log after enabling.",
+      "Off by default. Blocks replies that match known spam and bot patterns. A block is hard to reverse, so review the blocked log after you turn this on.",
     ],
   ];
 

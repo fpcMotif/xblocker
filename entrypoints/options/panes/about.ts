@@ -57,7 +57,11 @@ export function renderAboutPane(container: HTMLElement): PaneHandle {
   privacy.className = `${stylex.props(styles.rowCaption).className} xb-opt-row-caption`;
   privacy.textContent = "Data stays on this device unless cloud backup is turned on.";
 
-  wrapper.append(header, mark, version, tagline, link, privacy);
+  const card = document.createElement("div");
+  card.className = `${stylex.props(styles.card, styles.aboutCard).className} xb-opt-card`;
+  card.append(mark, version, tagline, link, privacy);
+
+  wrapper.append(header, card);
   container.replaceChildren(wrapper);
 
   return {

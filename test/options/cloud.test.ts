@@ -237,6 +237,24 @@ describe("Cloud backup pane (configured)", () => {
     expect(confirmButton.disabled).toBe(false);
   });
 
+  test("OC-07b the closed wipe panel is inert, and Escape closes an open one", async () => {
+    await renderCloudPane(document.body, cloudOptions());
+    const panel = document.querySelector<HTMLElement>(".xb-opt-wipe-panel")!;
+    expect(panel.inert).toBe(true);
+
+    byText("button", "Wipe cloud data").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(panel.inert).toBe(false);
+
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Type WIPE to confirm"]')!;
+    input.value = WIPE_CONFIRM_WORD;
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(panel.getAttribute("data-open")).toBe("false");
+    expect(panel.inert).toBe(true);
+    expect(input.value).toBe("");
+    expect(calls.clear).toBe(0);
+  });
+
   test("OC-08 confirming the wipe clears the cloud, resets sync meta, and closes the panel", async () => {
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: 12345 };
     await renderCloudPane(document.body, cloudOptions({ now: () => 999 }));

@@ -126,6 +126,15 @@ describe("Whitelist pane", () => {
     ]);
   });
 
+  test("OWL-07b the footer counts handles and follows an add", async () => {
+    storageFake.data["whitelist"] = ["alice", "bob"];
+    await renderWhitelistPane(document.body);
+    expect(document.querySelector(".xb-opt-footer-count")?.textContent).toBe("2 handles");
+
+    await submitAdd("carol");
+    expect(document.querySelector(".xb-opt-footer-count")?.textContent).toBe("3 handles");
+  });
+
   test("OWL-08 adding a valid handle appends a row and clears the input", async () => {
     await renderWhitelistPane(document.body);
     await submitAdd("newhandle");

@@ -57,6 +57,22 @@ const ROUTES: readonly RouteDef[] = [
   { id: "about", label: "About", icon: () => createInfoIcon(18) },
 ];
 
+const NAV_ITEM_PITCH_PX = 42;
+const PANE_ENTER_MS = 200;
+const PANE_ENTER_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
+
+function playPaneEnter(content: HTMLElement): void {
+  if (typeof content.animate !== "function") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  content.animate(
+    [
+      { opacity: 0, transform: "translateY(6px)" },
+      { opacity: 1, transform: "none" },
+    ],
+    { duration: PANE_ENTER_MS, easing: PANE_ENTER_EASING },
+  );
+}
+
 function isOptionsRoute(value: string): value is OptionsRoute {
   return ROUTES.some((route) => route.id === value);
 }
@@ -94,6 +110,17 @@ function buildNav(
 
   const links = new Map<OptionsRoute, HTMLAnchorElement>();
 
+  const indicator = document.createElement("span");
+  indicator.className = `${stylex.props(styles.navIndicator).className} xb-opt-nav-indicator`;
+  indicator.setAttribute("aria-hidden", "true");
+  nav.appendChild(indicator);
+
+  function moveIndicator(route: OptionsRoute): void {
+    const index = ROUTES.findIndex((candidate) => candidate.id === route);
+    indicator.style.transform = `translateY(${index * NAV_ITEM_PITCH_PX}px)`;
+  }
+  moveIndicator(activeRoute);
+
   for (const route of ROUTES) {
     const link = document.createElement("a");
     const isActive = route.id === activeRoute;
@@ -121,6 +148,7 @@ function buildNav(
   return {
     element: nav,
     setActive(route) {
+      moveIndicator(route);
       for (const [id, link] of links) {
         const isTarget = id === route;
         link.className = `${stylex.props(styles.navItem, isTarget && styles.navItemActive).className} xb-opt-nav-item`;
@@ -247,7 +275,19 @@ export async function renderOptions(
     outgoing?.destroy();
     content.replaceChildren(...Array.from(staging.childNodes));
     currentHandle = handle;
+    const label = ROUTES.find((candidate) => candidate.id === route)?.label;
+    if (label) document.title = `${label} · XBlocker settings`;
+    if (outgoing) playPaneEnter(content);
   }
+
+  function onHashChange(): void {
+    if (!shell.isConnected) {
+      window.removeEventListener("hashchange", onHashChange);
+      return;
+    }
+    void navigate(routeFromHash());
+  }
+  window.addEventListener("hashchange", onHashChange);
 
   const navControl = buildNav(routeFromHash(), (route) => {
     void navigate(route);
