@@ -12,7 +12,7 @@ re-architecture.
 > **Scope:** this redesign reskins the **bulk Reply Rail** only. Single-reply
 > (per-author) block/mute is a separate, **coexisting** surface — the **Cursor Console**
 > ([ADR-0001](../../adr/0001-one-click-manual-block.md)) — which this redesign does not
-> touch. See `CONTEXT.md` for the rail-vs-console (bulk-vs-single) split.
+> touch. See `GLOSSARY.md` for the rail-vs-console (bulk-vs-single) split.
 
 ## Problem (what makes the current rail look bad)
 
