@@ -63,9 +63,51 @@ function ensurePopupStyles(): void {
 
 		.xb-switch:checked { background: var(--xb-primary); border-color: var(--xb-primary); }
 		.xb-switch:checked::before { transform: translateX(16px); }
+		.xb-switch:active { transform: scale(0.96); }
 
-		.xb-sync-button {
-			min-width: 9ch;
+		.xb-toggle-row + .xb-toggle-row { border-top: 1px solid var(--xb-border); }
+
+		.xb-telltale[data-state="idle"] {
+			border-color: var(--xb-success);
+			background: var(--xb-success);
+		}
+		.xb-telltale[data-state="syncing"] {
+			border-color: var(--xb-primary);
+			background: var(--xb-primary);
+			animation: xb-breathe 900ms ease-in-out infinite;
+		}
+		.xb-telltale[data-state="error"] {
+			border-color: var(--xb-danger);
+			background: var(--xb-danger);
+			animation: xb-blink-error 900ms ease-in-out 1;
+		}
+		@keyframes xb-breathe {
+			0%, 100% { opacity: 1; }
+			50% { opacity: 0.4; }
+		}
+		@keyframes xb-blink-error {
+			0%, 100% { opacity: 1; }
+			15% { opacity: 0.25; }
+			30% { opacity: 1; }
+			45% { opacity: 0.25; }
+			60% { opacity: 1; }
+		}
+
+		.xb-sync-button { min-width: 9ch; }
+		.xb-sync-button:disabled { opacity: 0.45; cursor: default; }
+		.xb-sync-button:active:not(:disabled) { transform: scale(0.96); }
+		.xb-footer-button:active { transform: scale(0.98); }
+		.xb-spin { animation: xb-spin 0.8s linear infinite; }
+		@keyframes xb-spin {
+			from { transform: rotate(0deg); }
+			to { transform: rotate(360deg); }
+		}
+
+		@media (hover: hover) and (pointer: fine) {
+			.xb-sync-button:not(:disabled):hover { background: var(--xb-track); }
+			.xb-ghost-link:hover { color: var(--xb-ink); }
+			.xb-footer-button:hover { background: var(--xb-track); }
+			.xb-footer-button:hover .xb-footer-chevron { transform: translateX(2px); color: var(--xb-ink); }
 		}
 
 		@media (prefers-reduced-motion: reduce) {
@@ -295,7 +337,26 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
 
   row.append(left, action);
 
+  const persistentSyncButton = document.createElement("button");
+  persistentSyncButton.type = "button";
+  persistentSyncButton.className = `${stylex.props(styles.syncButton).className} xb-sync-button`;
+  const syncSpinner = createIcon("loading", 12);
+  const syncLabel = document.createElement("span");
+  persistentSyncButton.append(syncSpinner, syncLabel);
+  persistentSyncButton.addEventListener("click", () => trigger.run?.());
+
   function renderAction(state: SyncRowState): void {
+    if (state === "idle" || state === "syncing" || state === "error") {
+      const busy = state === "syncing";
+      persistentSyncButton.disabled = busy;
+      syncSpinner.style.display = busy ? "block" : "none";
+      syncLabel.textContent = busy ? "Syncing…" : "Sync now";
+      if (persistentSyncButton.parentElement !== action) {
+        action.replaceChildren(persistentSyncButton);
+      }
+      return;
+    }
+
     action.replaceChildren();
 
     if (state === "unconfigured") {
@@ -313,22 +374,7 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
       link.textContent = "Turn on in settings";
       link.addEventListener("click", openSettings);
       action.appendChild(link);
-      return;
     }
-    // idle | syncing | error: the one available action is (re)running a sync.
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `${stylex.props(styles.syncButton).className} xb-sync-button`;
-    const busy = state === "syncing";
-    button.disabled = busy;
-    if (busy) {
-      button.appendChild(createIcon("loading", 12));
-    }
-    const buttonLabel = document.createElement("span");
-    buttonLabel.textContent = busy ? "Syncing…" : "Sync now";
-    button.appendChild(buttonLabel);
-    button.addEventListener("click", () => trigger.run?.());
-    action.appendChild(button);
   }
 
   function setState(state: SyncRowState, idleDetail: string): void {

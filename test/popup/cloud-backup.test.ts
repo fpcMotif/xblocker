@@ -195,6 +195,23 @@ describe("popup cloud sync row", () => {
     expect(calls.pull).toBe(0);
   });
 
+  test("PU-CB-06b the sync button stays the same node and keeps focus across a sync", async () => {
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };
+    await renderPopup(document.body, cloudOptions());
+    await flush();
+
+    const button = syncButton()!;
+    button.focus();
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(syncButton()).toBe(button);
+    expect(document.activeElement).toBe(button);
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe("Sync now");
+  });
+
   test("PU-CB-06 a 'Sync now' failure surfaces the error telltale and retry copy", async () => {
     storageFake.data["cloudBackup"] = true;
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: Date.now() };

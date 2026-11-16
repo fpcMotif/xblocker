@@ -268,6 +268,10 @@ export class ReplyRail {
   incrementBlocked(by = 1): void {
     this.blockedCount += by;
     this.updateSessionDisplays();
+    if (by > 0) {
+      restartBump(this.puckCount);
+      restartBump(this.sessionCount);
+    }
   }
 
   setProgress(progress: BatchProgress | null): void {
@@ -665,6 +669,12 @@ export class ReplyRail {
     }
     this.rafId = null;
   }
+}
+
+function restartBump(element: HTMLElement): void {
+  element.dataset.bump = "false";
+  element.getBoundingClientRect();
+  element.dataset.bump = "true";
 }
 
 function clampY(y: number, height: number, viewport: Size): number {

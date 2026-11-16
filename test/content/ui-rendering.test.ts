@@ -554,6 +554,19 @@ describe("showWhitelistModal", () => {
     expect(document.querySelector<HTMLInputElement>("#xb-username-input")?.value).toBe("");
   });
 
+  test("MD-03b confirming an empty username marks the input invalid until the next edit", () => {
+    showWhitelistModal();
+    const input = document.querySelector<HTMLInputElement>("#xb-username-input")!;
+
+    click(document.querySelector<HTMLButtonElement>(".xb-modal-confirm")!);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById("xblocker-modal")).toBeTruthy();
+
+    input.value = "someone";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+  });
+
   test("MD-04 confirm persists the trimmed, @-stripped username and closes", async () => {
     showWhitelistModal();
     const input = document.querySelector<HTMLInputElement>("#xb-username-input");

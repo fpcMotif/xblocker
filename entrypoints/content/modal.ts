@@ -92,6 +92,8 @@ export function showWhitelistModal(): void {
     }
     const username = normalizeUsername(input.value.trim());
     if (!username) {
+      input.setAttribute("aria-invalid", "true");
+      input.focus();
       return;
     }
     submitting = true;
@@ -146,6 +148,9 @@ export function showWhitelistModal(): void {
   });
   confirmButton.addEventListener("click", () => {
     void submit();
+  });
+  input.addEventListener("input", () => {
+    input.removeAttribute("aria-invalid");
   });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {

@@ -259,6 +259,17 @@ describe("ReplyRail state machine", () => {
     expect(puck?.getAttribute("aria-label")).toBe("XBlocker — 3 blocked this session");
   });
 
+  test("RS-22b a session count increase flags both count badges to bump", () => {
+    const instance = setupRail();
+    const badge = instance.root.querySelector<HTMLElement>(".xb-puck-count");
+    const session = instance.root.querySelector<HTMLElement>(".xb-session-count");
+
+    instance.incrementBlocked(2);
+
+    expect(badge?.dataset["bump"]).toBe("true");
+    expect(session?.dataset["bump"]).toBe("true");
+  });
+
   test("RS-23 entering the reply region flips the rail off the collapsed surface", () => {
     const instance = setupRail();
     const reply = mountReply("alice");

@@ -149,9 +149,11 @@ const SHEET = `
 	left: 0;
 	bottom: 0;
 	height: 3px;
-	width: calc(var(--xb-progress, 0) * 100%);
+	width: 100%;
 	background: var(--xb-primary);
-	transition: width 200ms linear;
+	transform: scaleX(var(--xb-progress, 0));
+	transform-origin: left center;
+	transition: transform 200ms linear;
 }
 
 /* ---- Reply Rail ---- */
@@ -214,7 +216,7 @@ const SHEET = `
 	font-variant-numeric: tabular-nums;
 	color: var(--xb-ink-muted);
 }
-.xb-session-count { line-height: 1; }
+.xb-session-count { display: inline-block; line-height: 1; }
 
 /* ---- Collapsed puck ---- */
 .xb-puck {
@@ -261,6 +263,20 @@ const SHEET = `
 /* State-driven surface swap: puck at rest, body when active */
 .xb-rail[data-state="collapsed"] .xb-rail-body { display: none; }
 .xb-rail:not([data-state="collapsed"]) .xb-puck { display: none; }
+.xb-rail:not([data-state="collapsed"]) .xb-rail-body {
+	transform-origin: top center;
+	animation: xb-surface-in 200ms var(--xb-ease-out);
+}
+.xb-rail[data-state="collapsed"] .xb-puck { animation: xb-surface-in 150ms var(--xb-ease-out); }
+@keyframes xb-surface-in {
+	from { opacity: 0; transform: scale(0.96); }
+}
+.xb-puck-count[data-bump="true"], .xb-session-count[data-bump="true"] {
+	animation: xb-count-bump 200ms var(--xb-ease-out);
+}
+@keyframes xb-count-bump {
+	from { transform: scale(1.3); }
+}
 
 /* ---- Cursor Console (per-reply quick actions) ---- */
 .xb-console {
@@ -412,6 +428,8 @@ ${TWEET_ARTICLE_SELECTOR}:hover .xb-console,
 	transition: border-color 150ms ease;
 }
 .xb-modal input:focus { border-color: var(--xb-primary); }
+.xb-modal input[aria-invalid="true"] { border-color: var(--xb-danger); }
+.xb-modal input[aria-invalid="true"]::placeholder { color: var(--xb-danger); }
 .xb-modal-actions {
 	display: flex;
 	justify-content: flex-end;
