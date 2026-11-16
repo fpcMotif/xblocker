@@ -1,4 +1,5 @@
 import { addToWhitelist, normalizeUsername } from "./actions";
+import { createIcon } from "./icons";
 import { detectTheme } from "./theme";
 import { showToast } from "./toast";
 
@@ -30,10 +31,24 @@ export function showWhitelistModal(): void {
 		<h3>Add user to whitelist</h3>
 		<p>Whitelisted users are never blocked or muted.</p>`;
 
+  const badge = document.createElement("div");
+  badge.className = "xb-modal-badge";
+  badge.setAttribute("aria-hidden", "true");
+  badge.appendChild(createIcon("whitelist", 20));
+  modal.prepend(badge);
+
   const input = document.createElement("input");
   input.type = "text";
   input.id = "xb-username-input";
-  input.placeholder = "Username, without @";
+  input.placeholder = "username";
+  input.setAttribute("aria-label", "Username");
+  const field = document.createElement("div");
+  field.className = "xb-modal-field";
+  const at = document.createElement("span");
+  at.className = "xb-modal-at";
+  at.setAttribute("aria-hidden", "true");
+  at.textContent = "@";
+  field.append(at, input);
   input.autocomplete = "off";
   input.spellcheck = false;
 
@@ -49,7 +64,7 @@ export function showWhitelistModal(): void {
   confirmButton.textContent = "Add to whitelist";
   actions.appendChild(cancelButton);
   actions.appendChild(confirmButton);
-  modal.appendChild(input);
+  modal.appendChild(field);
   modal.appendChild(actions);
 
   backdrop.appendChild(modal);

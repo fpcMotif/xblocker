@@ -28,6 +28,7 @@ export const DWELL_MS = 1000;
 export const COLLAPSE_GRACE_MS = 600;
 
 const RAIL_EDGE_OFFSET = 24;
+const PUCK_SIZE = 48;
 const FALLBACK_WIDTH = 48;
 const FALLBACK_HEIGHT = 280;
 
@@ -106,6 +107,7 @@ export class ReplyRail {
     this.root.dataset.xbSurface = "reply-rail";
     this.root.dataset.xbTheme = detectTheme();
     this.root.dataset.state = "collapsed";
+    this.root.dataset.side = "right";
     // "group" rather than "toolbar": the rail has no roving-tabindex arrow-key
     // navigation between its buttons, so "toolbar" would overpromise a keyboard
     // model the rail doesn't implement.
@@ -134,15 +136,9 @@ export class ReplyRail {
       this.expandFromPuck();
     });
 
-    // Expanded surface: header + labeled bulk actions + footer.
     const body = document.createElement("div");
     body.className = "xb-rail-body";
 
-    const header = document.createElement("div");
-    header.className = "xb-rail-header";
-    const headerTitle = document.createElement("span");
-    headerTitle.className = "xb-rail-title";
-    headerTitle.textContent = "Replies";
     const handle = document.createElement("button");
     handle.type = "button";
     handle.className = "xb-btn xb-rail-handle";
@@ -151,7 +147,6 @@ export class ReplyRail {
     handle.title = "Move XBlocker rail";
     handle.appendChild(createIcon("drag", 16));
     this.attachDrag(handle);
-    header.append(headerTitle, handle);
 
     const blockButton = createLabeledActionButton({
       action: "block",
@@ -207,10 +202,10 @@ export class ReplyRail {
     sessionIndicator.appendChild(createIcon("shield", 14));
     const sessionCount = document.createElement("span");
     sessionCount.className = "xb-session-count";
-    sessionIndicator.appendChild(sessionCount);
-    footer.append(footerActions, sessionIndicator);
+    sessionIndicator.append(sessionCount, "blocked");
+    footer.append(footerActions, sessionIndicator, handle);
 
-    body.append(header, blockButton, muteButton, this.divider(), footer);
+    body.append(blockButton, muteButton, footer);
     this.root.append(puck, body);
 
     this.blockButton = blockButton;
@@ -509,10 +504,10 @@ export class ReplyRail {
     }
   }
 
-  private divider(): HTMLSpanElement {
-    const divider = document.createElement("span");
-    divider.className = "xb-divider-h";
-    return divider;
+  private updateSide(): void {
+    const opensRight =
+      this.homePos !== null && this.homePos.x + PUCK_SIZE / 2 < this.viewport().width / 2;
+    this.root.dataset.side = opensRight ? "left" : "right";
   }
 
   private applyPosition(position: DockPosition): void {
@@ -572,6 +567,7 @@ export class ReplyRail {
       if (this.homePos) {
         saveDockPosition(this.homePos);
       }
+      this.updateSide();
       // A cancelled gesture (e.g. the browser taking over the pointer) is never a click.
       if (
         onClick &&
@@ -591,6 +587,9 @@ export class ReplyRail {
   }
 
   private setState(state: RailStateName): void {
+    if (this.state === "collapsed" && state !== "collapsed") {
+      this.updateSide();
+    }
     this.state = state;
     this.root.dataset.state = state;
   }

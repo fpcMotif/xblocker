@@ -63,9 +63,13 @@ function ensurePopupStyles(): void {
 
 		.xb-switch:checked { background: var(--xb-primary); border-color: var(--xb-primary); }
 		.xb-switch:checked::before { transform: translateX(16px); }
-		.xb-switch:active { transform: scale(0.96); }
+		.xb-switch::before { transition: transform 200ms var(--xb-ease-out), width 200ms var(--xb-ease-out); }
+		.xb-switch:active::before { width: 18px; }
+		.xb-switch:checked:active::before { transform: translateX(12px); }
 
 		.xb-toggle-row + .xb-toggle-row { border-top: 1px solid var(--xb-border); }
+		.xb-toggle-title { transition: transform 200ms var(--xb-ease-out); }
+		.xb-footer-button svg { transition: transform 250ms var(--xb-ease-out); }
 
 		.xb-telltale[data-state="idle"] {
 			border-color: var(--xb-success);
@@ -107,6 +111,8 @@ function ensurePopupStyles(): void {
 			.xb-sync-button:not(:disabled):hover { background: var(--xb-track); }
 			.xb-ghost-link:hover { color: var(--xb-ink); }
 			.xb-footer-button:hover { background: var(--xb-track); }
+			.xb-footer-button:hover svg { transform: rotate(45deg); }
+			.xb-toggle-row:hover .xb-toggle-title { transform: translateX(2px); }
 			.xb-footer-button:hover .xb-footer-chevron { transform: translateX(2px); color: var(--xb-ink); }
 		}
 
@@ -135,7 +141,7 @@ function buildHeader(): HTMLElement {
 
   const mark = document.createElement("span");
   mark.className = `${stylex.props(styles.brandMark).className} xb-brand-mark`;
-  mark.appendChild(createIcon("shield", 14));
+  mark.appendChild(createIcon("shield", 16));
 
   const title = document.createElement("h1");
   title.className = `${stylex.props(styles.title).className}`;
@@ -165,17 +171,18 @@ function buildStatCell(
   label: string,
   tone: "danger" | "success" | "warning",
   clock: Partial<LiveNumberClock> | undefined,
+  hero = false,
 ): {
   element: HTMLElement;
   live: LiveNumber;
 } {
   const cell = document.createElement("div");
-  cell.className = `${stylex.props(styles.statCell).className} xb-stat-cell`;
+  cell.className = `${stylex.props(styles.card, styles.statCell, hero && styles.statCellHero).className} xb-stat-cell`;
   cell.setAttribute("role", "group");
   cell.setAttribute("aria-label", label);
 
   const value = document.createElement("span");
-  value.className = `${stylex.props(styles.statValue).className} xb-stat-value`;
+  value.className = `${stylex.props(styles.statValue, hero && styles.statValueHero).className} xb-stat-value`;
   cell.appendChild(value);
   const live = createLiveNumber(value, clock ? { clock } : {});
 
@@ -185,7 +192,7 @@ function buildStatCell(
   cell.appendChild(tick);
 
   const labelNode = document.createElement("span");
-  labelNode.className = `${stylex.props(styles.statLabel).className} xb-stat-label`;
+  labelNode.className = `${stylex.props(styles.statLabel, hero && styles.statLabelHero).className} xb-stat-label`;
   labelNode.textContent = label;
   cell.appendChild(labelNode);
 
@@ -198,10 +205,9 @@ function buildStatStrip(clock: Partial<LiveNumberClock> | undefined): {
   whitelistLive: LiveNumber;
 } {
   const strip = document.createElement("div");
-  strip.className = `${stylex.props(styles.regionBorder, styles.statStrip).className} xb-region xb-stat-strip`;
+  strip.className = `${stylex.props(styles.statStrip).className} xb-region xb-stat-strip`;
 
-  const blocked = buildStatCell("Blocked", "danger", clock);
-  blocked.element.classList.add(stylex.props(styles.statCellFirst).className!);
+  const blocked = buildStatCell("Blocked", "danger", clock, true);
   const muted = buildStatCell("Muted", "warning", clock);
   const whitelisted = buildStatCell("Whitelisted", "success", clock);
   strip.append(blocked.element, muted.element, whitelisted.element);
@@ -247,7 +253,7 @@ function buildToggleRow(
 
 function buildToggles(settings: Settings): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = `${stylex.props(styles.regionBorder, styles.toggles).className} xb-region xb-toggles`;
+  wrap.className = `${stylex.props(styles.card, styles.toggles).className} xb-region xb-toggles`;
   wrap.appendChild(
     buildToggleRow(
       "Protect whitelist",
@@ -309,7 +315,7 @@ type SyncRowHandles = {
  */
 function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
   const row = document.createElement("div");
-  row.className = `${stylex.props(styles.regionBorder, styles.syncRow).className} xb-region xb-sync-row`;
+  row.className = `${stylex.props(styles.card, styles.syncRow).className} xb-region xb-sync-row`;
 
   const left = document.createElement("div");
   left.className = `${stylex.props(styles.syncLeft).className} xb-sync-left`;
@@ -390,14 +396,19 @@ function buildSyncRow(trigger: { run?: () => void }): SyncRowHandles {
 
 function buildFooter(): HTMLElement {
   const footer = document.createElement("footer");
-  footer.className = `${stylex.props(styles.regionBorder, styles.footer).className} xb-footer`;
+  footer.className = `${stylex.props(styles.footer).className} xb-footer`;
 
   const button = document.createElement("button");
   button.type = "button";
   button.className = `${stylex.props(styles.footerButton).className} xb-footer-button`;
 
   const label = document.createElement("span");
-  label.textContent = "Open settings";
+  label.className = stylex.props(styles.footerLabel).className ?? "";
+  const gear = document.createElement("span");
+  gear.className = stylex.props(styles.footerIcon).className ?? "";
+  gear.setAttribute("aria-hidden", "true");
+  gear.appendChild(createIcon("settings", 15));
+  label.append(gear, "Open settings");
 
   const chevron = document.createElement("span");
   chevron.className = `${stylex.props(styles.footerChevron).className} xb-footer-chevron`;
