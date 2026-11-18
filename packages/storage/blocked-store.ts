@@ -123,7 +123,7 @@ function readKey<T>(key: string): Promise<T | undefined> {
   return new Promise((resolve, reject) => {
     // Annotate the (inherently untyped) storage result so the value flows out as T
     // without an unsafe assertion.
-    chrome.storage.local.get(key, (result?: { [storageKey: string]: T | undefined }) => {
+    chrome.storage.local.get(key, (result: { [storageKey: string]: T | undefined } | undefined) => {
       // Real chrome runs this callback after get() returns, so a throw here would
       // escape the promise and leave the mutation chain waiting forever.
       if (result === undefined) {
