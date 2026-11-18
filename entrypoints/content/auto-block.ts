@@ -21,7 +21,8 @@ import {
   waitFor,
 } from "./actions";
 import { classify } from "./spam-classifier";
-import { readSettings, type Settings } from "../../packages/storage/settings";
+import { SETTINGS_KEY } from "../../packages/storage/chrome-storage";
+import { normalizeSettings, readSettings, type Settings } from "../../packages/storage/settings";
 import { showToast } from "./toast";
 
 // A short pace between successive auto-blocks in one scan pass, mirroring the bulk
@@ -46,23 +47,59 @@ export class SpamAutoBlocker {
   // disconnecting the observer alone does not stop a scan that already started, so runScan
   // checks this flag before ever touching the DOM.
   private destroyed = false;
+  private settings: Settings | null = null;
+  private unsubscribeSettings: (() => void) | null = null;
 
   constructor(options: SpamAutoBlockerOptions = {}) {
     this.onBlocked = options.onBlocked ?? (() => {});
   }
 
   mount(): void {
-    this.observer = new MutationObserver(() => {
-      this.scan();
+    this.subscribeToSettings();
+    void readSettings().then((settings) => {
+      this.settings = settings;
+      this.applySettings();
+      return null;
     });
-    this.observer.observe(document.body, { childList: true, subtree: true });
-    this.scan();
   }
 
   destroy(): void {
     this.destroyed = true;
     this.observer?.disconnect();
     this.observer = null;
+    this.unsubscribeSettings?.();
+    this.unsubscribeSettings = null;
+  }
+
+  private subscribeToSettings(): void {
+    const onChanged = chrome.storage?.onChanged;
+    if (!onChanged || typeof onChanged.addListener !== "function") {
+      return;
+    }
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
+      const change = changes[SETTINGS_KEY];
+      if (areaName !== "local" || !change) return;
+      this.settings = normalizeSettings(change.newValue);
+      this.applySettings();
+    };
+    onChanged.addListener(listener);
+    this.unsubscribeSettings = () => onChanged.removeListener(listener);
+  }
+
+  private applySettings(): void {
+    if (this.destroyed || !this.settings) {
+      return;
+    }
+    if (this.settings.autoBlockSpam && !this.observer) {
+      this.observer = new MutationObserver(() => {
+        this.scan();
+      });
+      this.observer.observe(document.body, { childList: true, subtree: true });
+      this.scan();
+    } else if (!this.settings.autoBlockSpam && this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
   }
 
   /** Observer entry point; also called directly in tests for determinism. */
@@ -85,7 +122,7 @@ export class SpamAutoBlocker {
   }
 
   private async runScan(): Promise<void> {
-    const settings = await readSettings();
+    const settings = this.settings ?? (await readSettings());
     // destroy() can land while this read was in flight (e.g. a fast navigate-away right
     // after mount's own initial scan) -- disconnecting the observer doesn't reach back
     // into an already-started scan, so this checks explicitly before touching the DOM.
