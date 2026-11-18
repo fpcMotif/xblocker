@@ -147,7 +147,7 @@ Repo conventions that bind this work:
 | Purpose | Command | Expected on success |
 |---|---|---|
 | Typecheck (extension) | `bun run typecheck` | exit 0 |
-| Typecheck (Convex) | `bunx tsgo --noEmit -p convex/tsconfig.json` | exit 0, no output |
+| Typecheck (Convex) | `bunx tsc --noEmit -p convex/tsconfig.json` | exit 0, no output |
 | Lint | `bun run lint` | exit 0 |
 | Boundaries | `bun run lint:boundaries` | exit 0 |
 | Format check | `bun run format:check` | exit 0 (run `bun run format` to fix) |
@@ -188,7 +188,7 @@ In `convex/whitelist.ts`:
 
 The root `tsconfig.json` excludes `convex/`, so `bun run typecheck` does not check this file. Use the Convex command.
 
-**Verify**: `bunx tsgo --noEmit -p convex/tsconfig.json` → exit 0, no output. `bun run lint` → exit 0. `rg -n "export const listWhitelistPage" convex/whitelist.ts` → one match.
+**Verify**: `bunx tsc --noEmit -p convex/tsconfig.json` → exit 0, no output. `bun run lint` → exit 0. `rg -n "export const listWhitelistPage" convex/whitelist.ts` → one match.
 
 ### Step 2: Walk the pages from the extension, with a fallback
 
@@ -218,7 +218,7 @@ In `packages/sync/lib/convex-sync.ts`:
 ## Done criteria
 
 - [ ] `bun run typecheck`, `bun run lint`, `bun run lint:boundaries`, `bun run format:check` exit 0
-- [ ] `bunx tsgo --noEmit -p convex/tsconfig.json` exits 0
+- [ ] `bunx tsc --noEmit -p convex/tsconfig.json` exits 0
 - [ ] `bun test` exits 0
 - [ ] `rg -n "listWhitelistPage" convex/whitelist.ts packages/sync/lib/convex-sync.ts` shows the query and its reference
 - [ ] `rg -n "export const listWhitelist = query" convex/whitelist.ts` still matches
@@ -231,7 +231,7 @@ In `packages/sync/lib/convex-sync.ts`:
 Stop and report back if:
 
 - The quoted code does not match the live files.
-- `bunx tsgo --noEmit -p convex/tsconfig.json` fails before you change anything. It passed when this plan was written.
+- `bunx tsc --noEmit -p convex/tsconfig.json` fails before you change anything. It passed when this plan was written.
 - The change seems to need a schema change or an edit under `convex/_generated/`.
 - A step's verification fails twice after a reasonable fix attempt.
 
