@@ -11,6 +11,7 @@ The owner selected all ten audit findings for planning. Plan 011 was added by th
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | [001](001-gate-bot-sentry-observer.md) | The Bot Sentry does no work while auto-block is off | P1 | S | — | DONE (branch `advisor/001-gate-bot-sentry-observer`, commit `97a1b74`, not merged) |
+| [012](012-bun-native-toolchain.md) | Type-check, lint, and format with Bun's built-in tools | P0 | M | — (run first) | TODO |
 | [002](002-index-cloud-merge.md) | A cloud pull merges in linear time and writes only on change | P1 | S | — | TODO |
 | [003](003-read-only-outbox-keys.md) | Reading the sync outbox loads only the outbox keys | P1 | M | — | TODO |
 | [004](004-quiet-background-worker.md) | The background worker wakes and syncs only when there is work | P1 | S | — | TODO |
@@ -26,6 +27,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Dependency notes
 
+- 012 runs before 002–011. Today `bun run typecheck` fails at `packages/storage/blocked-store.ts:126`, and every other plan's gates run it. 012 keeps the script names, so the other plans' commands stay valid.
 - 005 requires 002 because 005 rewrites `mergeRemote` and must keep the lookup indexes and the "write only what changed" rule that 002 introduces.
 - 005 requires 003 because 005 lists accounts with `storageGetByPrefix`, the helper 003 adds.
 - 011 requires 003 for the same helper.
