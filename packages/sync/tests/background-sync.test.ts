@@ -5,11 +5,13 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   createBackgroundSyncScheduler,
   readCloudBackupEnabled,
+  runBackgroundCloudSync,
   OUTBOX_SYNC_DEBOUNCE_MS,
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
   SYNC_DUE_KEY,
 } from "../background-sync.ts";
+import { createCloudSyncSession } from "../cloud-session.ts";
 import { OUTBOX_STORAGE_KEY } from "../../storage/blocked-store.ts";
 import { WHITELIST_OUTBOX_STORAGE_KEY } from "../../storage/whitelist-store.ts";
 import { installManualTimers, settleMicrotasks } from "../../../test/helpers/timers.ts";
@@ -368,6 +370,34 @@ describe("background entrypoint wiring", () => {
       chromeStorage["onChanged"] = originalOnChanged;
       chromeAny["alarms"] = originalAlarms;
     }
+  });
+
+  test("BG-17 a background sync queued behind a wipe re-reads the flag and bows out", async () => {
+    // The worker checks the flag before it asks for the lock. A wipe in the options page
+    // holds the lock and turns backup off, so the queued sync must re-read the flag once
+    // it holds the lock instead of pushing into the cloud the user just deleted.
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["blockedOutbox"] = [];
+    let releaseClear: (() => void) | undefined;
+    const wiping = createCloudSyncSession({
+      clearCloud: () =>
+        new Promise<void>((resolve) => {
+          releaseClear = resolve;
+        }),
+    });
+    let adapterLoads = 0;
+
+    const wipe = wiping.wipeCloud();
+    const sync = runBackgroundCloudSync(async () => {
+      adapterLoads += 1;
+      throw new Error("the queued sync must not reach the cloud");
+    });
+    await settleMicrotasks();
+    releaseClear?.();
+    await wipe;
+
+    expect(await sync).toEqual({ status: "skipped" });
+    expect(adapterLoads).toBe(0);
   });
 
   test("BG-16 an xb-open-options message opens the options page; other messages do not", async () => {

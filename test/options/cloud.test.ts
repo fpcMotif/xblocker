@@ -341,7 +341,7 @@ describe("Cloud backup pane (configured)", () => {
     expect(rowValues()).toEqual(["On", "Never synced.", "0", "On", "Never synced.", "1"]);
 
     byButtonText("Sync now").dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await settleMicrotasks(50);
+    await settleMicrotasks(100);
 
     expect(pushed).toEqual([[{ handle: "alice", status: "active", at: 1, actionId: "w1" }]]);
     expect(storageFake.data["whitelistOutbox"]).toEqual([]);

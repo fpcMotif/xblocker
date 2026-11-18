@@ -459,6 +459,31 @@ describe("rail batch actions", () => {
     ).toBe(true);
   });
 
+  test("RA-21 a rail remounted mid-batch reports the busy page instead of a false success", async () => {
+    // An SPA navigation to another thread destroys this rail and mounts a new one while
+    // the shared batch runner keeps going. The new rail's sibling button was never
+    // disabled, so a click reached the runner's re-entry guard, got null back, and
+    // painted a success check for a batch that never ran.
+    populateTweetPage(["alice", "bob"]);
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    getRailButton("Block all replies").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settleMicrotasks(30);
+
+    rail!.destroy();
+    await mountRail();
+    const muteButton = getRailButton("Mute all replies");
+    muteButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settleMicrotasks(30);
+
+    expect(muteButton.dataset["state"]).toBe("error");
+    expect(queryToast()?.textContent).toContain("already running");
+
+    await driveBatch(manual!);
+    expect(fetchStub.calls.some((call) => call.url.includes("/mutes/users/create.json"))).toBe(
+      false,
+    );
+  });
+
   test("RA-20 the default isBatchRunning pins the rail on the real actions-module flag, not an injected fake", async () => {
     // mountRail() builds this instance via `new ReplyRail()` with no `isBatchRunning`
     // override, so this exercises rail.ts's actual `options.isBatchRunning ?? isBatchRunning`

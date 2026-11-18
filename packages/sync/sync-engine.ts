@@ -106,6 +106,35 @@ export const SYNCED_COLLECTIONS: readonly AnySyncedCollection[] = [
   whitelistCollection,
 ];
 
+/** Web Lock name shared by every extension context that talks to the cloud. */
+export const CLOUD_SYNC_LOCK = "xblocker-cloud-sync";
+
+let localCloudLockChain: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run `task` while holding the cross-context cloud lock. The popup, each options-pane
+ * mount and the background worker each own a separate cloud session, so a per-session
+ * guard cannot stop a wipe from racing another context's in-flight push. Web Locks are
+ * shared by every same-origin extension context, including the service worker. A
+ * runtime without them (the unit tests) falls back to one in-process chain.
+ */
+export function withCloudSyncLock<T>(task: () => Promise<T>): Promise<T> {
+  const locks = globalThis.navigator?.locks;
+  if (locks && typeof locks.request === "function") {
+    return locks.request(CLOUD_SYNC_LOCK, task);
+  }
+  const run = localCloudLockChain.then(task);
+  localCloudLockChain = run.catch(() => undefined);
+  return run;
+}
+
+/** Whether cloud backup is still on, re-read under the lock: a wipe or the toggle may
+ *  have turned it off while this sync waited. Only an explicit `false` counts as off,
+ *  because callers that pass `enabled` have already checked the flag. */
+export async function isCloudBackupStillOn(): Promise<boolean> {
+  return (await storageGet<boolean>(CLOUD_BACKUP_KEY)) !== false;
+}
+
 /** A pull refreshes remote state even with nothing to push; how old the last sync may
  *  be before an auto-sync considers the local view stale. */
 export const SYNC_STALE_MS = 15 * 60 * 1000;

@@ -471,6 +471,14 @@ export class ReplyRail {
   }
 
   private async runBatch(kind: "block" | "mute", button: LabeledActionButton): Promise<void> {
+    // The runner is shared by every rail instance, and an SPA navigation mounts a fresh
+    // rail while a batch started on the previous thread is still running. That rail's
+    // sibling was never disabled, so refuse here: the runner's guard would return null
+    // and the button would paint a success for a batch that never ran.
+    if (this.isBatchRunning()) {
+      showToast("A bulk action is already running. Wait for it to finish.", "info");
+      throw new Error(`Batch ${kind} refused: another batch is running.`);
+    }
     // Block-all and Mute-all act on the same reply set, so a second bulk click while one
     // batch is in flight would hit the actions-layer runner's re-entry guard, return null, and
     // (1) paint a false success check on the second button and (2) null activeButton, freezing

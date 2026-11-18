@@ -3,12 +3,14 @@ import { CLOUD_BACKUP_KEY, storageSet } from "../storage/chrome-storage";
 import {
   type AnyCloudAdapter,
   formatSyncAge,
+  isCloudBackupStillOn,
   readCombinedSyncMeta,
   runAutoCloudSyncAll,
   runCloudSyncAll,
   SYNC_META_KEY,
   type SyncMeta,
   type SyncOutcome,
+  withCloudSyncLock,
 } from "./sync-engine";
 
 export type LoadCloudAdapter = () => Promise<AnyCloudAdapter>;
@@ -98,6 +100,21 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
     return mapSyncOutcomeToState(outcome, meta, now());
   }
 
+  async function wipeUnderLock(): Promise<{ pendingCount: number }> {
+    await clearCloud();
+    // The cloud rows are gone, so the queued outbox actions that produced them must
+    // never re-push (that would silently repopulate the cloud the user just wiped) —
+    // drain the outbox by marking every pending item synced.
+    const pending = await blockedStore.pending();
+    if (pending.length > 0) {
+      await blockedStore.markSynced(pending.map((item) => item.action.actionId));
+    }
+    // A wiped cloud with backup left on would just refill on the next auto-sync, so
+    // the wipe also turns cloud backup off.
+    await storageSet({ [SYNC_META_KEY]: {}, [CLOUD_BACKUP_KEY]: false });
+    return { pendingCount: (await blockedStore.pending()).length };
+  }
+
   return {
     isInFlight: () => owner !== undefined,
 
@@ -107,9 +124,8 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
       try {
         // One "Sync now" drives every synced collection (blocklist + whitelist) —
         // an injected adapter is served to all of them.
-        const outcome = await runCloudSyncAll(
-          now,
-          loadAdapter ? async () => loadAdapter() : undefined,
+        const outcome = await withCloudSyncLock(() =>
+          runCloudSyncAll(now, loadAdapter ? async () => loadAdapter() : undefined),
         );
         return { outcome, ...(await mapOutcome(outcome)) };
       } finally {
@@ -125,16 +141,22 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
       // superseding manual sync.
       let claimed = false;
       try {
-        const outcome = await runAutoCloudSyncAll(backupEnabled, now, async (collection) => {
-          if (!claimed) {
-            if (owner) throw autoSuperseded;
-            claimed = true;
-            started = true;
-            owner = "auto";
-            hooks?.onSyncStart?.();
-          }
-          return loadAdapter ? loadAdapter() : collection.loadAdapter();
-        });
+        const outcome = await withCloudSyncLock(async () =>
+          runAutoCloudSyncAll(
+            backupEnabled && (await isCloudBackupStillOn()),
+            now,
+            async (collection) => {
+              if (!claimed) {
+                if (owner) throw autoSuperseded;
+                claimed = true;
+                started = true;
+                owner = "auto";
+                hooks?.onSyncStart?.();
+              }
+              return loadAdapter ? loadAdapter() : collection.loadAdapter();
+            },
+          ),
+        );
         return { outcome, ...(await mapOutcome(outcome)) };
       } catch (error) {
         if (error === autoSuperseded) return { state: "syncing", detail: "" };
@@ -156,18 +178,7 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
       }
       owner = "wipe";
       try {
-        await clearCloud();
-        // The cloud rows are gone, so the queued outbox actions that produced them must
-        // never re-push (that would silently repopulate the cloud the user just wiped) —
-        // drain the outbox by marking every pending item synced.
-        const pending = await blockedStore.pending();
-        if (pending.length > 0) {
-          await blockedStore.markSynced(pending.map((item) => item.action.actionId));
-        }
-        // A wiped cloud with backup left on would just refill on the next auto-sync, so
-        // the wipe also turns cloud backup off.
-        await storageSet({ [SYNC_META_KEY]: {}, [CLOUD_BACKUP_KEY]: false });
-        return { pendingCount: (await blockedStore.pending()).length };
+        return await withCloudSyncLock(() => wipeUnderLock());
       } finally {
         if (owner === "wipe") owner = undefined;
       }

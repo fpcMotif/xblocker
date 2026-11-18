@@ -1153,3 +1153,68 @@ describe("BlockedStore serialized mutations (XB-BUG-08 family)", () => {
     }
   });
 });
+
+describe("BlockedStore across JS contexts", () => {
+  /** Run queued storage callbacks and the continuations they release, in rounds. */
+  async function drain(rounds = 8): Promise<void> {
+    for (let round = 0; round < rounds; round++) {
+      storageFake.flush();
+      await settleMicrotasks();
+    }
+  }
+
+  test("BS-49 a sync context's markSynced never drops an action another context queued meanwhile", async () => {
+    // The content script records while the popup or worker marks a pushed batch synced.
+    // They are separate JS contexts with separate mutation chains. Interleave them so
+    // both read the outbox before either writes: the record writes [a, b], then
+    // markSynced writes back its stale copy minus `a`, which must not erase `b`.
+    storageFake.reset();
+    const content = createBlockedStore();
+    const sync = createBlockedStore();
+    await content.record({ handle: "first", kind: "block", source: "reply-bar", xUserId: "1" });
+    const [pushed] = await sync.pending();
+    if (!pushed) throw new Error("expected one queued action");
+
+    storageFake.useManualDispatch();
+    try {
+      const recording = content.record({
+        handle: "second",
+        kind: "block",
+        source: "reply-bar",
+        xUserId: "2",
+      });
+      await settleMicrotasks();
+      storageFake.flush(); // the record's account read
+      await settleMicrotasks();
+      const marking = sync.markSynced([pushed.action.actionId]);
+      await drain();
+      await recording;
+      await marking;
+
+      const pendingPromise = sync.pending();
+      await drain();
+      expect((await pendingPromise).map((item) => item.accountKey)).toEqual(["2"]);
+    } finally {
+      storageFake.reset();
+    }
+  });
+
+  test("BS-50 a failed read delivered asynchronously rejects the mutation instead of hanging", async () => {
+    // Real chrome.storage runs its callback after get() returns. A throw inside that
+    // callback escapes the promise, so the mutation never settles and wedges the chain.
+    storageFake.reset();
+    const store = createBlockedStore();
+    storageFake.useManualDispatch();
+    try {
+      storageFake.failNextGet = true;
+      const failing = store.record({ handle: "boom", kind: "block", source: "reply-bar" });
+      await settleMicrotasks();
+      expect(() => storageFake.flush()).not.toThrow();
+      await drain();
+      expect(failing).rejects.toThrow();
+      await failing.catch(() => undefined);
+    } finally {
+      storageFake.reset();
+    }
+  });
+});
