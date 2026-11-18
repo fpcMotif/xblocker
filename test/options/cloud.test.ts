@@ -90,7 +90,7 @@ async function waitForHeading(text: string): Promise<void> {
   const deadline = Date.now() + 1_000;
   while (Date.now() < deadline) {
     if (document.querySelector(".xb-opt-content h1")?.textContent === text) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Bun.sleep(0);
   }
   throw new Error(`heading did not become "${text}"`);
 }

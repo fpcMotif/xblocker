@@ -40,8 +40,8 @@ export function outboxItemToRecordArgs(item: OutboxItem): RecordActionArgs {
     at: item.action.at,
     source: item.action.source,
     clientActionId: item.action.actionId,
-    ...(item.action.fromAccount ? { fromAccount: item.action.fromAccount } : {}),
-    ...(item.accountKey !== xUserId ? { aliasKey: item.accountKey } : {}),
+    ...(item.action.fromAccount ? { fromAccount: item.action.fromAccount } : undefined),
+    ...(item.accountKey !== xUserId ? { aliasKey: item.accountKey } : undefined),
   };
 }
 

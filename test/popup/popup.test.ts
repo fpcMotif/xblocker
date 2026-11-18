@@ -344,7 +344,7 @@ describe("mountPopupIfPresent", () => {
     document.body.appendChild(app);
 
     mountPopupIfPresent(cloudTestOptions());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Bun.sleep(0);
 
     expect(app.querySelector('[data-xb-surface="popup"]')).toBeTruthy();
   });

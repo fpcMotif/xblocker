@@ -227,7 +227,7 @@ export function createBlockedStore(): BlockedStore {
         if (lastAction) {
           const item: OutboxItem = {
             accountKey: storeKey,
-            ...(merged.xUserId ? { xUserId: merged.xUserId } : {}),
+            ...(merged.xUserId ? { xUserId: merged.xUserId } : undefined),
             handle: merged.handle,
             idUnknown: merged.idUnknown,
             action: lastAction,
@@ -307,7 +307,7 @@ export function createBlockedStore(): BlockedStore {
               idUnknown: row.idUnknown,
               // A handle-keyed cloud row stores "@handle" in xUserId as its key; locally
               // that is not a real id, so only keep xUserId when the id is actually known.
-              ...(!row.idUnknown && row.xUserId ? { xUserId: row.xUserId } : {}),
+              ...(!row.idUnknown && row.xUserId ? { xUserId: row.xUserId } : undefined),
               firstActionAt: row.firstActionAt,
               lastActionAt: row.lastActionAt,
               blockCount: row.blockCount,

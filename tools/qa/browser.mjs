@@ -54,6 +54,7 @@ async function agent(args, session, extension) {
       cwd: root,
       stdout: "pipe",
       stderr: "pipe",
+      windowsHide: true,
     },
   );
   const [stdout, stderr, code] = await Promise.all([

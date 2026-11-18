@@ -160,7 +160,7 @@ export async function recordAction(
         handle: outcome.screen_name,
         kind: "block",
         source,
-        ...(outcome.id_str ? { xUserId: outcome.id_str } : {}),
+        ...(outcome.id_str ? { xUserId: outcome.id_str } : undefined),
       });
     } else {
       await blockedStore.record({ handle: username, kind: "mute", source });

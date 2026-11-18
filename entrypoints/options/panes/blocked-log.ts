@@ -370,7 +370,7 @@ export async function renderBlockedLogPane(
       container: scroll,
       rowHeight: BLOCKED_LOG_ROW_HEIGHT,
       renderRow,
-      ...(opts.getViewportHeight ? { getViewportHeight: opts.getViewportHeight } : {}),
+      ...(opts.getViewportHeight ? { getViewportHeight: opts.getViewportHeight } : undefined),
     });
 
     onScroll = () => {

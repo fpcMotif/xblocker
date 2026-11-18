@@ -84,7 +84,7 @@ function makeAction(input: RecordInput, at: number, actionId: string): BlockActi
     kind: input.kind,
     at,
     source: input.source,
-    ...(input.fromAccount ? { fromAccount: input.fromAccount } : {}),
+    ...(input.fromAccount ? { fromAccount: input.fromAccount } : undefined),
   };
 }
 
@@ -137,7 +137,7 @@ export function applyAccountRollup(
     return {
       handle: input.handle,
       idUnknown: input.idUnknown,
-      ...(input.xUserId ? { xUserId: input.xUserId } : {}),
+      ...(input.xUserId ? { xUserId: input.xUserId } : undefined),
       firstActionAt: input.at,
       lastActionAt: input.at,
       blockCount: input.kind === "block" ? 1 : 0,
@@ -153,7 +153,7 @@ export function applyAccountRollup(
     ...existing,
     handle: isNewer ? input.handle : existing.handle,
     idUnknown: existing.idUnknown && input.idUnknown,
-    ...(xUserId ? { xUserId } : {}),
+    ...(xUserId ? { xUserId } : undefined),
     firstActionAt: Math.min(existing.firstActionAt, input.at),
     lastActionAt: Math.max(existing.lastActionAt, input.at),
     blockCount: existing.blockCount + (input.kind === "block" ? 1 : 0),
@@ -209,7 +209,7 @@ export function mergeBlockedAccount(
   const rollup = applyAccountRollup(existing, {
     handle,
     idUnknown: !input.xUserId,
-    ...(input.xUserId ? { xUserId: input.xUserId } : {}),
+    ...(input.xUserId ? { xUserId: input.xUserId } : undefined),
     kind: input.kind,
     at,
   });
@@ -218,7 +218,7 @@ export function mergeBlockedAccount(
     ...rollup,
     key:
       existing?.key ??
-      accountKeyFor({ ...(input.xUserId ? { xUserId: input.xUserId } : {}), handle }),
+      accountKeyFor({ ...(input.xUserId ? { xUserId: input.xUserId } : undefined), handle }),
     actions: existing ? [...existing.actions, action] : [action],
   };
 }
@@ -256,7 +256,7 @@ export function foldAccountSnapshot(
     ...local,
     handle: remoteNewer ? row.handle : local.handle,
     idUnknown: local.idUnknown && row.idUnknown,
-    ...(learnedId ? { xUserId: learnedId } : {}),
+    ...(learnedId ? { xUserId: learnedId } : undefined),
     firstActionAt: Math.min(local.firstActionAt, row.firstActionAt),
     lastActionAt: Math.max(local.lastActionAt, row.lastActionAt),
     blockCount: Math.max(local.blockCount, row.blockCount),

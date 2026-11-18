@@ -17,22 +17,32 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { generateCrxKey, packCrx } from "../packages/crx/pack.ts";
 
-const OUT_DIR = resolve(".output");
-const KEY_PATH = resolve(process.env.XBLOCKER_CRX_KEY ?? ".keys/crx.pem");
+function outDir(): string {
+  return fileURLToPath(new URL("../.output", import.meta.url));
+}
+
+function keyPath(): string {
+  const override = process.env.XBLOCKER_CRX_KEY;
+  return override === undefined
+    ? fileURLToPath(new URL("../.keys/crx.pem", import.meta.url))
+    : resolve(override);
+}
 
 function readKey(): string {
-  if (existsSync(KEY_PATH)) {
-    return readFileSync(KEY_PATH, "utf8");
+  const path = keyPath();
+  if (existsSync(path)) {
+    return readFileSync(path, "utf8");
   }
 
-  mkdirSync(resolve(KEY_PATH, ".."), { recursive: true });
+  mkdirSync(resolve(path, ".."), { recursive: true });
   const pem = generateCrxKey();
-  writeFileSync(KEY_PATH, pem, { mode: 0o600 });
-  chmodSync(KEY_PATH, 0o600);
-  console.log(`Generated a new signing key at ${KEY_PATH} — back it up, never commit it.`);
+  writeFileSync(path, pem, { mode: 0o600 });
+  chmodSync(path, 0o600);
+  console.log(`Generated a new signing key at ${path} — back it up, never commit it.`);
 
   return pem;
 }
@@ -45,13 +55,14 @@ function build(): void {
 }
 
 function newestZip(): string {
-  const zips = readdirSync(OUT_DIR)
+  const dir = outDir();
+  const zips = readdirSync(dir)
     .filter((name) => name.endsWith("-chrome.zip"))
-    .map((name) => join(OUT_DIR, name))
+    .map((name) => join(dir, name))
     .toSorted((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
   const newest = zips[0];
   if (!newest) {
-    throw new Error(`No *-chrome.zip in ${OUT_DIR} — run without --skip-build.`);
+    throw new Error(`No *-chrome.zip in ${dir} — run without --skip-build.`);
   }
 
   return newest;
@@ -59,11 +70,12 @@ function newestZip(): string {
 
 /** The version the build actually stamped into manifest.json — update.xml must match it. */
 function builtVersion(): string {
+  const dir = outDir();
   const manifest: unknown = JSON.parse(
-    readFileSync(join(OUT_DIR, "chrome-mv3", "manifest.json"), "utf8"),
+    readFileSync(join(dir, "chrome-mv3", "manifest.json"), "utf8"),
   );
   if (!(manifest instanceof Object) || !("version" in manifest)) {
-    throw new Error(`No version in ${OUT_DIR}/chrome-mv3/manifest.json.`);
+    throw new Error(`No version in ${dir}/chrome-mv3/manifest.json.`);
   }
 
   return String(manifest.version);
@@ -89,7 +101,7 @@ const zipPath = newestZip();
 const crxPath = zipPath.replace(/\.zip$/, ".crx");
 const packed = packCrx(readFileSync(zipPath), privateKeyPem);
 writeFileSync(crxPath, packed.crx);
-const xmlPath = join(OUT_DIR, "update.xml");
+const xmlPath = join(outDir(), "update.xml");
 writeFileSync(xmlPath, updateManifest(packed.extensionId, builtVersion(), crxPath));
 
 console.log(`
@@ -97,7 +109,7 @@ Packed ${basename(crxPath)} (${(packed.crx.length / 1024).toFixed(1)} KB)
   crx          ${crxPath}
   update.xml   ${xmlPath}
   extension ID ${packed.extensionId}
-  signing key  ${KEY_PATH}
+  signing key  ${keyPath()}
 
 Dragging an off-store .crx onto chrome://extensions is blocked on Windows and can fail
 elsewhere with CRX_REQUIRED_PROOF_MISSING. The routes that always work: load

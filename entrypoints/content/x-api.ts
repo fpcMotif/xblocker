@@ -260,7 +260,7 @@ export async function readBlockOutcome(
     console.warn("Could not read block response body; falling back to screen name.", error);
   }
 
-  return { screen_name: screenName, ...(idStr ? { id_str: idStr } : {}) };
+  return { screen_name: screenName, ...(idStr ? { id_str: idStr } : undefined) };
 }
 
 export function blockUserDirectly(username: string): Promise<Response> {

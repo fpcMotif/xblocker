@@ -1,4 +1,3 @@
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { AxeBuilder } from "@axe-core/playwright";
@@ -6,10 +5,7 @@ import { test as base, chromium, type BrowserContext, type Page } from "@playwri
 
 import { FIXTURE_URL, statusPageHtml, type HostTheme } from "./x-fixture.ts";
 
-const EXTENSION_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../.output/chrome-mv3",
-);
+const EXTENSION_DIR = fileURLToPath(new URL("../../.output/chrome-mv3", import.meta.url));
 
 type StorageSeed = Record<string, unknown>;
 

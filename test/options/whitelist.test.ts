@@ -181,13 +181,13 @@ describe("Whitelist pane", () => {
 
     searchInput().value = "ali";
     searchInput().dispatchEvent(new Event("input", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, WHITELIST_SEARCH_DEBOUNCE_MS + 10));
+    await Bun.sleep(WHITELIST_SEARCH_DEBOUNCE_MS + 10);
     expect(rows()).toHaveLength(1);
     expect(rows()[0]?.textContent).toContain("alice");
 
     searchInput().value = "zzz";
     searchInput().dispatchEvent(new Event("input", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, WHITELIST_SEARCH_DEBOUNCE_MS + 10));
+    await Bun.sleep(WHITELIST_SEARCH_DEBOUNCE_MS + 10);
     expect(rows()).toHaveLength(0);
     expect(document.body.textContent).toContain('No handles match "zzz".');
   });

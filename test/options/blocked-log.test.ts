@@ -219,7 +219,7 @@ describe("Blocked log pane", () => {
     const search = document.querySelector<HTMLInputElement>('[aria-label="Search blocked log"]')!;
     search.value = "user_1";
     search.dispatchEvent(new Event("input", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, BLOCKED_LOG_SEARCH_DEBOUNCE_MS + 10));
+    await Bun.sleep(BLOCKED_LOG_SEARCH_DEBOUNCE_MS + 10);
 
     expect(rowsOnScreen()).toHaveLength(1);
     expect(rowsOnScreen()[0]?.textContent).toContain("user_1");
@@ -310,7 +310,7 @@ describe("Blocked log pane", () => {
     const search = document.querySelector<HTMLInputElement>('[aria-label="Search blocked log"]')!;
     search.value = "nobody-matches-this";
     search.dispatchEvent(new Event("input", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, BLOCKED_LOG_SEARCH_DEBOUNCE_MS + 10));
+    await Bun.sleep(BLOCKED_LOG_SEARCH_DEBOUNCE_MS + 10);
 
     expect(document.body.textContent).toContain("No accounts match these filters.");
     expect(document.body.textContent).toContain("Try a different search or filter.");

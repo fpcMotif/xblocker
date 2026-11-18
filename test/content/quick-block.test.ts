@@ -27,7 +27,7 @@ import { installManualTimers } from "../helpers/timers.ts";
 // Mirrors AUTO_CONFIRM_WINDOW_MS in quick-block.ts (the sheet-watch expiry).
 const AUTO_CONFIRM_WINDOW = 2000;
 
-const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+const tick = (): Promise<void> => Bun.sleep(0);
 async function settle(): Promise<void> {
   await tick();
   await tick();

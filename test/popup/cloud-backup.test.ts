@@ -49,7 +49,7 @@ function cloudOptions() {
 /** Drain the microtask/macrotask queue so the fire-and-forget mount-time sync handler
  *  (and any click-triggered one) settles before assertions run. */
 function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  return Bun.sleep(0);
 }
 
 /** The lean popup's one sync region — see main.ts's buildSyncRow. */

@@ -52,7 +52,7 @@ await test("browser session scope cannot be overridden", async () => {
 await test("CLI browser validation completes without an import deadlock", async () => {
   const child = Bun.spawn(
     [process.execPath, "--no-env-file", root + "/tools/qa/run.mjs", "browser"],
-    { cwd: root, stdout: "pipe", stderr: "pipe" },
+    { cwd: root, stdout: "pipe", stderr: "pipe", windowsHide: true },
   );
   const timeout = setTimeout(() => child.kill(), 5000);
   try {
