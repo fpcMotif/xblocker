@@ -142,8 +142,7 @@ export const SYNC_STALE_MS = 15 * 60 * 1000;
 export type SyncMeta = { lastSyncAt?: number };
 
 export type SyncOutcome =
-  | { status: "unconfigured" }
-  | { status: "synced"; pushed: number; pulled: number; at: number };
+  { status: "unconfigured" } | { status: "synced"; pushed: number; pulled: number; at: number };
 
 function isSyncMeta(value: unknown): value is SyncMeta {
   return typeof value === "object" && value !== null;

@@ -1,13 +1,5 @@
 export type IconType =
-  | "block"
-  | "mute"
-  | "whitelist"
-  | "shield"
-  | "settings"
-  | "drag"
-  | "check"
-  | "cross"
-  | "loading";
+  "block" | "mute" | "whitelist" | "shield" | "settings" | "drag" | "check" | "cross" | "loading";
 
 const ICON_PATHS: Record<Exclude<IconType, "loading" | "drag">, string> = {
   block: `<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>

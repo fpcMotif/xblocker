@@ -81,11 +81,23 @@ files = ["wxt.config.ts"]
 rules = { "@typescript-eslint/no-unsafe-argument" = "off" }
 
 [[lint.overrides]]
-files = ["entrypoints/**", "packages/*/*.ts", "packages/*/lib/**", "packages/sync/tests/background-sync.test.ts"]
+files = [
+  "entrypoints/**",
+  "packages/*/*.ts",
+  "packages/*/lib/**",
+  "packages/sync/tests/background-sync.test.ts",
+]
 rules = { "bun/prefer-builtin-sleep" = "off" }
 
 [[lint.overrides]]
-files = ["entrypoints/*/main.ts", "entrypoints/content/index.ts", "entrypoints/background.ts", "scripts/**", "tools/**", "test/**"]
+files = [
+  "entrypoints/*/main.ts",
+  "entrypoints/content/index.ts",
+  "entrypoints/background.ts",
+  "scripts/**",
+  "tools/**",
+  "test/**",
+]
 rules = { "bun/no-side-effects-on-import" = "off" }
 
 [[lint.overrides]]
