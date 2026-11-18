@@ -54,7 +54,7 @@
     "dependency-cruiser": "^18.5.0",
     "happy-dom": "^20.14.6",
     "oxfmt": "^0.72.0",
-    "typescript": "7.0.2",
+    "typescript": "next",
     "varlock": "^1.21.1",
     "wxt": "^0.21.4"
   },
