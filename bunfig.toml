@@ -95,3 +95,7 @@ rules = { "bun/no-eager-dynamic-import" = "off" }
 [[lint.overrides]]
 files = ["wxt.config.ts"]
 rules = { "bun/no-env-at-module-scope" = "off" }
+
+[fmt]
+printWidth = 100
+ignorePatterns = [".output/", ".wxt/", "coverage/", "node_modules/"]

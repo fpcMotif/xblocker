@@ -30,8 +30,8 @@
     "lint": "bun lint --max-warnings 0",
     "lint:fix": "bun lint --fix",
     "lint:boundaries": "depcruise entrypoints packages convex",
-    "format": "oxfmt --write package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\" \"scripts/**/*.ts\"",
-    "format:check": "oxfmt --check package.json tsconfig.json wxt.config.ts bts.jsonc .oxlintrc.json .oxfmtrc.json bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\" \"scripts/**/*.ts\"",
+    "format": "bun fmt package.json tsconfig.json wxt.config.ts bts.jsonc bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\" \"scripts/**/*.ts\"",
+    "format:check": "bun fmt --check package.json tsconfig.json wxt.config.ts bts.jsonc bunfig.toml README.md \"entrypoints/**/*.ts\" \"test/**/*.ts\" \"packages/**/*.ts\" \"scripts/**/*.ts\"",
     "check": "bun run typecheck && bun run lint && bun run lint:boundaries && bun run format:check && bun run design:contrast && bun test && bun run build",
     "prepare": "varlock codegen",
     "env:check": "varlock load",
@@ -53,7 +53,6 @@
     "culori": "^4.0.2",
     "dependency-cruiser": "^18.5.0",
     "happy-dom": "^20.14.6",
-    "oxfmt": "^0.72.0",
     "typescript": "next",
     "varlock": "^1.21.1",
     "wxt": "^0.21.4"
