@@ -37,7 +37,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## What each plan needs from the owner
 
-- 004: confirm the 6-hour background staleness window, and add one sentence to `docs/adr/0003-sync-policy-and-cloud-adapter.md` after it lands.
+- 004: the owner confirmed the 6-hour background staleness window on 2026-11-18. Add one sentence to `docs/adr/0003-sync-policy-and-cloud-adapter.md` after it lands.
 - 005: load the built extension over a profile with existing data and compare the counts before and after.
 - 007: scroll to the end of a long Blocked log in a real browser. The plan changes the row-height constant from 36 to 40 to match the row style; this mismatch was found by reading the code and was not confirmed in a browser.
 - 006: run `bun run design` and review any whitelist snapshot difference; the table gains a 560 px maximum height with its own scrollbar.
