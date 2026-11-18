@@ -91,7 +91,7 @@ export function createCloudSyncSession(deps: CloudSyncDeps = {}): CloudSyncSessi
   const clearCloud = deps.clearCloud ?? clearDefaultCloud;
   const now = deps.now ?? Date.now;
   let owner: "auto" | "manual" | "wipe" | undefined;
-  const autoSuperseded = Symbol();
+  const autoSuperseded = new Error("superseded");
 
   async function mapOutcome(
     outcome: SyncOutcome | { status: "skipped" },

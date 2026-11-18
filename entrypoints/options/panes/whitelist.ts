@@ -262,7 +262,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     tableArea.replaceChildren(table);
   }
 
-  addForm.addEventListener("submit", async (event) => {
+  const submitAdd = async (event: SubmitEvent): Promise<void> => {
     event.preventDefault();
     const raw = addInput.value;
     const result: WhitelistAddResult = await addToWhitelist(raw);
@@ -288,6 +288,9 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
         : result === "exists"
           ? "That handle is already whitelisted."
           : "Something went wrong. Try again.";
+  };
+  addForm.addEventListener("submit", (event) => {
+    void submitAdd(event);
   });
 
   searchInput.addEventListener("input", () => {
@@ -307,7 +310,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     fileInput.click();
   });
 
-  fileInput.addEventListener("change", async () => {
+  const importFile = async (): Promise<void> => {
     const file = fileInput.files?.[0];
     if (!file) return;
     const raw = await file.text();
@@ -327,6 +330,9 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     importResult.textContent = `Imported ${outcome.added}, skipped ${outcome.skippedDuplicates} duplicates.`;
     entries = await getWhitelist();
     drawTable();
+  };
+  fileInput.addEventListener("change", () => {
+    void importFile();
   });
 
   drawTable();

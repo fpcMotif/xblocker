@@ -18,3 +18,35 @@ env = false
 # Configure package manager settings
 cache = false
 registry = "https://registry.npmjs.org"
+
+[lint]
+typeAware = true
+plugins = ["typescript", "unicorn", "oxc", "import", "promise"]
+ignorePatterns = [".claude/", ".output/", ".wxt/", "convex/", "coverage/", "node_modules/"]
+
+[lint.categories]
+correctness = "error"
+suspicious = "error"
+perf = "warn"
+
+[lint.rules]
+"no-async-promise-executor" = "error"
+"no-await-in-loop" = "off"
+"no-console" = "off"
+"no-empty" = "error"
+"no-fallthrough" = "error"
+"no-underscore-dangle" = "off"
+"no-prototype-builtins" = "error"
+"no-self-assign" = "error"
+"no-unused-vars" = "error"
+"prefer-const" = "error"
+"unicorn/consistent-function-scoping" = "off"
+"use-isnan" = "error"
+
+[[lint.overrides]]
+files = ["test/**", "packages/*/tests/**"]
+rules = { "@typescript-eslint/require-await" = "off", "@typescript-eslint/no-unsafe-assignment" = "off", "@typescript-eslint/no-unsafe-argument" = "off", "@typescript-eslint/unbound-method" = "off" }
+
+[[lint.overrides]]
+files = ["wxt.config.ts"]
+rules = { "@typescript-eslint/no-unsafe-argument" = "off" }

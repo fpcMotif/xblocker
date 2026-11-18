@@ -150,7 +150,7 @@ describe("runManual", () => {
     const session = createCloudSyncSession({ loadAdapter: async () => adapter });
 
     const run = session.runManual();
-    expect(run).rejects.toThrow("pull boom");
+    await expect(run).rejects.toThrow("pull boom");
     await run.catch(() => undefined);
     expect(session.isInFlight()).toBe(false);
   });
@@ -402,7 +402,7 @@ describe("wipeCloud", () => {
     });
 
     const wipe = session.wipeCloud();
-    expect(wipe).rejects.toThrow("wipe boom");
+    await expect(wipe).rejects.toThrow("wipe boom");
     await wipe.catch(() => undefined);
     expect(storageFake.data["blockedOutbox"]).toHaveLength(1);
     expect(storageFake.data["cloudBackup"]).toBe(true);
@@ -421,7 +421,7 @@ describe("wipeCloud", () => {
 
     const sync = session.runManual();
     const wipe = session.wipeCloud();
-    expect(wipe).rejects.toThrow(/in progress/);
+    await expect(wipe).rejects.toThrow(/in progress/);
     await wipe.catch(() => undefined);
     expect(clearCalls).toBe(0);
     expect(storageFake.data["cloudBackup"]).toBeUndefined();
@@ -528,7 +528,7 @@ describe("production defaults", () => {
 
       storageFake.data["blockedOutbox"] = [pendingItem("a1")];
       const wipe = session.wipeCloud();
-      expect(wipe).rejects.toThrow(/not configured/);
+      await expect(wipe).rejects.toThrow(/not configured/);
       await wipe.catch(() => undefined);
       expect(storageFake.data["blockedOutbox"]).toHaveLength(1);
     } finally {

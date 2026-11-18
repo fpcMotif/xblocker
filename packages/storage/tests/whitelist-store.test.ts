@@ -447,7 +447,7 @@ describe("cloud-sync port: pending / markSynced", () => {
 
     storageFake.failNextGet = true;
     const failedRead = pendingWhitelistOutbox();
-    expect(failedRead).rejects.toThrow(/outbox/);
+    await expect(failedRead).rejects.toThrow(/outbox/);
     await failedRead.catch(() => undefined);
   });
 

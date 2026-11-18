@@ -28,7 +28,6 @@ type DesignFixtures = {
 };
 
 export const test = base.extend<DesignFixtures>({
-  // oxlint-disable-next-line no-empty-pattern
   context: async ({}, use) => {
     const context = await chromium.launchPersistentContext("", {
       channel: "chromium",
@@ -79,8 +78,7 @@ export const test = base.extend<DesignFixtures>({
     });
   },
 
-  openStatusPage: async ({ context, extensionId }, use) => {
-    void extensionId;
+  openStatusPage: async ({ context, extensionId: _extensionId }, use) => {
     await use(async (options) => {
       const page = await context.newPage();
       await page.setViewportSize({ width: 1280, height: 800 });

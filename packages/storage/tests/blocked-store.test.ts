@@ -1211,7 +1211,7 @@ describe("BlockedStore across JS contexts", () => {
       await settleMicrotasks();
       expect(() => storageFake.flush()).not.toThrow();
       await drain();
-      expect(failing).rejects.toThrow();
+      await expect(failing).rejects.toThrow();
       await failing.catch(() => undefined);
     } finally {
       storageFake.reset();

@@ -189,7 +189,7 @@ export async function renderCloudPane(
     refreshBlocks(currentBlocked, currentWhitelist);
   });
 
-  syncButton.addEventListener("click", async () => {
+  const syncNow = async (): Promise<void> => {
     syncButton.disabled = true;
     syncButton.textContent = "Syncing…";
     try {
@@ -216,6 +216,9 @@ export async function renderCloudPane(
       syncButton.disabled = false;
       syncButton.textContent = "Sync now";
     }
+  };
+  syncButton.addEventListener("click", () => {
+    void syncNow();
   });
 
   const dangerCard = document.createElement("div");
@@ -305,7 +308,7 @@ export async function renderCloudPane(
   wipeInput.addEventListener("input", () => {
     confirmButton.disabled = wipeInput.value.trim().toUpperCase() !== WIPE_CONFIRM_WORD;
   });
-  confirmButton.addEventListener("click", async () => {
+  const confirmWipe = async (): Promise<void> => {
     confirmButton.disabled = true;
     cancelButton.disabled = true;
     try {
@@ -324,6 +327,9 @@ export async function renderCloudPane(
       cancelButton.disabled = false;
       confirmButton.disabled = wipeInput.value.trim().toUpperCase() !== WIPE_CONFIRM_WORD;
     }
+  };
+  confirmButton.addEventListener("click", () => {
+    void confirmWipe();
   });
 
   wrapper.append(header, statusCard, dangerCard);

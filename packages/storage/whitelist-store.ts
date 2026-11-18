@@ -64,14 +64,17 @@ type WhitelistRead = { ok: boolean; whitelist: string[] };
 
 function readWhitelist(): Promise<WhitelistRead> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(WHITELIST_KEY, (result) => {
-      if (result === undefined) {
-        resolve({ ok: false, whitelist: [] });
-        return;
-      }
-      const stored = result[WHITELIST_KEY];
-      resolve({ ok: true, whitelist: Array.isArray(stored) ? stored : [] });
-    });
+    chrome.storage.local.get(
+      WHITELIST_KEY,
+      (result: { [storageKey: string]: string[] | undefined } | undefined) => {
+        if (result === undefined) {
+          resolve({ ok: false, whitelist: [] });
+          return;
+        }
+        const stored = result[WHITELIST_KEY];
+        resolve({ ok: true, whitelist: Array.isArray(stored) ? stored : [] });
+      },
+    );
   });
 }
 

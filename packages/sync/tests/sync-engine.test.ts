@@ -671,7 +671,7 @@ describe("withCloudSyncLock", () => {
     expect(order).toEqual(["first:start"]);
 
     releaseFirst?.();
-    expect(first).rejects.toThrow("first failed");
+    await expect(first).rejects.toThrow("first failed");
     // A failed holder must not wedge the next one.
     expect(await second).toBe("ok");
     expect(order).toEqual(["first:start", "first:end", "second"]);
