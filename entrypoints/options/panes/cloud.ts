@@ -82,17 +82,20 @@ function buildCollectionBlock(title: string, now: () => number): CollectionBlock
   const pending = metaRow("Pending actions");
 
   const element = document.createElement("div");
+  element.className = "xb-opt-collection";
   element.append(status.row, lastSynced.row, pending.row);
 
   return {
     element,
     setDisplay(enabled, meta, pendingCount) {
       status.value.textContent = enabled ? "On" : "Off";
+      status.value.dataset.state = enabled ? "on" : "off";
       lastSynced.value.textContent = formatSyncAge(meta, now());
       pending.value.textContent = String(pendingCount);
     },
     setStatusText(text) {
       status.value.textContent = text;
+      status.value.dataset.state = "error";
     },
   };
 }
@@ -157,7 +160,7 @@ export async function renderCloudPane(
   syncButton.type = "button";
   syncButton.className = `${stylex.props(tableStyles.btn, tableStyles.btnSecondary).className} xb-opt-btn`;
   syncButton.dataset.variant = "secondary";
-  syncButton.style.setProperty("--xb-opt-btn-reserve", "88px");
+  syncButton.style.minWidth = "96px";
   syncButton.textContent = "Sync now";
   syncRow.append(syncButton);
 
@@ -186,7 +189,7 @@ export async function renderCloudPane(
     refreshBlocks(currentBlocked, currentWhitelist);
   });
 
-  syncButton.addEventListener("click", async () => {
+  const syncNow = async (): Promise<void> => {
     syncButton.disabled = true;
     syncButton.textContent = "Syncing…";
     try {
@@ -213,6 +216,9 @@ export async function renderCloudPane(
       syncButton.disabled = false;
       syncButton.textContent = "Sync now";
     }
+  };
+  syncButton.addEventListener("click", () => {
+    void syncNow();
   });
 
   const dangerCard = document.createElement("div");
@@ -243,6 +249,8 @@ export async function renderCloudPane(
   const wipePanel = document.createElement("div");
   wipePanel.className = `${stylex.props(shellStyles.wipePanel).className} xb-opt-wipe-panel`;
   wipePanel.dataset.open = "false";
+  wipePanel.inert = true;
+  wipeButton.setAttribute("aria-expanded", "false");
 
   const wipeCaption = document.createElement("p");
   wipeCaption.className = `${stylex.props(tableStyles.fieldCaption).className} xb-opt-field-caption`;
@@ -275,6 +283,8 @@ export async function renderCloudPane(
 
   function closeWipePanel(): void {
     wipePanel.dataset.open = "false";
+    wipePanel.inert = true;
+    wipeButton.setAttribute("aria-expanded", "false");
     wipeInput.value = "";
     confirmButton.disabled = true;
     wipeResult.hidden = true;
@@ -282,13 +292,23 @@ export async function renderCloudPane(
 
   wipeButton.addEventListener("click", () => {
     wipePanel.dataset.open = "true";
+    wipePanel.inert = false;
+    wipeButton.setAttribute("aria-expanded", "true");
     wipeInput.focus();
   });
-  cancelButton.addEventListener("click", closeWipePanel);
+  cancelButton.addEventListener("click", () => {
+    closeWipePanel();
+    wipeButton.focus();
+  });
+  wipePanel.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || cancelButton.disabled) return;
+    closeWipePanel();
+    wipeButton.focus();
+  });
   wipeInput.addEventListener("input", () => {
     confirmButton.disabled = wipeInput.value.trim().toUpperCase() !== WIPE_CONFIRM_WORD;
   });
-  confirmButton.addEventListener("click", async () => {
+  const confirmWipe = async (): Promise<void> => {
     confirmButton.disabled = true;
     cancelButton.disabled = true;
     try {
@@ -307,6 +327,9 @@ export async function renderCloudPane(
       cancelButton.disabled = false;
       confirmButton.disabled = wipeInput.value.trim().toUpperCase() !== WIPE_CONFIRM_WORD;
     }
+  };
+  confirmButton.addEventListener("click", () => {
+    void confirmWipe();
   });
 
   wrapper.append(header, statusCard, dangerCard);

@@ -554,6 +554,24 @@ describe("showWhitelistModal", () => {
     expect(document.querySelector<HTMLInputElement>("#xb-username-input")?.value).toBe("");
   });
 
+  test("MD-03b confirming an empty username marks the input invalid until the next edit", () => {
+    showWhitelistModal();
+    const input = document.querySelector<HTMLInputElement>("#xb-username-input")!;
+
+    click(document.querySelector<HTMLButtonElement>(".xb-modal-confirm")!);
+    const error = document.getElementById(input.getAttribute("aria-describedby") ?? "")!;
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(error.getAttribute("role")).toBe("alert");
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toContain("Enter a username");
+    expect(document.getElementById("xblocker-modal")).toBeTruthy();
+
+    input.value = "someone";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+    expect(error.hidden).toBe(true);
+  });
+
   test("MD-04 confirm persists the trimmed, @-stripped username and closes", async () => {
     showWhitelistModal();
     const input = document.querySelector<HTMLInputElement>("#xb-username-input");
@@ -567,18 +585,18 @@ describe("showWhitelistModal", () => {
     await settleMicrotasks();
 
     expect(storageFake.data["whitelist"]).toEqual(["added_via_modal"]);
-    // One write carries the list and the queued cloud-sync change together.
-    expect(storageFake.setCalls).toEqual([
+    // One write carries the list and the queued cloud-sync change together, the change
+    // under its own outbox key.
+    expect(storageFake.setCalls).toHaveLength(1);
+    const [write] = storageFake.setCalls;
+    expect(write!["whitelist"]).toEqual(["added_via_modal"]);
+    const queued = Object.entries(write!).filter(([key]) => key.startsWith("whitelistOutbox:"));
+    expect(queued.map(([, value]) => value)).toEqual([
       {
-        whitelist: ["added_via_modal"],
-        whitelistOutbox: [
-          {
-            handle: "added_via_modal",
-            status: "active",
-            at: expect.any(Number),
-            actionId: expect.any(String),
-          },
-        ],
+        handle: "added_via_modal",
+        status: "active",
+        at: expect.any(Number),
+        actionId: expect.any(String),
       },
     ]);
     const toast = getToast("Added @added_via_modal to whitelist");

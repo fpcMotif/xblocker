@@ -29,7 +29,11 @@ import {
   WHITELIST_SYNC_META_KEY,
   type CloudAdapter,
   type SyncedCollection,
+  CLOUD_SYNC_LOCK,
+  isCloudBackupStillOn,
+  withCloudSyncLock,
 } from "../sync-engine.ts";
+import { settleMicrotasks } from "../../../test/helpers/timers.ts";
 import type { OutboxItem, RemoteAccount } from "../../storage/blocked-store.ts";
 import type { RemoteWhitelistEntry, WhitelistOutboxItem } from "../../storage/whitelist-store.ts";
 import { CLOUD_BACKUP_KEY } from "../../storage/chrome-storage.ts";
@@ -644,6 +648,58 @@ describe("readCloudDisplayState", () => {
       meta: {},
       pendingCount: 2,
     });
+  });
+});
+
+describe("withCloudSyncLock", () => {
+  test("LK-01 without Web Locks, a second task waits until the first settles", async () => {
+    const order: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const first = withCloudSyncLock(async () => {
+      order.push("first:start");
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      order.push("first:end");
+      throw new Error("first failed");
+    });
+    const second = withCloudSyncLock(async () => {
+      order.push("second");
+      return "ok";
+    });
+    await settleMicrotasks();
+    expect(order).toEqual(["first:start"]);
+
+    releaseFirst?.();
+    await expect(first).rejects.toThrow("first failed");
+    // A failed holder must not wedge the next one.
+    expect(await second).toBe("ok");
+    expect(order).toEqual(["first:start", "first:end", "second"]);
+  });
+
+  test("LK-02 uses the shared Web Lock when the runtime has one", async () => {
+    const requested: string[] = [];
+    const locks = {
+      request: (name: string, task: () => Promise<unknown>) => {
+        requested.push(name);
+        return task();
+      },
+    };
+    Object.defineProperty(navigator, "locks", { value: locks, configurable: true });
+    try {
+      expect(await withCloudSyncLock(async () => 7)).toBe(7);
+      expect(requested).toEqual([CLOUD_SYNC_LOCK]);
+    } finally {
+      Reflect.deleteProperty(navigator, "locks");
+    }
+  });
+
+  test("LK-03 isCloudBackupStillOn treats only an explicit false as off", async () => {
+    expect(await isCloudBackupStillOn()).toBe(true);
+    storageFake.data["cloudBackup"] = true;
+    expect(await isCloudBackupStillOn()).toBe(true);
+    storageFake.data["cloudBackup"] = false;
+    expect(await isCloudBackupStillOn()).toBe(false);
   });
 });
 

@@ -51,13 +51,17 @@ export function renderAboutPane(container: HTMLElement): PaneHandle {
   link.href = REPO_URL;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  link.textContent = "View source on GitHub ↗";
+  link.textContent = "View source on GitHub";
 
   const privacy = document.createElement("p");
   privacy.className = `${stylex.props(styles.rowCaption).className} xb-opt-row-caption`;
   privacy.textContent = "Data stays on this device unless cloud backup is turned on.";
 
-  wrapper.append(header, mark, version, tagline, link, privacy);
+  const card = document.createElement("div");
+  card.className = `${stylex.props(styles.card, styles.aboutCard).className} xb-opt-card`;
+  card.append(mark, version, tagline, link, privacy);
+
+  wrapper.append(header, card);
   container.replaceChildren(wrapper);
 
   return {

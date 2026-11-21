@@ -14,7 +14,14 @@ import {
   removeFromWhitelist,
 } from "../../entrypoints/content/actions.ts";
 import { settleMicrotasks } from "../helpers/timers.ts";
-import { resetTestEnvironment, storageFake } from "../setup.ts";
+import { resetTestEnvironment, storageFake, type StorageItems } from "../setup.ts";
+
+/** The queued whitelist changes one storage.set carried, one key per change. */
+function queuedIn(write: StorageItems): unknown[] {
+  return Object.entries(write)
+    .filter(([key]) => key.startsWith("whitelistOutbox:"))
+    .map(([, value]) => value);
+}
 
 describe("getWhitelist", () => {
   beforeEach(() => {
@@ -79,7 +86,7 @@ describe("addToWhitelist", () => {
     // content script only ever writes — the background worker drains the outbox.
     expect(storageFake.setCalls).toHaveLength(1);
     expect(storageFake.setCalls[0]!["whitelist"]).toEqual(["frank"]);
-    expect(storageFake.setCalls[0]!["whitelistOutbox"]).toEqual([
+    expect(queuedIn(storageFake.setCalls[0]!)).toEqual([
       { handle: "frank", status: "active", at: expect.any(Number), actionId: expect.any(String) },
     ]);
   });
@@ -108,8 +115,8 @@ describe("addToWhitelist", () => {
 
     expect(await addToWhitelist("not a handle")).toBe("invalid");
     expect(storageFake.data["whitelist"]).toEqual(["frank"]);
-    // The valid add reads the list AND the outbox; the invalid one reads nothing.
-    expect(storageFake.getCalls).toHaveLength(2);
+    // The valid add reads only the list; the invalid one reads nothing.
+    expect(storageFake.getCalls).toHaveLength(1);
     expect(storageFake.setCalls).toHaveLength(1);
   });
 
@@ -152,7 +159,7 @@ describe("removeFromWhitelist", () => {
     // The removal is queued as a status flip in the same write (ADR-0002 precedent).
     expect(storageFake.setCalls).toHaveLength(1);
     expect(storageFake.setCalls[0]!["whitelist"]).toEqual(["bob"]);
-    expect(storageFake.setCalls[0]!["whitelistOutbox"]).toEqual([
+    expect(queuedIn(storageFake.setCalls[0]!)).toEqual([
       { handle: "alice", status: "removed", at: expect.any(Number), actionId: expect.any(String) },
     ]);
   });

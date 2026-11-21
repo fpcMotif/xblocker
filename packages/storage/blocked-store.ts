@@ -5,8 +5,16 @@
 // (`convex-sync.ts`) is a thin layer on top that drains the outbox this store keeps.
 //
 // Storage layout (all under chrome.storage.local):
-//   - `blockedAccounts`: Record<key, BlockedAccount>   (object map, O(1) lookup)
-//   - `blockedOutbox`:   OutboxItem[]                  (actions waiting to sync to cloud)
+//   - `blockedAccounts`:          Record<key, BlockedAccount>  (object map, O(1) lookup)
+//   - `blockedOutbox:<actionId>`: OutboxItem                   (one key per action waiting
+//                                                               to sync to the cloud)
+//   - `blockedOutbox`:            OutboxItem[]                 (legacy array; read and
+//                                                               drained, never appended)
+//
+// One key per queued action means no writer ever read-modify-writes the outbox: a
+// record adds its own key and markSynced removes keys. The content script and the sync
+// contexts (popup, options, worker) have separate mutation chains, so a shared array
+// let a markSynced write back a stale copy and erase an action queued meanwhile.
 
 import {
   accountKeyFor,
@@ -19,14 +27,52 @@ import {
   type RecordInput,
   type RemoteAccountSnapshot,
 } from "./blocked-merge";
-import { storageSet } from "./chrome-storage";
+import { storageGetAll, storageRemove, storageSet } from "./chrome-storage";
 
 const ACCOUNTS_KEY = "blockedAccounts";
-const OUTBOX_KEY = "blockedOutbox";
+const LEGACY_OUTBOX_KEY = "blockedOutbox";
+const OUTBOX_ITEM_PREFIX = `${LEGACY_OUTBOX_KEY}:`;
 
-/** Storage key of the outbox, exported so the background worker can watch it for
- *  changes (a queued action is the signal that a cloud sync is worth scheduling). */
-export const OUTBOX_STORAGE_KEY = OUTBOX_KEY;
+/** The legacy outbox array's storage key. */
+export const OUTBOX_STORAGE_KEY = LEGACY_OUTBOX_KEY;
+
+/** The storage key that holds one queued action. */
+export function outboxItemKey(actionId: string): string {
+  return `${OUTBOX_ITEM_PREFIX}${actionId}`;
+}
+
+/** Whether a chrome.storage key belongs to the outbox, so the background worker can
+ *  watch it (a queued action is the signal that a cloud sync is worth scheduling). */
+export function isOutboxStorageKey(key: string): boolean {
+  return key === LEGACY_OUTBOX_KEY || key.startsWith(OUTBOX_ITEM_PREFIX);
+}
+
+function isOutboxItem(value: unknown): value is OutboxItem {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "action" in value &&
+    typeof value.action === "object" &&
+    value.action !== null &&
+    "actionId" in value.action
+  );
+}
+
+/** Every queued action, legacy array first, then per-item keys in action-time order.
+ *  Order matters: the cloud fold takes `status` from the last action it applies. */
+function readOutbox(all: Record<string, unknown>): {
+  items: OutboxItem[];
+  legacy: OutboxItem[];
+} {
+  const stored = all[LEGACY_OUTBOX_KEY];
+  const legacy = Array.isArray(stored) ? stored.filter(isOutboxItem) : [];
+  const keyed = Object.entries(all)
+    .filter(([key]) => key.startsWith(OUTBOX_ITEM_PREFIX))
+    .map(([, value]) => value)
+    .filter(isOutboxItem)
+    .toSorted((a, b) => a.action.at - b.action.at);
+  return { items: [...legacy, ...keyed], legacy };
+}
 
 type AccountMap = Record<string, BlockedAccount>;
 
@@ -39,7 +85,7 @@ export type OutboxItem = {
   action: BlockAction;
 };
 
-/** Shape returned by the Convex `listBlocked` query, merged back in on pull. The single
+/** Row shape returned by the Convex `listBlockedPage` query, merged back in on pull. The single
  *  definition lives in blocked-merge alongside the fold that consumes it. */
 export type RemoteAccount = RemoteAccountSnapshot;
 
@@ -74,10 +120,16 @@ function genId(): string {
 // object) so enqueueMutation's chain sees a rejection and skips the write rather than
 // silently overwriting ACCOUNTS_KEY/OUTBOX_KEY with a `{}` built from a failed read.
 function readKey<T>(key: string): Promise<T | undefined> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     // Annotate the (inherently untyped) storage result so the value flows out as T
     // without an unsafe assertion.
-    chrome.storage.local.get(key, (result: { [storageKey: string]: T | undefined }) => {
+    chrome.storage.local.get(key, (result: { [storageKey: string]: T | undefined } | undefined) => {
+      // Real chrome runs this callback after get() returns, so a throw here would
+      // escape the promise and leave the mutation chain waiting forever.
+      if (result === undefined) {
+        reject(new Error(`chrome.storage.local read of ${key} failed`));
+        return;
+      }
       resolve(result[key]);
     });
   });
@@ -171,18 +223,19 @@ export function createBlockedStore(): BlockedStore {
         map[storeKey] = merged;
 
         const lastAction = merged.actions[merged.actions.length - 1];
-        const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
+        const write: Record<string, unknown> = { [ACCOUNTS_KEY]: map };
         if (lastAction) {
-          outbox.push({
+          const item: OutboxItem = {
             accountKey: storeKey,
-            ...(merged.xUserId ? { xUserId: merged.xUserId } : {}),
+            ...(merged.xUserId ? { xUserId: merged.xUserId } : undefined),
             handle: merged.handle,
             idUnknown: merged.idUnknown,
             action: lastAction,
-          });
+          };
+          write[outboxItemKey(lastAction.actionId)] = item;
         }
 
-        await storageSet({ [ACCOUNTS_KEY]: map, [OUTBOX_KEY]: outbox });
+        await storageSet(write);
         return merged;
       });
     },
@@ -198,16 +251,22 @@ export function createBlockedStore(): BlockedStore {
     },
 
     async pending() {
-      return (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
+      return readOutbox(await storageGetAll()).items;
     },
 
     markSynced(actionIds) {
       if (actionIds.length === 0) return Promise.resolve();
       return enqueueMutation(async () => {
+        await storageRemove(actionIds.map(outboxItemKey));
+        // Only the legacy array still needs a read-modify-write. Nothing appends to it
+        // any more, so a stale copy can only resurrect an item (a harmless re-push).
+        const { legacy } = readOutbox(await storageGetAll());
         const done = new Set(actionIds);
-        const outbox = (await readKey<OutboxItem[]>(OUTBOX_KEY)) ?? [];
-        const remaining = outbox.filter((item) => !done.has(item.action.actionId));
-        await storageSet({ [OUTBOX_KEY]: remaining });
+        if (legacy.some((item) => done.has(item.action.actionId))) {
+          await storageSet({
+            [LEGACY_OUTBOX_KEY]: legacy.filter((item) => !done.has(item.action.actionId)),
+          });
+        }
       });
     },
 
@@ -248,7 +307,7 @@ export function createBlockedStore(): BlockedStore {
               idUnknown: row.idUnknown,
               // A handle-keyed cloud row stores "@handle" in xUserId as its key; locally
               // that is not a real id, so only keep xUserId when the id is actually known.
-              ...(!row.idUnknown && row.xUserId ? { xUserId: row.xUserId } : {}),
+              ...(!row.idUnknown && row.xUserId ? { xUserId: row.xUserId } : undefined),
               firstActionAt: row.firstActionAt,
               lastActionAt: row.lastActionAt,
               blockCount: row.blockCount,

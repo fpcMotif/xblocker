@@ -150,7 +150,7 @@ describe("runManual", () => {
     const session = createCloudSyncSession({ loadAdapter: async () => adapter });
 
     const run = session.runManual();
-    expect(run).rejects.toThrow("pull boom");
+    await expect(run).rejects.toThrow("pull boom");
     await run.catch(() => undefined);
     expect(session.isInFlight()).toBe(false);
   });
@@ -402,7 +402,7 @@ describe("wipeCloud", () => {
     });
 
     const wipe = session.wipeCloud();
-    expect(wipe).rejects.toThrow("wipe boom");
+    await expect(wipe).rejects.toThrow("wipe boom");
     await wipe.catch(() => undefined);
     expect(storageFake.data["blockedOutbox"]).toHaveLength(1);
     expect(storageFake.data["cloudBackup"]).toBe(true);
@@ -421,7 +421,7 @@ describe("wipeCloud", () => {
 
     const sync = session.runManual();
     const wipe = session.wipeCloud();
-    expect(wipe).rejects.toThrow(/in progress/);
+    await expect(wipe).rejects.toThrow(/in progress/);
     await wipe.catch(() => undefined);
     expect(clearCalls).toBe(0);
     expect(storageFake.data["cloudBackup"]).toBeUndefined();
@@ -453,6 +453,64 @@ describe("wipeCloud", () => {
     expect(await wipe).toEqual({ pendingCount: 0 });
     expect(session.isInFlight()).toBe(false);
   });
+
+  test("CS-31 an open-time auto sync queued behind a wipe skips once backup is off", async () => {
+    storageFake.data["cloudBackup"] = true;
+    let releaseClear: (() => void) | undefined;
+    const wiping = createCloudSyncSession({
+      clearCloud: () =>
+        new Promise<void>((resolve) => {
+          releaseClear = resolve;
+        }),
+    });
+    // The popup read `cloudBackup === true` at render time, before the wipe began.
+    const popup = createCloudSyncSession({ loadAdapter: forbiddenLoader });
+
+    const wipe = wiping.wipeCloud();
+    const auto = popup.runAutoOnOpen(true);
+    await waitUntil(() => releaseClear !== undefined);
+    releaseClear?.();
+    await wipe;
+
+    expect((await auto).outcome).toEqual({ status: "skipped" });
+  });
+
+  test("CS-30 a wipe from another session waits out an in-flight push instead of racing it", async () => {
+    // Each surface (popup, every options-pane mount, the background worker) owns its own
+    // session, so the per-session guard cannot see this sync. Without a shared lock the
+    // wipe clears the cloud while the push is still in flight, the push lands afterwards,
+    // and the cloud the user just deleted is silently repopulated.
+    storageFake.data["cloudBackup"] = true;
+    storageFake.data["blockedOutbox"] = [pendingItem("a1")];
+    const cloud = new Set<string>();
+    const pushGate: { release?: () => void } = {};
+    const { adapter } = makeAdapter({
+      push: async (items) => {
+        await new Promise<void>((resolve) => {
+          pushGate.release = resolve;
+        });
+        for (const item of items) cloud.add(item.action.actionId);
+        return items.map((item) => item.action.actionId);
+      },
+    });
+    const syncing = createCloudSyncSession({ loadAdapter: async () => adapter });
+    const wiping = createCloudSyncSession({
+      clearCloud: async () => {
+        cloud.clear();
+      },
+    });
+
+    const sync = syncing.runManual();
+    await waitUntil(() => pushGate.release !== undefined);
+    const wipe = wiping.wipeCloud();
+    await flushStorageMicrotasks();
+    pushGate.release?.();
+    await sync;
+    await wipe;
+
+    expect(cloud.size).toBe(0);
+    expect(storageFake.data["cloudBackup"]).toBe(false);
+  });
 });
 
 describe("production defaults", () => {
@@ -470,7 +528,7 @@ describe("production defaults", () => {
 
       storageFake.data["blockedOutbox"] = [pendingItem("a1")];
       const wipe = session.wipeCloud();
-      expect(wipe).rejects.toThrow(/not configured/);
+      await expect(wipe).rejects.toThrow(/not configured/);
       await wipe.catch(() => undefined);
       expect(storageFake.data["blockedOutbox"]).toHaveLength(1);
     } finally {

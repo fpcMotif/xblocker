@@ -21,11 +21,7 @@ export type AccountText = {
 };
 
 export type RuleId =
-  | "escort-strong"
-  | "crypto-strong"
-  | "name-emoji-template"
-  | "handle-shape"
-  | "throwaway-body";
+  "escort-strong" | "crypto-strong" | "name-emoji-template" | "handle-shape" | "throwaway-body";
 
 export type Verdict = {
   block: boolean;

@@ -1,4 +1,5 @@
 import { addToWhitelist, normalizeUsername } from "./actions";
+import { createIcon } from "./icons";
 import { detectTheme } from "./theme";
 import { showToast } from "./toast";
 
@@ -30,10 +31,30 @@ export function showWhitelistModal(): void {
 		<h3>Add user to whitelist</h3>
 		<p>Whitelisted users are never blocked or muted.</p>`;
 
+  const badge = document.createElement("div");
+  badge.className = "xb-modal-badge";
+  badge.setAttribute("aria-hidden", "true");
+  badge.appendChild(createIcon("whitelist", 20));
+  modal.prepend(badge);
+
   const input = document.createElement("input");
   input.type = "text";
   input.id = "xb-username-input";
-  input.placeholder = "Username, without @";
+  input.placeholder = "username";
+  input.setAttribute("aria-label", "Username");
+  const field = document.createElement("div");
+  field.className = "xb-modal-field";
+  const at = document.createElement("span");
+  at.className = "xb-modal-at";
+  at.setAttribute("aria-hidden", "true");
+  at.textContent = "@";
+  field.append(at, input);
+  const errorText = document.createElement("p");
+  errorText.className = "xb-modal-error";
+  errorText.id = "xb-username-error";
+  errorText.setAttribute("role", "alert");
+  errorText.hidden = true;
+  input.setAttribute("aria-describedby", errorText.id);
   input.autocomplete = "off";
   input.spellcheck = false;
 
@@ -49,8 +70,7 @@ export function showWhitelistModal(): void {
   confirmButton.textContent = "Add to whitelist";
   actions.appendChild(cancelButton);
   actions.appendChild(confirmButton);
-  modal.appendChild(input);
-  modal.appendChild(actions);
+  modal.append(field, errorText, actions);
 
   backdrop.appendChild(modal);
   document.body.appendChild(backdrop);
@@ -92,6 +112,10 @@ export function showWhitelistModal(): void {
     }
     const username = normalizeUsername(input.value.trim());
     if (!username) {
+      input.setAttribute("aria-invalid", "true");
+      errorText.textContent = "Enter a username, 1 to 15 letters, numbers or underscores.";
+      errorText.hidden = false;
+      input.focus();
       return;
     }
     submitting = true;
@@ -146,6 +170,10 @@ export function showWhitelistModal(): void {
   });
   confirmButton.addEventListener("click", () => {
     void submit();
+  });
+  input.addEventListener("input", () => {
+    input.removeAttribute("aria-invalid");
+    errorText.hidden = true;
   });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {

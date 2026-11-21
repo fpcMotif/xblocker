@@ -43,10 +43,28 @@ export function storageSet(items: Record<string, unknown>): Promise<void> {
   });
 }
 
-/** Delete `key` outright; the only way to clear a key (see storageSet). Same
+/** Delete `keys` outright; the only way to clear a key (see storageSet). Same
  *  fire-and-forget contract as storageSet. */
-export function storageRemove(key: string): Promise<void> {
+export function storageRemove(keys: string | string[]): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.remove(key, () => resolve());
+    chrome.storage.local.remove(keys, () => resolve());
+  });
+}
+
+/**
+ * Strict read of the whole area, for stores that keep one key per queued item. Rejects
+ * when the read fails, so a caller never mistakes an unreadable outbox for an empty
+ * one. The rejection is raised inside the callback, which real chrome runs after get()
+ * has returned, so it must go through `reject` rather than a throw.
+ */
+export function storageGetAll(): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get(null, (result: Record<string, unknown> | undefined) => {
+      if (result === undefined || chrome.runtime.lastError) {
+        reject(new Error("chrome.storage.local read failed"));
+        return;
+      }
+      resolve(result);
+    });
   });
 }

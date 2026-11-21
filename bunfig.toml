@@ -18,3 +18,96 @@ env = false
 # Configure package manager settings
 cache = false
 registry = "https://registry.npmjs.org"
+
+[lint]
+typeAware = true
+plugins = ["typescript", "unicorn", "oxc", "import", "promise"]
+ignorePatterns = [".claude/", ".output/", ".wxt/", "convex/", "coverage/", "node_modules/"]
+
+[lint.categories]
+correctness = "error"
+suspicious = "error"
+perf = "warn"
+
+[lint.rules]
+"no-async-promise-executor" = "error"
+"no-await-in-loop" = "off"
+"no-console" = "off"
+"no-empty" = "error"
+"no-fallthrough" = "error"
+"no-underscore-dangle" = "off"
+"no-prototype-builtins" = "error"
+"no-self-assign" = "error"
+"no-unused-vars" = "error"
+"prefer-const" = "error"
+"unicorn/consistent-function-scoping" = "off"
+"use-isnan" = "error"
+"bun/axios-no-unbounded-requests" = "error"
+"bun/consistent-directive-prefix" = "off"
+"bun/fast-check-no-unseeded-random" = "error"
+"bun/format" = "off"
+"bun/jsx-no-forbidden-nesting" = "error"
+"bun/no-array-just-to-count" = "error"
+"bun/no-cast-to-brand" = "error"
+"bun/no-console-window-flash" = "error"
+"bun/no-cwd-dependent-path" = "error"
+"bun/no-eager-dynamic-import" = "error"
+"bun/no-eager-native-addon" = "error"
+"bun/no-env-at-module-scope" = "error"
+"bun/no-literal-temp-dir" = "error"
+"bun/no-negative-repeat-count" = "error"
+"bun/no-redundant-catch-type" = "error"
+"bun/no-restricted-text" = "off"
+"bun/no-side-effects-on-import" = "error"
+"bun/no-unhandled-emitter-errors" = "error"
+"bun/no-unportable-commands" = "error"
+"bun/no-useless-spread-fallback" = "error"
+"bun/prefer-builtin-sleep" = "error"
+"bun/prefer-local-module" = "error"
+"bun/prefer-timeout-signal" = "error"
+"bun/prefer-url-for-sibling-files" = "error"
+"bun/react-no-latest-value-ref" = "error"
+"bun/react-no-local-render-helpers" = "error"
+"bun/react-no-namespace-hooks" = "error"
+"bun/react-prefer-updater-function" = "error"
+"bun/zod-prefer-lazy-schema" = "error"
+
+[[lint.overrides]]
+files = ["test/**", "packages/*/tests/**"]
+rules = { "@typescript-eslint/require-await" = "off", "@typescript-eslint/no-unsafe-assignment" = "off", "@typescript-eslint/no-unsafe-argument" = "off", "@typescript-eslint/unbound-method" = "off" }
+
+[[lint.overrides]]
+files = ["wxt.config.ts"]
+rules = { "@typescript-eslint/no-unsafe-argument" = "off" }
+
+[[lint.overrides]]
+files = [
+  "entrypoints/**",
+  "packages/*/*.ts",
+  "packages/*/lib/**",
+  "packages/sync/tests/background-sync.test.ts",
+]
+rules = { "bun/prefer-builtin-sleep" = "off" }
+
+[[lint.overrides]]
+files = [
+  "entrypoints/*/main.ts",
+  "entrypoints/content/index.ts",
+  "entrypoints/background.ts",
+  "scripts/**",
+  "tools/**",
+  "test/**",
+]
+rules = { "bun/no-side-effects-on-import" = "off" }
+
+[[lint.overrides]]
+files = ["test/**"]
+rules = { "bun/no-eager-dynamic-import" = "off" }
+
+[[lint.overrides]]
+files = ["wxt.config.ts"]
+rules = { "bun/no-env-at-module-scope" = "off" }
+
+[fmt]
+printWidth = 100
+ignorePatterns = [".output/", ".wxt/", "coverage/", "node_modules/"]

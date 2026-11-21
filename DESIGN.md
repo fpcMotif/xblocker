@@ -18,12 +18,20 @@ one accent per action tone, never decorative color.
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--xb-primary` | `oklch(0.63 0.16 246)` | Primary actions, selection, focus rings |
-| `--xb-danger` | `oklch(0.601 0.212 21)` | Block actions, errors |
-| `--xb-success` | `oklch(0.646 0.152 154)` | Whitelist, confirmations |
-| `--xb-warning` | `oklch(0.778 0.158 74)` | Mute actions, cautions |
+| `--xb-primary` | `oklch(0.63 0.16 246)` | Selection, focus rings, switch track, puck |
+| `--xb-danger` | `oklch(0.601 0.212 21)` | Status dots, invalid borders |
+| `--xb-success` | `oklch(0.646 0.152 154)` | Status dots |
+| `--xb-warning` | `oklch(0.778 0.158 74)` | Status dots |
+| `--xb-primary-btn-bg` | `oklch(0.52 0.13 246)` | Fill under white text |
+| `--xb-danger-btn-bg` | `oklch(0.57 0.205 21)` | Fill under white text |
+| `--xb-success-btn-bg` | `oklch(0.53 0.13 154)` | Fill under white text |
 
 Tone tints for hover washes: the tone color at `/ 0.12` alpha.
+
+A tone has three grades. The base tone colors dots, rings and borders. The
+`-btn-bg` grade is a fill that carries white text. The `-text` grade (themed,
+below) colors text and icons that sit on a surface. Every token stays inside
+the sRGB gamut.
 
 ### Dark theme
 
@@ -32,8 +40,11 @@ Tone tints for hover washes: the tone color at `/ 0.12` alpha.
 | `--xb-surface` | `oklch(0.2 0.022 259)` |
 | `--xb-elevated` | `oklch(0.27 0.025 255)` |
 | `--xb-ink` | `oklch(0.97 0.006 255)` |
-| `--xb-ink-muted` | `oklch(0.72 0.02 255)` |
-| `--xb-border` | `oklch(1 0 0 / 0.12)` |
+| `--xb-ink-muted` | `oklch(0.8 0.02 255)` |
+| `--xb-primary-text` | `oklch(0.78 0.115 246)` |
+| `--xb-danger-text` | `oklch(0.8 0.11 21)` |
+| `--xb-success-text` | `oklch(0.76 0.15 154)` |
+| `--xb-border` | `oklch(1 0 0 / 0.2)` |
 | `--xb-track` | `oklch(1 0 0 / 0.14)` |
 | `--xb-hero-bg` | `oklch(0.98 0 0)` |
 | `--xb-hero-ink` | `oklch(0.2 0.02 259)` |
@@ -47,7 +58,10 @@ Tone tints for hover washes: the tone color at `/ 0.12` alpha.
 | `--xb-elevated` | `oklch(0.984 0.003 248)` |
 | `--xb-ink` | `oklch(0.24 0.023 251)` |
 | `--xb-ink-muted` | `oklch(0.5 0.02 251)` |
-| `--xb-border` | `oklch(0.906 0.015 251)` |
+| `--xb-primary-text` | `oklch(0.48 0.12 246)` |
+| `--xb-danger-text` | `oklch(0.52 0.2 21)` |
+| `--xb-success-text` | `oklch(0.53 0.13 154)` |
+| `--xb-border` | `oklch(0.89 0.015 251)` |
 | `--xb-track` | `oklch(0.24 0.023 251 / 0.08)` |
 | `--xb-hero-bg` | `oklch(0.2 0.02 251)` |
 | `--xb-hero-ink` | `oklch(1 0 0)` |
@@ -55,6 +69,33 @@ Tone tints for hover washes: the tone color at `/ 0.12` alpha.
 
 "Hero" is the one inverted surface per screen (the primary bulk action):
 near-black on light theme, near-white on dark.
+
+### Contrast targets
+
+`bun run design:contrast` checks every pair below with APCA and fails the
+build when one drops under its target.
+
+| Use | Lc target |
+| --- | --- |
+| Body text, toast text, 10 px counts | 75 |
+| Secondary text, links, button labels, error text | 60 |
+| Icons on a fill | 45 |
+| Focus rings, status dots | 30 |
+| Hairline borders | 9 |
+
+## Host isolation
+
+The injected UI lives in x.com's document, so `.xb-root` resets every
+inherited text property (size, weight, line height, spacing, alignment). All
+sizes are in px. X's font-size setting must not change the injected UI.
+
+## Verification
+
+`bun run design` builds the extension, loads it in Chromium with Playwright,
+and checks every surface: axe rules, overflow and clipping, 24 px pointer
+targets, the three x.com themes, X's five font sizes, motion properties and
+durations, keyboard flow, and screenshot baselines in `tools/design/baselines`.
+After an intended visual change, run `bun run design:update`.
 
 ## Typography
 

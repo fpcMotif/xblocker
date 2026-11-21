@@ -23,6 +23,8 @@ import {
   mergeRemoteWhitelist,
   pendingWhitelistOutbox,
   removeFromWhitelist,
+  createWhitelistStore,
+  isWhitelistOutboxStorageKey,
   WHITELIST_OUTBOX_STORAGE_KEY,
 } from "../whitelist-store.ts";
 import { settleMicrotasks } from "../../../test/helpers/timers.ts";
@@ -31,9 +33,7 @@ import { resetTestEnvironment, storageFake } from "../../../test/setup.ts";
 /** The outbox entries a mutation queued, with the volatile fields (actionId, at)
  *  asserted only for presence. */
 function queuedEntries(): Array<Partial<WhitelistOutboxItem>> {
-  const stored = storageFake.data[WHITELIST_OUTBOX_STORAGE_KEY];
-  const outbox: WhitelistOutboxItem[] = Array.isArray(stored) ? stored : [];
-  return outbox.map((item) => {
+  return storedOutboxItems().map((item) => {
     expect(typeof item.actionId).toBe("string");
     expect(item.actionId.length).toBeGreaterThan(0);
     expect(typeof item.at).toBe("number");
@@ -41,12 +41,28 @@ function queuedEntries(): Array<Partial<WhitelistOutboxItem>> {
   });
 }
 
-/** Assert the one write a mutation made carried BOTH the list and the outbox (the
- *  same-set atomicity the self-healing argument depends on). */
+/** Every queued entry in storage: the legacy array first, then one key per entry. */
+function storedOutboxItems(): WhitelistOutboxItem[] {
+  const isItem = (value: unknown): value is WhitelistOutboxItem =>
+    typeof value === "object" && value !== null && "actionId" in value;
+  const legacy = storageFake.data[WHITELIST_OUTBOX_STORAGE_KEY];
+  const keyed = Object.entries(storageFake.data)
+    .filter(([key]) => key.startsWith(`${WHITELIST_OUTBOX_STORAGE_KEY}:`))
+    .map(([, value]) => value)
+    .filter(isItem)
+    .toSorted((a, b) => a.at - b.at);
+  return [...(Array.isArray(legacy) ? legacy.filter(isItem) : []), ...keyed];
+}
+
+/** Assert the one write a mutation made carried BOTH the list and its queued entries
+ *  (the same-set atomicity the self-healing argument depends on). */
 function expectLastSetListAndOutbox(whitelist: string[]): void {
   const lastSet = storageFake.setCalls[storageFake.setCalls.length - 1]!;
   expect(lastSet["whitelist"]).toEqual(whitelist);
-  expect(Array.isArray(lastSet[WHITELIST_OUTBOX_STORAGE_KEY])).toBe(true);
+  const queuedKeys = Object.keys(lastSet).filter(isWhitelistOutboxStorageKey);
+  expect(queuedKeys.length).toBeGreaterThan(0);
+  // Each entry rides under its own key, never the legacy array.
+  expect(queuedKeys).not.toContain(WHITELIST_OUTBOX_STORAGE_KEY);
 }
 
 describe("getWhitelist", () => {
@@ -137,8 +153,8 @@ describe("addToWhitelist", () => {
 
     expect(await addToWhitelist("not a handle")).toBe("invalid");
     expect(storageFake.data["whitelist"]).toEqual(["frank"]);
-    // The valid add reads the list AND the outbox; the invalid one reads nothing.
-    expect(storageFake.getCalls).toHaveLength(2);
+    // The valid add reads only the list; the invalid one reads nothing.
+    expect(storageFake.getCalls).toHaveLength(1);
     expect(storageFake.setCalls).toHaveLength(1);
   });
 
@@ -348,8 +364,8 @@ describe("addManyToWhitelist", () => {
       "explore",
     ]);
     expect(result).toEqual({ added: 2, skipped: 2, invalid: 2 });
-    // One read of the list, one of the outbox; one write carrying both.
-    expect(storageFake.getCalls).toHaveLength(2);
+    // One read of the list; one write carrying the list and the queued entries.
+    expect(storageFake.getCalls).toHaveLength(1);
     expectLastSetListAndOutbox(["alice", "bob", "carol"]);
     expect(storageFake.data["whitelist"]).toEqual(["alice", "bob", "carol"]);
     // Each added handle queues its own sync event, but all inside the single write —
@@ -369,29 +385,50 @@ describe("addManyToWhitelist", () => {
   });
 });
 
-describe("cloud-sync port: outbox queueing failures", () => {
+describe("cloud-sync port: outbox queueing across contexts", () => {
   beforeEach(() => {
     resetTestEnvironment();
-    storageFake.failGetKeys.add(WHITELIST_OUTBOX_STORAGE_KEY);
   });
 
-  test('WL-27 a failed outbox read aborts addToWhitelist as "error" without writing', async () => {
-    expect(await addToWhitelist("bob")).toBe("error");
-    expect(storageFake.data["whitelist"]).toBeUndefined();
-    expect(storageFake.setCalls).toHaveLength(0);
-  });
-
-  test("WL-28 a failed outbox read aborts removeFromWhitelist without writing", async () => {
+  test("WL-27 list mutations never read the outbox, so they cannot write back a stale copy", async () => {
     storageFake.data["whitelist"] = ["alice"];
+    await addToWhitelist("bob");
     await removeFromWhitelist("alice");
-    expect(storageFake.data["whitelist"]).toEqual(["alice"]);
-    expect(storageFake.setCalls).toHaveLength(0);
+    await addManyToWhitelist(["carol", "dave"]);
+    expect(storageFake.getCalls).toEqual(["whitelist", "whitelist", "whitelist"]);
+    expect(storageFake.setCalls.some((call) => WHITELIST_OUTBOX_STORAGE_KEY in call)).toBe(false);
+    expect(queuedEntries()).toEqual([
+      { handle: "bob", status: "active" },
+      { handle: "alice", status: "removed" },
+      { handle: "carol", status: "active" },
+      { handle: "dave", status: "active" },
+    ]);
   });
 
-  test("WL-29 a failed outbox read aborts addManyToWhitelist without writing", async () => {
-    expect(await addManyToWhitelist(["bob"])).toEqual({ added: 0, skipped: 0, invalid: 0 });
-    expect(storageFake.data["whitelist"]).toBeUndefined();
-    expect(storageFake.setCalls).toHaveLength(0);
+  test("WL-28 a sync context's markSynced never drops a change another context queued meanwhile", async () => {
+    // The x.com modal adds while the popup or worker marks a pushed batch synced. Each
+    // context has its own store and mutation chain. Interleave them so both read the
+    // queue before either writes, and markSynced writes last.
+    const content = createWhitelistStore();
+    const sync = createWhitelistStore();
+    await content.addToWhitelist("first");
+    const [pushed] = await sync.pendingWhitelistOutbox();
+    if (!pushed) throw new Error("expected one queued change");
+
+    storageFake.useManualDispatch();
+    const adding = content.addToWhitelist("second");
+    await settleMicrotasks();
+    storageFake.flush(); // the add's list read
+    await settleMicrotasks();
+    const marking = sync.markWhitelistSynced([pushed.actionId]);
+    for (let round = 0; round < 8; round++) {
+      storageFake.flush();
+      await settleMicrotasks();
+    }
+    await marking;
+    expect(await adding).toBe("added");
+
+    expect(queuedEntries()).toEqual([{ handle: "second", status: "active" }]);
   });
 });
 
@@ -410,7 +447,7 @@ describe("cloud-sync port: pending / markSynced", () => {
 
     storageFake.failNextGet = true;
     const failedRead = pendingWhitelistOutbox();
-    expect(failedRead).rejects.toThrow(/outbox/);
+    await expect(failedRead).rejects.toThrow(/outbox/);
     await failedRead.catch(() => undefined);
   });
 
@@ -443,13 +480,27 @@ describe("cloud-sync port: pending / markSynced", () => {
     expect(storageFake.getCalls.length).toBe(getCalls);
   });
 
-  test("WL-31b a failed outbox read makes markSynced a no-op, keeping entries queued", async () => {
+  test("WL-31b a failed outbox read still drops accepted entries but leaves the legacy array alone", async () => {
+    const legacy: WhitelistOutboxItem = { handle: "old", status: "active", at: 1, actionId: "L" };
+    storageFake.data[WHITELIST_OUTBOX_STORAGE_KEY] = [legacy];
     await addToWhitelist("alice");
-    const [first] = await pendingWhitelistOutbox();
+    const keyed = (await pendingWhitelistOutbox()).find((item) => item.handle === "alice");
 
-    storageFake.failNextGet = true;
-    await markWhitelistSynced([first!.actionId]);
-    expect(await pendingWhitelistOutbox()).toHaveLength(1);
+    // Removing an accepted per-item key needs no read. Only the legacy array's
+    // read-modify-write depends on the read, so a failed read skips that write.
+    storageFake.failWholeAreaReads = true;
+    await markWhitelistSynced([keyed!.actionId, "L"]);
+    storageFake.failWholeAreaReads = false;
+    expect(await pendingWhitelistOutbox()).toEqual([legacy]);
+  });
+
+  test("WL-31c markSynced drains accepted entries from a legacy outbox array", async () => {
+    storageFake.data[WHITELIST_OUTBOX_STORAGE_KEY] = [
+      { handle: "old", status: "active", at: 1, actionId: "L1" },
+      { handle: "older", status: "active", at: 2, actionId: "L2" },
+    ];
+    await markWhitelistSynced(["L1"]);
+    expect(queuedEntries()).toEqual([{ handle: "older", status: "active" }]);
   });
 });
 
@@ -514,7 +565,7 @@ describe("cloud-sync port: mergeRemote", () => {
     expect(storageFake.setCalls).toHaveLength(0);
 
     // Same for the outbox read: the merge needs pending state to protect local changes.
-    storageFake.failGetKeys.add(WHITELIST_OUTBOX_STORAGE_KEY);
+    storageFake.failWholeAreaReads = true;
     await mergeRemoteWhitelist([remoteRow("bob", "active", 100)]);
     expect(storageFake.data["whitelist"]).toEqual(["alice"]);
   });

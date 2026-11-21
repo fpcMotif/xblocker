@@ -7,21 +7,22 @@
 // after it grows (debounced, so a bulk run becomes one batched push) and on a periodic
 // alarm as a safety net.
 
-import { OUTBOX_STORAGE_KEY } from "../storage/blocked-store";
+import { isOutboxStorageKey } from "../storage/blocked-store";
 import { CLOUD_BACKUP_KEY, storageGet, storageRemove, storageSet } from "../storage/chrome-storage";
-import { WHITELIST_OUTBOX_STORAGE_KEY } from "../storage/whitelist-store";
+import { isWhitelistOutboxStorageKey } from "../storage/whitelist-store";
+import {
+  type AnyAdapterLoader,
+  runAutoCloudSyncAll,
+  type SyncOutcome,
+  withCloudSyncLock,
+} from "./sync-engine";
 
-/** Every synced collection's outbox storage key. The background watcher listens to the
- *  SET, not one hardcoded key: a queued change in either the blocklist or the
- *  whitelist outbox is the signal that a cloud sync is worth scheduling. */
-export const SYNCED_OUTBOX_KEYS: readonly string[] = [
-  OUTBOX_STORAGE_KEY,
-  WHITELIST_OUTBOX_STORAGE_KEY,
-];
-
-/** Whether a chrome.storage change key is one of the synced collections' outboxes. */
+/** Whether a chrome.storage change key belongs to a synced collection's outbox. Each
+ *  outbox keeps one key per queued change, so the watcher matches by key family, not
+ *  one hardcoded key: a queued change in either the blocklist or the whitelist outbox
+ *  is the signal that a cloud sync is worth scheduling. */
 export function isSyncedOutboxKey(key: string): boolean {
-  return SYNCED_OUTBOX_KEYS.includes(key);
+  return isOutboxStorageKey(key) || isWhitelistOutboxStorageKey(key);
 }
 
 export const OUTBOX_SYNC_DEBOUNCE_MS = 10_000;
@@ -139,6 +140,18 @@ export function createBackgroundSyncScheduler(deps: BackgroundSyncDeps): Backgro
       timer = null;
     },
   };
+}
+
+/** The background worker's one sync: held under the cross-context cloud lock, with the
+ *  opt-in flag re-read once the lock is held. A wipe in the options page holds the same
+ *  lock and turns backup off before it releases it, so a sync that queued behind the
+ *  wipe bows out instead of pushing into the cloud the user just deleted. */
+export function runBackgroundCloudSync(
+  loadAdapter?: AnyAdapterLoader,
+): Promise<SyncOutcome | { status: "skipped" }> {
+  return withCloudSyncLock(async () =>
+    runAutoCloudSyncAll(await readCloudBackupEnabled(), Date.now, loadAdapter),
+  );
 }
 
 /** Read the cloud backup opt-in flag. */

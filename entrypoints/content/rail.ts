@@ -28,6 +28,7 @@ export const DWELL_MS = 1000;
 export const COLLAPSE_GRACE_MS = 600;
 
 const RAIL_EDGE_OFFSET = 24;
+const PUCK_SIZE = 48;
 const FALLBACK_WIDTH = 48;
 const FALLBACK_HEIGHT = 280;
 
@@ -106,6 +107,7 @@ export class ReplyRail {
     this.root.dataset.xbSurface = "reply-rail";
     this.root.dataset.xbTheme = detectTheme();
     this.root.dataset.state = "collapsed";
+    this.root.dataset.side = "right";
     // "group" rather than "toolbar": the rail has no roving-tabindex arrow-key
     // navigation between its buttons, so "toolbar" would overpromise a keyboard
     // model the rail doesn't implement.
@@ -134,15 +136,9 @@ export class ReplyRail {
       this.expandFromPuck();
     });
 
-    // Expanded surface: header + labeled bulk actions + footer.
     const body = document.createElement("div");
     body.className = "xb-rail-body";
 
-    const header = document.createElement("div");
-    header.className = "xb-rail-header";
-    const headerTitle = document.createElement("span");
-    headerTitle.className = "xb-rail-title";
-    headerTitle.textContent = "Replies";
     const handle = document.createElement("button");
     handle.type = "button";
     handle.className = "xb-btn xb-rail-handle";
@@ -151,7 +147,6 @@ export class ReplyRail {
     handle.title = "Move XBlocker rail";
     handle.appendChild(createIcon("drag", 16));
     this.attachDrag(handle);
-    header.append(headerTitle, handle);
 
     const blockButton = createLabeledActionButton({
       action: "block",
@@ -207,10 +202,10 @@ export class ReplyRail {
     sessionIndicator.appendChild(createIcon("shield", 14));
     const sessionCount = document.createElement("span");
     sessionCount.className = "xb-session-count";
-    sessionIndicator.appendChild(sessionCount);
-    footer.append(footerActions, sessionIndicator);
+    sessionIndicator.append(sessionCount, "blocked");
+    footer.append(footerActions, sessionIndicator, handle);
 
-    body.append(header, blockButton, muteButton, this.divider(), footer);
+    body.append(blockButton, muteButton, footer);
     this.root.append(puck, body);
 
     this.blockButton = blockButton;
@@ -268,6 +263,10 @@ export class ReplyRail {
   incrementBlocked(by = 1): void {
     this.blockedCount += by;
     this.updateSessionDisplays();
+    if (by > 0) {
+      restartBump(this.puckCount);
+      restartBump(this.sessionCount);
+    }
   }
 
   setProgress(progress: BatchProgress | null): void {
@@ -353,8 +352,18 @@ export class ReplyRail {
   }
 
   handleKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      this.collapseNow();
+    if (event.key !== "Escape") {
+      return;
+    }
+    // One Escape closes one layer: while the whitelist modal has focus the key belongs to
+    // it, and the rail stays open so focus can return to the button that opened the modal.
+    if (event.target instanceof Element && event.target.closest(".xb-modal-backdrop")) {
+      return;
+    }
+    const focusWasInside = this.root.contains(document.activeElement);
+    this.collapseNow();
+    if (focusWasInside) {
+      this.puck.focus();
     }
   }
 
@@ -462,6 +471,14 @@ export class ReplyRail {
   }
 
   private async runBatch(kind: "block" | "mute", button: LabeledActionButton): Promise<void> {
+    // The runner is shared by every rail instance, and an SPA navigation mounts a fresh
+    // rail while a batch started on the previous thread is still running. That rail's
+    // sibling was never disabled, so refuse here: the runner's guard would return null
+    // and the button would paint a success for a batch that never ran.
+    if (this.isBatchRunning()) {
+      showToast("A bulk action is already running. Wait for it to finish.", "info");
+      throw new Error(`Batch ${kind} refused: another batch is running.`);
+    }
     // Block-all and Mute-all act on the same reply set, so a second bulk click while one
     // batch is in flight would hit the actions-layer runner's re-entry guard, return null, and
     // (1) paint a false success check on the second button and (2) null activeButton, freezing
@@ -505,10 +522,10 @@ export class ReplyRail {
     }
   }
 
-  private divider(): HTMLSpanElement {
-    const divider = document.createElement("span");
-    divider.className = "xb-divider-h";
-    return divider;
+  private updateSide(): void {
+    const opensRight =
+      this.homePos !== null && this.homePos.x + PUCK_SIZE / 2 < this.viewport().width / 2;
+    this.root.dataset.side = opensRight ? "left" : "right";
   }
 
   private applyPosition(position: DockPosition): void {
@@ -568,6 +585,7 @@ export class ReplyRail {
       if (this.homePos) {
         saveDockPosition(this.homePos);
       }
+      this.updateSide();
       // A cancelled gesture (e.g. the browser taking over the pointer) is never a click.
       if (
         onClick &&
@@ -587,6 +605,9 @@ export class ReplyRail {
   }
 
   private setState(state: RailStateName): void {
+    if (this.state === "collapsed" && state !== "collapsed") {
+      this.updateSide();
+    }
     this.state = state;
     this.root.dataset.state = state;
   }
@@ -665,6 +686,12 @@ export class ReplyRail {
     }
     this.rafId = null;
   }
+}
+
+function restartBump(element: HTMLElement): void {
+  element.dataset.bump = "false";
+  element.getBoundingClientRect();
+  element.dataset.bump = "true";
 }
 
 function clampY(y: number, height: number, viewport: Size): number {

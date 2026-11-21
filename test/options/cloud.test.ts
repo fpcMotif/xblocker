@@ -90,7 +90,7 @@ async function waitForHeading(text: string): Promise<void> {
   const deadline = Date.now() + 1_000;
   while (Date.now() < deadline) {
     if (document.querySelector(".xb-opt-content h1")?.textContent === text) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Bun.sleep(0);
   }
   throw new Error(`heading did not become "${text}"`);
 }
@@ -237,6 +237,24 @@ describe("Cloud backup pane (configured)", () => {
     expect(confirmButton.disabled).toBe(false);
   });
 
+  test("OC-07b the closed wipe panel is inert, and Escape closes an open one", async () => {
+    await renderCloudPane(document.body, cloudOptions());
+    const panel = document.querySelector<HTMLElement>(".xb-opt-wipe-panel")!;
+    expect(panel.inert).toBe(true);
+
+    byText("button", "Wipe cloud data").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(panel.inert).toBe(false);
+
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Type WIPE to confirm"]')!;
+    input.value = WIPE_CONFIRM_WORD;
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(panel.getAttribute("data-open")).toBe("false");
+    expect(panel.inert).toBe(true);
+    expect(input.value).toBe("");
+    expect(calls.clear).toBe(0);
+  });
+
   test("OC-08 confirming the wipe clears the cloud, resets sync meta, and closes the panel", async () => {
     storageFake.data["cloudSyncMeta"] = { lastSyncAt: 12345 };
     await renderCloudPane(document.body, cloudOptions({ now: () => 999 }));
@@ -323,7 +341,7 @@ describe("Cloud backup pane (configured)", () => {
     expect(rowValues()).toEqual(["On", "Never synced.", "0", "On", "Never synced.", "1"]);
 
     byButtonText("Sync now").dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await settleMicrotasks(50);
+    await settleMicrotasks(100);
 
     expect(pushed).toEqual([[{ handle: "alice", status: "active", at: 1, actionId: "w1" }]]);
     expect(storageFake.data["whitelistOutbox"]).toEqual([]);

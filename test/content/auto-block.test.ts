@@ -19,7 +19,7 @@ import {
   storageFake,
 } from "../setup.ts";
 
-const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+const tick = (): Promise<void> => Bun.sleep(0);
 async function settle(): Promise<void> {
   await tick();
   await tick();
@@ -157,6 +157,46 @@ describe("SpamAutoBlocker", () => {
     stub.uninstall();
 
     expect(stub.calls.filter((call) => call.url.includes("/blocks/create.json"))).toHaveLength(1);
+  });
+
+  test("AB-07b a reply already marked scanned is skipped even when it matches spam", async () => {
+    enableAutoBlock();
+    const reply = spamReply();
+    reply.dataset.xbSpamScanned = "true";
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+
+    bot = new SpamAutoBlocker();
+    bot.scan();
+    await settle();
+    stub.uninstall();
+
+    expect(stub.calls).toHaveLength(0);
+    expect(reply.dataset.xbBlocked).toBeUndefined();
+  });
+
+  test("AB-11b destroy during the pacing wait stops the pass before the next reply", async () => {
+    enableAutoBlock();
+    const first = spamReply("bitcoin");
+    const [second] = populateTweetPage(["ethereum"]);
+    if (!second) throw new Error("expected a second reply article");
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const timers = installManualTimers();
+
+    try {
+      bot = new SpamAutoBlocker();
+      bot.scan();
+      await settleMicrotasks(30);
+      expect(first.dataset.xbBlocked).toBe("true");
+
+      bot.destroy();
+      timers.flush();
+      await settleMicrotasks(30);
+
+      expect(second.dataset.xbBlocked).toBeUndefined();
+    } finally {
+      timers.uninstall();
+      stub.uninstall();
+    }
   });
 
   test("AB-08 turning the setting on after an initial off scan still catches replies already on the page", async () => {
@@ -317,6 +357,184 @@ describe("SpamAutoBlocker", () => {
     stub.uninstall();
 
     expect(reply.dataset.xbBlocked).toBe("true");
+  });
+});
+
+type SettingsChangeListener = (
+  changes: Record<string, { newValue?: unknown }>,
+  areaName: string,
+) => void;
+
+function installFakeOnChanged(): {
+  listeners: SettingsChangeListener[];
+  fire: (changes: Record<string, { newValue?: unknown }>, areaName: string) => void;
+  uninstall: () => void;
+} {
+  const listeners: SettingsChangeListener[] = [];
+  Object.defineProperty(chrome.storage, "onChanged", {
+    configurable: true,
+    value: {
+      addListener: (listener: SettingsChangeListener) => {
+        listeners.push(listener);
+      },
+      removeListener: (listener: SettingsChangeListener) => {
+        const index = listeners.indexOf(listener);
+        if (index !== -1) listeners.splice(index, 1);
+      },
+    },
+  });
+  return {
+    listeners,
+    fire: (changes, areaName) => {
+      for (const listener of listeners) listener(changes, areaName);
+    },
+    uninstall: () => {
+      Reflect.deleteProperty(chrome.storage, "onChanged");
+    },
+  };
+}
+
+describe("SpamAutoBlocker settings subscription", () => {
+  let bot: SpamAutoBlocker | null = null;
+  let onChanged: ReturnType<typeof installFakeOnChanged> | null = null;
+
+  afterEach(() => {
+    bot?.destroy();
+    bot = null;
+    onChanged?.uninstall();
+    onChanged = null;
+  });
+
+  test("AB-30 with the setting off, DOM mutations cause no further storage reads", async () => {
+    bot = new SpamAutoBlocker();
+    bot.mount();
+    await settle();
+    const readsAfterMount = storageFake.getCalls.length;
+
+    document.body.appendChild(document.createElement("div"));
+    await settle();
+
+    expect(storageFake.getCalls).toHaveLength(readsAfterMount);
+  });
+
+  test("AB-31 with the setting off, mount attaches no observer", async () => {
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    bot = new SpamAutoBlocker();
+    bot.mount();
+    await settle();
+
+    enableAutoBlock();
+    const reply = spamReply();
+    await settle();
+    stub.uninstall();
+
+    expect(stub.calls).toHaveLength(0);
+    expect(reply.dataset.xbBlocked).toBeUndefined();
+  });
+
+  test("AB-32 a settings change to on scans the replies already on the page and blocks spam", async () => {
+    onChanged = installFakeOnChanged();
+    const reply = spamReply();
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    bot = new SpamAutoBlocker();
+    bot.mount();
+    await settle();
+    expect(reply.dataset.xbBlocked).toBeUndefined();
+
+    onChanged.fire({ settings: { newValue: { autoBlockSpam: true } } }, "local");
+    await settle();
+    stub.uninstall();
+
+    expect(reply.dataset.xbBlocked).toBe("true");
+  });
+
+  test("AB-33 a settings change back to off stops further scans", async () => {
+    onChanged = installFakeOnChanged();
+    enableAutoBlock();
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    bot = new SpamAutoBlocker();
+    bot.mount();
+    await settle();
+
+    onChanged.fire({ settings: { newValue: { autoBlockSpam: false } } }, "local");
+    const reply = spamReply();
+    await settle();
+    stub.uninstall();
+
+    expect(stub.calls).toHaveLength(0);
+    expect(reply.dataset.xbBlocked).toBeUndefined();
+  });
+
+  test("AB-34 destroy removes the storage listener", () => {
+    onChanged = installFakeOnChanged();
+    bot = new SpamAutoBlocker();
+    bot.mount();
+    expect(onChanged.listeners).toHaveLength(1);
+
+    bot.destroy();
+
+    expect(onChanged.listeners).toHaveLength(0);
+  });
+
+  test("AB-35 a sync-area change or a change without a settings key is ignored", async () => {
+    onChanged = installFakeOnChanged();
+    const reply = spamReply();
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    bot = new SpamAutoBlocker();
+    bot.mount();
+    await settle();
+
+    onChanged.fire({ settings: { newValue: { autoBlockSpam: true } } }, "sync");
+    onChanged.fire({ whitelist: { newValue: ["x"] } }, "local");
+    await settle();
+    stub.uninstall();
+
+    expect(stub.calls).toHaveLength(0);
+    expect(reply.dataset.xbBlocked).toBeUndefined();
+  });
+
+  test("AB-36 scan after destroy does nothing", async () => {
+    enableAutoBlock();
+    const reply = spamReply();
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    bot = new SpamAutoBlocker();
+    bot.destroy();
+
+    bot.scan();
+    await settle();
+    stub.uninstall();
+
+    expect(stub.calls).toHaveLength(0);
+    expect(reply.dataset.xbBlocked).toBeUndefined();
+  });
+
+  test("AB-37 a reply added during a running scan is blocked by the queued pass", async () => {
+    enableAutoBlock();
+    const first = spamReply("bitcoin");
+    const stub = installFetchStub(() => ({ ok: true, status: 200 }));
+    const timers = installManualTimers();
+
+    try {
+      bot = new SpamAutoBlocker();
+      bot.mount();
+      await settleMicrotasks(30);
+      expect(first.dataset.xbBlocked).toBe("true");
+      expect(timers.pendingDelays()).toContain(250);
+
+      const [second] = populateTweetPage(["ethereum"]);
+      await settleMicrotasks(30);
+      expect(second?.dataset.xbBlocked).toBeUndefined();
+
+      timers.flush();
+      await settleMicrotasks(60);
+      timers.flush();
+      await settleMicrotasks(60);
+
+      expect(second?.dataset.xbBlocked).toBe("true");
+    } finally {
+      timers.uninstall();
+      stub.uninstall();
+    }
   });
 });
 

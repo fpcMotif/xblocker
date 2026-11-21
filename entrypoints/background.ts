@@ -11,17 +11,17 @@ import {
   createBackgroundSyncScheduler,
   isSyncedOutboxKey,
   readCloudBackupEnabled,
+  runBackgroundCloudSync,
   PERIODIC_SYNC_ALARM,
   PERIODIC_SYNC_MINUTES,
 } from "../packages/sync/background-sync";
 import { isOpenOptionsMessage } from "./lib/messaging";
-import { runAutoCloudSyncAll } from "../packages/sync/sync-engine";
 
 export function startBackgroundSync(): void {
   const scheduler = createBackgroundSyncScheduler({
     isEnabled: readCloudBackupEnabled,
     // One debounce/alarm drives every synced collection (blocklist + whitelist).
-    sync: () => runAutoCloudSyncAll(true),
+    sync: () => runBackgroundCloudSync(),
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {

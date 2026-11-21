@@ -160,7 +160,7 @@ export async function recordAction(
         handle: outcome.screen_name,
         kind: "block",
         source,
-        ...(outcome.id_str ? { xUserId: outcome.id_str } : {}),
+        ...(outcome.id_str ? { xUserId: outcome.id_str } : undefined),
       });
     } else {
       await blockedStore.record({ handle: username, kind: "mute", source });
@@ -209,8 +209,7 @@ function accountRetryDelayMs(attempt: number, rateLimited: boolean, random: () =
 }
 
 type AccountLifecycleResult =
-  | { confirmed: true; response: Response | undefined }
-  | { confirmed: false };
+  { confirmed: true; response: Response | undefined } | { confirmed: false };
 
 /**
  * One account's bulk lifecycle: act, then confirm against X's own relationship state,

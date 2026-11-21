@@ -137,10 +137,10 @@ describe("renderPopup structure", () => {
   test("PU-05 mounts synchronously with no entrance animation (no rAF/timer scheduled)", async () => {
     let rafCalls = 0;
     const originalRaf = window.requestAnimationFrame;
-    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
       rafCalls += 1;
       return originalRaf.call(window, cb);
-    }) as typeof window.requestAnimationFrame;
+    };
     try {
       storageFake.data["blockedAccounts"] = {
         "1": seedAccount("1", { blockCount: 3, muteCount: 2 }),
@@ -344,7 +344,7 @@ describe("mountPopupIfPresent", () => {
     document.body.appendChild(app);
 
     mountPopupIfPresent(cloudTestOptions());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Bun.sleep(0);
 
     expect(app.querySelector('[data-xb-surface="popup"]')).toBeTruthy();
   });

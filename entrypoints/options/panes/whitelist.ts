@@ -66,6 +66,8 @@ export function exportWhitelist(list: string[], download?: DownloadFn): void {
   downloadJson("xblocker-whitelist.json", list, download);
 }
 
+const ROW_GRID = "minmax(0, 1fr) auto";
+
 type PaneHandle = { destroy(): void };
 
 export async function renderWhitelistPane(container: HTMLElement): Promise<PaneHandle> {
@@ -150,7 +152,13 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
 
   const tableArea = document.createElement("div");
 
-  wrapper.append(header, toolbar, addCaption, importResult, tableArea);
+  const footer = document.createElement("div");
+  footer.className = `${stylex.props(styles.footer).className} xb-opt-footer`;
+  const footerCount = document.createElement("span");
+  footerCount.className = "xb-opt-footer-count";
+  footer.appendChild(footerCount);
+
+  wrapper.append(header, toolbar, addCaption, importResult, tableArea, footer);
   container.replaceChildren(wrapper);
 
   function createRemoveControl(handle: string): HTMLButtonElement {
@@ -199,6 +207,13 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
   function drawTable(): void {
     const visible = visibleEntries();
 
+    footer.style.display = entries.length === 0 ? "none" : "";
+    const noun = entries.length === 1 ? "handle" : "handles";
+    footerCount.textContent =
+      visible.length === entries.length
+        ? `${entries.length} ${noun}`
+        : `${visible.length} of ${entries.length} ${noun}`;
+
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.className = `${stylex.props(shellStyles.empty).className} xb-opt-empty`;
@@ -216,7 +231,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
 
     const head = document.createElement("div");
     head.className = `${stylex.props(styles.tableHead).className} xb-opt-table-head`;
-    head.style.gridTemplateColumns = "1fr 40px";
+    head.style.gridTemplateColumns = ROW_GRID;
     const handleHead = document.createElement("span");
     handleHead.textContent = "Handle";
     head.append(handleHead, document.createElement("span"));
@@ -233,7 +248,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     for (const handle of visible) {
       const row = document.createElement("div");
       row.className = `${stylex.props(styles.tableRow).className} xb-opt-table-row`;
-      row.style.gridTemplateColumns = "1fr 40px";
+      row.style.gridTemplateColumns = ROW_GRID;
       row.tabIndex = 0;
 
       const handleCell = document.createElement("span");
@@ -247,7 +262,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     tableArea.replaceChildren(table);
   }
 
-  addForm.addEventListener("submit", async (event) => {
+  const submitAdd = async (event: SubmitEvent): Promise<void> => {
     event.preventDefault();
     const raw = addInput.value;
     const result: WhitelistAddResult = await addToWhitelist(raw);
@@ -258,6 +273,10 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
       addInput.removeAttribute("data-invalid");
       addCaption.hidden = true;
       drawTable();
+      addInput.focus();
+      tableArea
+        .querySelector(".xb-opt-table-row:last-child")
+        ?.scrollIntoView?.({ block: "nearest" });
       return;
     }
     addInput.dataset.invalid = "true";
@@ -269,6 +288,9 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
         : result === "exists"
           ? "That handle is already whitelisted."
           : "Something went wrong. Try again.";
+  };
+  addForm.addEventListener("submit", (event) => {
+    void submitAdd(event);
   });
 
   searchInput.addEventListener("input", () => {
@@ -288,7 +310,7 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     fileInput.click();
   });
 
-  fileInput.addEventListener("change", async () => {
+  const importFile = async (): Promise<void> => {
     const file = fileInput.files?.[0];
     if (!file) return;
     const raw = await file.text();
@@ -308,6 +330,9 @@ export async function renderWhitelistPane(container: HTMLElement): Promise<PaneH
     importResult.textContent = `Imported ${outcome.added}, skipped ${outcome.skippedDuplicates} duplicates.`;
     entries = await getWhitelist();
     drawTable();
+  };
+  fileInput.addEventListener("change", () => {
+    void importFile();
   });
 
   drawTable();

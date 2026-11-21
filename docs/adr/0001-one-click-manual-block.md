@@ -14,7 +14,7 @@ account the user fell back to X's native ••• menu → Block, which shows a
 sheet ("Block @user?") — extra clicks every time. We want the no-confirmation, one-click
 "trick" extended to individual ("manual") blocking too, for every kind of block.
 
-CONTEXT.md already names the intended surface — the **Cursor Console**: a per-reply
+GLOSSARY.md already names the intended surface — the **Cursor Console**: a per-reply
 control that targets the hovered reply's author (block / mute / whitelist that one user).
 
 ## Techniques considered

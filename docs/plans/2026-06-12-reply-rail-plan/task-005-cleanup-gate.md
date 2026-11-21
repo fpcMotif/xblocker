@@ -45,7 +45,7 @@ Scenario: The quality gate is fully green
 ### Step 1: Delete and scrub
 - Remove the four files and the two legacy code blocks;
   `rg -i "cursorconsole|cursor-console|computeConsolePosition|consoleGraceMs|getDock\b|reply-action-bar"` across source and tests must return nothing
-- Check `README.md` / `CONTEXT.md` for console/dock surface descriptions; update only
+- Check `README.md` / `GLOSSARY.md` for console/dock surface descriptions; update only
   sentences that describe the deleted surfaces (concurrent sessions edit these files —
   keep the diff minimal and stage explicitly)
 - Re-check coverage attribution in `misc-coverage.test.ts`: with the old suites gone,

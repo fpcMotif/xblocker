@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { BlockAction, BlockedAccount } from "../../packages/storage/blocked-merge.ts";
+import type { OutboxItem } from "../../packages/storage/blocked-store.ts";
 import {
   BLOCKED_LOG_SEARCH_DEBOUNCE_MS,
   computeSyncStatus,
@@ -33,6 +34,16 @@ function mkAccount(
 
 function mkAction(partial: Partial<BlockAction> & Pick<BlockAction, "kind">): BlockAction {
   return { actionId: `a-${Math.random()}`, at: 0, source: "reply-bar", ...partial };
+}
+
+/** A queued outbox item for one account, in the shape the store writes. */
+function queuedFor(accountKey: string): OutboxItem {
+  return {
+    accountKey,
+    handle: `user${accountKey}`,
+    idUnknown: true,
+    action: mkAction({ kind: "block" }),
+  };
 }
 
 describe("primaryActionKind", () => {
@@ -191,7 +202,7 @@ describe("Blocked log pane", () => {
 
   test("OBL-10 sync status reflects the outbox and the cloud-backup flag", async () => {
     seedAccounts(2);
-    storageFake.data["blockedOutbox"] = [{ accountKey: "0" }];
+    storageFake.data["blockedOutbox"] = [queuedFor("0")];
     storageFake.data["cloudBackup"] = true;
     await renderBlockedLogPane(document.body, { getViewportHeight: () => VIEWPORT_HEIGHT });
 
@@ -208,7 +219,7 @@ describe("Blocked log pane", () => {
     const search = document.querySelector<HTMLInputElement>('[aria-label="Search blocked log"]')!;
     search.value = "user_1";
     search.dispatchEvent(new Event("input", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, BLOCKED_LOG_SEARCH_DEBOUNCE_MS + 10));
+    await Bun.sleep(BLOCKED_LOG_SEARCH_DEBOUNCE_MS + 10);
 
     expect(rowsOnScreen()).toHaveLength(1);
     expect(rowsOnScreen()[0]?.textContent).toContain("user_1");
@@ -217,7 +228,7 @@ describe("Blocked log pane", () => {
   test("OBL-12 action chips filter to Block/Mute, and sync chips filter by sync status", async () => {
     seedAccounts(2, (i) => (i === 0 ? { blockCount: 0, muteCount: 1 } : { blockCount: 1 }));
     storageFake.data["cloudBackup"] = true;
-    storageFake.data["blockedOutbox"] = [{ accountKey: "0" }];
+    storageFake.data["blockedOutbox"] = [queuedFor("0")];
     await renderBlockedLogPane(document.body, { getViewportHeight: () => VIEWPORT_HEIGHT });
 
     function chip(group: string, label: string): HTMLButtonElement {
@@ -299,7 +310,7 @@ describe("Blocked log pane", () => {
     const search = document.querySelector<HTMLInputElement>('[aria-label="Search blocked log"]')!;
     search.value = "nobody-matches-this";
     search.dispatchEvent(new Event("input", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, BLOCKED_LOG_SEARCH_DEBOUNCE_MS + 10));
+    await Bun.sleep(BLOCKED_LOG_SEARCH_DEBOUNCE_MS + 10);
 
     expect(document.body.textContent).toContain("No accounts match these filters.");
     expect(document.body.textContent).toContain("Try a different search or filter.");
@@ -311,10 +322,10 @@ describe("Blocked log pane", () => {
 
     const originalCreate = URL.createObjectURL.bind(URL);
     let capturedBlob: Blob | undefined;
-    URL.createObjectURL = ((blob: Blob) => {
+    URL.createObjectURL = (blob: Blob) => {
       capturedBlob = blob;
       return originalCreate(blob);
-    }) as typeof URL.createObjectURL;
+    };
     try {
       const exportButton = Array.from(document.querySelectorAll("button")).find(
         (btn) => btn.textContent === "Export JSON",

@@ -459,6 +459,31 @@ describe("rail batch actions", () => {
     ).toBe(true);
   });
 
+  test("RA-21 a rail remounted mid-batch reports the busy page instead of a false success", async () => {
+    // An SPA navigation to another thread destroys this rail and mounts a new one while
+    // the shared batch runner keeps going. The new rail's sibling button was never
+    // disabled, so a click reached the runner's re-entry guard, got null back, and
+    // painted a success check for a batch that never ran.
+    populateTweetPage(["alice", "bob"]);
+    fetchStub = installFetchStub(() => ({ ok: true, status: 200 }));
+    getRailButton("Block all replies").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settleMicrotasks(30);
+
+    rail!.destroy();
+    await mountRail();
+    const muteButton = getRailButton("Mute all replies");
+    muteButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settleMicrotasks(30);
+
+    expect(muteButton.dataset["state"]).toBe("error");
+    expect(queryToast()?.textContent).toContain("already running");
+
+    await driveBatch(manual!);
+    expect(fetchStub.calls.some((call) => call.url.includes("/mutes/users/create.json"))).toBe(
+      false,
+    );
+  });
+
   test("RA-20 the default isBatchRunning pins the rail on the real actions-module flag, not an injected fake", async () => {
     // mountRail() builds this instance via `new ReplyRail()` with no `isBatchRunning`
     // override, so this exercises rail.ts's actual `options.isBatchRunning ?? isBatchRunning`
@@ -576,6 +601,34 @@ describe("drag persistence and stored positions", () => {
     handle.dispatchEvent(pointerEvent("pointerup", 40, 100));
     expect(storageFake.data["dockPosition"]).toEqual({ x: 40, y: 100 });
     expect(storageFake.setCalls).toHaveLength(1);
+  });
+
+  test("RA-12b a second pointerdown mid-drag keeps the original grab offset", async () => {
+    await mountRail();
+    const handle = getDragHandle();
+    const root = getRailRoot();
+
+    handle.dispatchEvent(pointerEvent("pointerdown", 0, 0));
+    handle.dispatchEvent(pointerEvent("pointerdown", 30, 30));
+    handle.dispatchEvent(pointerEvent("pointermove", 40, 100));
+
+    expect(root.style.left).toBe("40px");
+    expect(root.style.top).toBe("100px");
+  });
+
+  test("RA-12c pointer moves and releases without a grab neither move nor persist the rail", async () => {
+    await mountRail();
+    const handle = getDragHandle();
+    const root = getRailRoot();
+    const leftBefore = root.style.left;
+    const topBefore = root.style.top;
+
+    handle.dispatchEvent(pointerEvent("pointermove", 40, 100));
+    handle.dispatchEvent(pointerEvent("pointerup", 40, 100));
+
+    expect(root.style.left).toBe(leftBefore);
+    expect(root.style.top).toBe(topBefore);
+    expect(storageFake.setCalls).toHaveLength(0);
   });
 
   test("RA-13 a stored off-screen position is clamped back into the viewport on mount", async () => {
